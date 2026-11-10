@@ -1,0 +1,24 @@
+REMARKS=Hyper
+STATUS=Traffic: 1.5 GB / 100 GB | Expires: 2027-11-09 12:00:00 +0800
+anytls://anytls-secret@jp9.example.com:8443/?sni=cdn.example.com&alpn=h2,http/1.1#AnyTLS
+vless://b831381d-6324-4d53-ad4f-8cda48b30811@jp1.example.com:443?encryption=none&security=reality&sni=www.apple.com&fp=chrome&pbk=jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0&sid=0123abcd&type=tcp&flow=xtls-rprx-vision#VLESS%20Reality
+vless://b831381d-6324-4d53-ad4f-8cda48b30811@ws.example.com:443?security=tls&type=ws&host=cdn.example.com&path=%2Fws%3Fed%3D2048&alpn=h2,http/1.1#VLESS%20WS
+vless://b831381d-6324-4d53-ad4f-8cda48b30811@grpc.example.com:443?security=tls&type=grpc&serviceName=svc&fp=firefox#VLESS%20gRPC
+vless://b831381d-6324-4d53-ad4f-8cda48b30811@up.example.com:443?security=tls&type=httpupgrade&host=up.example.com&path=%2Fup#VLESS%20HTTPUpgrade
+vless://b831381d-6324-4d53-ad4f-8cda48b30811@h2.example.com:443?security=tls&type=http&host=h2.example.com&path=%2Fh2#VLESS%20H2
+trojan://trojan-secret@sg2.example.com:443?sni=sg2.example.com&type=ws&host=cdn.example.com&path=%2Fws#Trojan%20WS
+trojan://trojan-secret@tg.example.com:443?type=grpc&serviceName=tgrpc&allowInsecure=1#Trojan%20gRPC
+vmess://eyJ2IjoiMiIsInBzIjoiVk1lc3MgV1MiLCJhZGQiOiJ2bS5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6ImI4MzEzODFkLTYzMjQtNGQ1My1hZDRmLThjZGE0OGIzMDgxMSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0Ijoid3MiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJjZG4uZXhhbXBsZS5jb20iLCJwYXRoIjoiL3ZtP2VkPTIwNDgiLCJ0bHMiOiJ0bHMiLCJzbmkiOiJ2bS5leGFtcGxlLmNvbSIsImZwIjoiY2hyb21lIn0=
+vmess://eyJ2IjoiMiIsInBzIjoiVk1lc3MgVENQIiwiYWRkIjoidm0yLmV4YW1wbGUuY29tIiwicG9ydCI6MTAwODYsImlkIjoiYjgzMTM4MWQtNjMyNC00ZDUzLWFkNGYtOGNkYTQ4YjMwODExIiwiYWlkIjowLCJuZXQiOiJ0Y3AiLCJ0eXBlIjoibm9uZSIsInRscyI6IiJ9
+ss://YWVzLTI1Ni1nY206c3Mtc2VjcmV0@ss.example.com:8388#SS
+ss://2022-blake3-aes-128-gcm:AAECAwQFBgcICQoLDA0ODw%3D%3D@ss22.example.com:443#SS2022
+ss://YWVzLTEyOC1nY206dGVzdA@obfs.example.com:8388/?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Dexample.com#SS%20obfs
+ss://YWVzLTEyOC1nY206dGVzdA@v2p.example.com:443/?plugin=v2ray-plugin%3Btls%3Bhost%3Dv2p.example.com#SS%20v2ray-plugin
+hysteria2://hy2-secret@203.0.113.7:8443/?sni=hk.example.com&obfs=salamander&obfs-password=ob#Hysteria2
+hysteria://h1.example.com:36712?protocol=udp&auth=secret&peer=h1.example.com&upmbps=50&downmbps=100&alpn=hysteria#Hysteria
+tuic://b831381d-6324-4d53-ad4f-8cda48b30811:tuic-secret@tuic.example.com:443?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni=tuic.example.com#TUIC
+wireguard://yAnz5TF%2BlXXJte14tji3zlMNq%2Bhd2rYUIgJBgB3fBmk%3D@wg.example.com:51820?publickey=xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg%3D&address=10.0.0.2/32,fd00::2/128&mtu=1280&reserved=1,2,3#WireGuard
+socks5://user:pass@socks.example.com:1080#SOCKS5
+https://user:pass@proxy.example.com:443#HTTPS%20proxy
+vless://b831381d-6324-4d53-ad4f-8cda48b30811@kcp.example.com:443?type=kcp#unsupported
+ssr://not-supported

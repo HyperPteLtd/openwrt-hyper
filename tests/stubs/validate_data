@@ -1,0 +1,11 @@
+#!/bin/sh
+# Test stub for OpenWrt's /sbin/validate_data <type> <value> (exit 0 = valid).
+v="$2"
+case "$1" in
+ip4addr) echo "$v" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' ;;
+ip6addr) echo "$v" | grep -Eq '^[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*$' ;;
+hostname) echo "$v" | grep -Eq '^[A-Za-z0-9_]([A-Za-z0-9_.-]*[A-Za-z0-9])?$' ;;
+host) echo "$v" | grep -Eq '^[A-Za-z0-9_:.[\]-]+$' ;;
+port) echo "$v" | grep -Eq '^[0-9]+$' && [ "$v" -ge 0 ] && [ "$v" -le 65535 ] ;;
+*) exit 1 ;;
+esac

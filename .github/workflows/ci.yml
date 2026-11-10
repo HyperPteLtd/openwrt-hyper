@@ -1,0 +1,256 @@
+name: CI
+
+# Build and test OpenWrt packages. Release on qualifying main commits or v* tags.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'openwrt-main' || format('ci-{0}', github.run_id) }}
+
+env:
+  UCODE_REF: master
+
+jobs:
+  test:
+    name: Tests (ucode, hyper-crypt, renders)
+    runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ steps.release-version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: ${{ github.ref == 'refs/heads/main' && '0' || '1' }}
+
+      - uses: actions/setup-node@v7
+        if: github.ref == 'refs/heads/main'
+        with:
+          node-version: 24
+
+      - name: Determine the next release from commit messages
+        id: release-version
+        if: github.ref == 'refs/heads/main'
+        run: |
+          npm --prefix scripts/release ci --ignore-scripts
+          tag="$(node scripts/release/version.mjs)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake libjson-c-dev pkg-config nftables
+
+      - name: Build ucode (host)
+        run: |
+          git clone --depth 1 --branch "$UCODE_REF" https://github.com/jow-/ucode.git /tmp/ucode
+          cmake -S /tmp/ucode -B /tmp/ucode/build -DCMAKE_BUILD_TYPE=Release \
+            -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DRTNL_SUPPORT=OFF \
+            -DNL80211_SUPPORT=OFF -DDEBUG_SUPPORT=OFF -DFFI_SUPPORT=OFF -DDIGEST_SUPPORT=OFF \
+            -DZLIB_SUPPORT=OFF -DSERIAL_SUPPORT=OFF
+          make -C /tmp/ucode/build -j"$(nproc)"
+
+      - name: ucode tests
+        run: UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/run.sh
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: hyper-crypt/go.mod
+
+      - name: hyper-crypt tests
+        working-directory: hyper-crypt
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+
+      # The generated config must load on the bundled core: the libbox release pinned
+      # in scripts/core.lock (its CLI archives are static, so they run on the runner).
+      - name: sing-box check against the bundled core
+        run: |
+          OUT_DIR=/tmp/core sh scripts/stage-binaries.sh x86_64
+          /tmp/core/sing-box version
+          PATH="/tmp/core:$PATH" UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/render_test.sh
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: test
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # <package arch>-<OpenWrt SDK>. Like passwall's releases, each entry gives ONE
+        # package for that CPU: the 24.10 SDK builds the 23.05-24.10 .ipk, the 25.12
+        # SDK the 25.12+ .apk. The package bundles the libbox core and hyper-crypt.
+        # SDK images: openwrt/sdk on Docker Hub; scripts/build-packages.sh does the same locally.
+        arch:
+          - x86_64-24.10.8
+          - aarch64_cortex-a53-24.10.8
+          - aarch64_generic-24.10.8
+          - arm_cortex-a7_neon-vfpv4-24.10.8
+          - mipsel_24kc-24.10.8
+          - x86_64-25.12.6
+          - aarch64_cortex-a53-25.12.6
+          - aarch64_generic-25.12.6
+          - arm_cortex-a7_neon-vfpv4-25.12.6
+          - mipsel_24kc-25.12.6
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set the package version for the release
+        env:
+          RELEASE_TAG: ${{ needs.test.outputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+        run: |
+          if [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${RELEASE_TAG#v}/" luci-app-hyper/Makefile
+          fi
+
+      - uses: actions/setup-node@v7
+        if: hashFiles('web/package.json') != ''
+        with:
+          node-version: 24
+
+      - name: Build web UI into the package
+        if: hashFiles('web/package.json') != ''
+        run: |
+          npm --prefix web ci
+          npm --prefix web run typecheck
+          npm --prefix web test
+          npm --prefix web run build
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: hyper-crypt/go.mod
+
+      - name: Bundle the core and hyper-crypt
+        run: sh scripts/stage-binaries.sh "${MATRIX_ARCH%-*}"
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+
+      - name: Build package
+        # Pinned: the action has no releases
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
+        env:
+          ARCH: ${{ matrix.arch }}
+          FEEDNAME: hyper
+          PACKAGES: luci-app-hyper
+          NO_REFRESH_CHECK: 1
+          V: s
+
+      - name: Collect
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: |
+          pkg_arch="${MATRIX_ARCH%-*}"
+          case "${MATRIX_ARCH##*-}" in 2[0-4].*) family="23.05-24.10" ;; *) family="25.12+" ;; esac
+          mkdir -p dist
+          for f in $(find bin/packages -path '*/hyper/*' \( -name 'luci-app-hyper*.ipk' -o -name 'luci-app-hyper*.apk' \)); do
+            name="$(basename "$f")"
+            case "$name" in
+              *.ipk) out="dist/${family}_${name}"
+                     tar -xzOf "$f" --wildcards '*data.tar.gz' | tar -tzf - | grep -q 'usr/libexec/hyper/bin/sing-box$' \
+                       || { echo "::error::$name does not contain the bundled core"; exit 1; } ;;
+              *.apk) out="dist/${family}_${name%.apk}-${pkg_arch}.apk"   # apk names carry no arch
+                     [ "$(stat -c %s "$f")" -gt 10000000 ] || { echo "::error::$name is too small to contain the bundled core"; exit 1; } ;;
+            esac
+            cp "$f" "$out"
+          done
+          ls -la dist
+          [ "$(ls dist | wc -l)" -eq 1 ] || { echo "::error::expected exactly one package"; exit 1; }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.arch }}
+          path: dist/*
+
+  # Install the x86_64 packages on the oldest and newest firmware of each family
+  # (rootfs from downloads.openwrt.org) and rerun the tests on that userland: the
+  # dependencies resolve, the bundled core runs, rpcd serves luci.hyper.
+  install-test:
+    name: Install on OpenWrt ${{ matrix.release }}
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - release: 23.05.6
+            packages: packages-x86_64-24.10.8
+          - release: 24.10.8
+            packages: packages-x86_64-24.10.8
+          - release: 25.12.6
+            packages: packages-x86_64-25.12.6
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.packages }}
+          path: pkg
+
+      - name: OpenWrt ${{ matrix.release }} rootfs
+        env:
+          RELEASE: ${{ matrix.release }}
+        run: |
+          curl -fsSL "https://downloads.openwrt.org/releases/$RELEASE/targets/x86/64/openwrt-$RELEASE-x86-64-rootfs.tar.gz" |
+            docker import - "openwrt-rootfs:$RELEASE"
+
+      - name: Install the package and run the tests
+        env:
+          RELEASE: ${{ matrix.release }}
+        run: sh tests/router-test.sh "openwrt-rootfs:$RELEASE" pkg/*
+
+  release:
+    name: GitHub Release
+    if: needs.test.outputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build, install-test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: openwrt-release-${{ needs.test.outputs.release_tag || github.ref_name }}
+    env:
+      RELEASE_TAG: ${{ needs.test.outputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the release tag
+        shell: bash
+        run: |
+          ref="refs/tags/$RELEASE_TAG"
+          tagged_commit="$(git ls-remote --tags origin "$ref" "$ref^{}" |
+            awk '$2 ~ /\^\{\}$/ { peeled=$1; next } { sha=$1 } END { print peeled ? peeled : sha }')"
+          if [[ -n "$tagged_commit" && "$tagged_commit" != "$(git rev-parse HEAD)" ]]; then
+            echo "::error::$RELEASE_TAG already points to a different commit"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: packages-*
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd artifacts
+          ls -la
+          sha256sum *.ipk *.apk > sha256sums
+          cat sha256sums
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ needs.test.outputs.release_tag != '' && github.sha || '' }}
+          files: |
+            artifacts/*.ipk
+            artifacts/*.apk
+            artifacts/sha256sums
+          generate_release_notes: true
+          fail_on_unmatched_files: true

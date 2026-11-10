@@ -1,0 +1,135 @@
+{
+	"hyper": {
+		"infra": {
+			".type": "hyper",
+			"common_port": "22,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418",
+			"mixed_port": "5330",
+			"redirect_port": "5331",
+			"tproxy_port": "5332",
+			"dns_port": "5333",
+			"clash_api_port": "5334",
+			"clash_api_secret": "0123456789abcdef0123456789abcdef0123456789abcdef",
+			"dns_redirect": "1",
+			"ntp_server": "nil",
+			"tun_name": "singtun0",
+			"tun_addr4": "172.19.0.1/30",
+			"tun_addr6": "fdfe:dcba:9876::1/126",
+			"tun_mtu": "9000",
+			"table_mark": "100",
+			"self_mark": "100",
+			"tproxy_mark": "101",
+			"tun_mark": "102"
+		},
+		"account": {
+			".type": "hyper",
+			"api_base": "https://api.example.com",
+			"device_id": "00000000-0000-4000-8000-000000000000"
+		},
+		"config": {
+			".type": "hyper",
+			"enabled": "1",
+			"main_node": "pp_tokyo",
+			"main_udp_node": "same",
+			"dns_server": "https://1.1.1.1/dns-query",
+			"china_dns_server": "223.5.5.5",
+			"routing_mode": "bypass_mainland_china",
+			"routing_port": "common",
+			"proxy_mode": "redirect_tproxy",
+			"ipv6_support": "0",
+			"log_level": "warn"
+		},
+		"control": {
+			".type": "hyper",
+			"lan_proxy_mode": "except_listed",
+			"lan_direct_mac_addrs": [
+				"00:d9:d1:8b:33:e2"
+			],
+			"proxy_router_self": "1",
+			"wan_proxy_ipv4_ips": [
+				"91.108.4.0/22"
+			]
+		},
+		"routing": {
+			".type": "hyper",
+			"default_outbound": "direct-out",
+			"default_outbound_dns": "default-dns"
+		},
+		"dns": {
+			".type": "hyper",
+			"dns_strategy": "prefer_ipv4",
+			"default_server": "local-dns"
+		},
+		"subscription": {
+			".type": "hyper",
+			"auto_update": "1"
+		},
+		"pp_tokyo": {
+			".type": "node",
+			"label": "日本 · 东京 01",
+			"type": "vless",
+			"address": "jp1.example.com",
+			"port": "443",
+			"uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+			"vless_flow": "xtls-rprx-vision",
+			"packet_encoding": "xudp",
+			"tls": "1",
+			"tls_sni": "www.apple.com",
+			"tls_insecure": "0",
+			"tls_utls": "chrome",
+			"tls_reality": "1",
+			"tls_reality_public_key": "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0",
+			"tls_reality_short_id": "0123abcd",
+			"grouphash": "ppanel",
+			"country": "JP"
+		},
+		"pp_hk": {
+			".type": "node",
+			"label": "中国香港 01",
+			"type": "hysteria2",
+			"address": "203.0.113.7",
+			"port": "8443",
+			"password": "hy2-secret",
+			"tls": "1",
+			"tls_sni": "hk.example.com",
+			"tls_insecure": "0",
+			"grouphash": "ppanel",
+			"country": "HK"
+		},
+		"pp_sg": {
+			".type": "node",
+			"label": "新加坡 02",
+			"type": "trojan",
+			"address": "sg2.example.com",
+			"port": "443",
+			"password": "trojan-secret",
+			"tls": "1",
+			"tls_sni": "sg2.example.com",
+			"tls_insecure": "0",
+			"transport": "ws",
+			"ws_path": "/ws",
+			"ws_host": "cdn.example.com",
+			"grouphash": "ppanel",
+			"country": "SG"
+		},
+		"pp_anytls": {
+			".type": "node",
+			"label": "日本 · 东京 AnyTLS",
+			"type": "anytls",
+			"address": "jp9.example.com",
+			"port": "8443",
+			"password": "anytls-secret",
+			"tls": "1",
+			"tls_sni": "cdn.example.com",
+			"tls_insecure": "1",
+			"tls_alpn": [
+				"h2",
+				"http/1.1"
+			],
+			"anytls_idle_session_check_interval": "30",
+			"anytls_idle_session_timeout": "30",
+			"anytls_min_idle_session": "5",
+			"grouphash": "ppanel",
+			"country": "JP"
+		}
+	}
+}

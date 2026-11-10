@@ -1,0 +1,90 @@
+
+config hyper 'infra'
+	option __warning 'DO NOT EDIT THIS SECTION, OR YOU ARE ON YOUR OWN!'
+	option common_port '22,53,80,143,443,465,587,853,873,993,995,5222,8080,8443,9418'
+	option mixed_port '5330'
+	option redirect_port '5331'
+	option tproxy_port '5332'
+	option dns_port '5333'
+	option clash_api_port '5334'
+	option clash_api_secret ''
+	option dns_redirect '1'
+	option ntp_server 'nil'
+	option udp_timeout ''
+	option tun_name 'singtun0'
+	option tun_addr4 '172.19.0.1/30'
+	option tun_addr6 'fdfe:dcba:9876::1/126'
+	option tun_mtu '9000'
+	option table_mark '100'
+	option self_mark '100'
+	option tproxy_mark '101'
+	option tun_mark '102'
+
+config hyper 'account'
+	# PPanel API base, e.g. https://api.example.com (empty = ask on first run)
+	option api_base ''
+	# Generated on first boot by /etc/uci-defaults/luci-hyper; sent as the device identifier
+	option device_id ''
+
+config hyper 'config'
+	option enabled '0'
+	option main_node 'nil'
+	option main_udp_node 'same'
+	# Same defaults as the Hyper app: encrypted DNS through the proxy, AliDNS for direct domains
+	option dns_server 'https://1.1.1.1/dns-query'
+	option china_dns_server '223.5.5.5'
+	option routing_mode 'bypass_mainland_china'
+	# 1 = DNS protection only: sing-box resolves DNS for dnsmasq, LAN traffic goes direct
+	option dns_only '0'
+	option routing_port 'common'
+	option proxy_mode 'redirect_tproxy'
+	option ipv6_support '0'
+	option github_token ''
+	option log_level 'warn'
+	option auto_reconnect '1'
+
+config hyper 'control'
+	# disabled = every LAN device; listed_only / except_listed use lan_proxy_* / lan_direct_* lists
+	option lan_proxy_mode 'disabled'
+	# 0 = the router's own traffic (opkg, NTP, ...) stays direct
+	option proxy_router_self '1'
+	list wan_proxy_ipv4_ips '91.105.192.0/23'
+	list wan_proxy_ipv4_ips '91.108.4.0/22'
+	list wan_proxy_ipv4_ips '91.108.8.0/22'
+	list wan_proxy_ipv4_ips '91.108.16.0/22'
+	list wan_proxy_ipv4_ips '91.108.12.0/22'
+	list wan_proxy_ipv4_ips '91.108.20.0/22'
+	list wan_proxy_ipv4_ips '91.108.56.0/22'
+	list wan_proxy_ipv4_ips '149.154.160.0/20'
+	list wan_proxy_ipv4_ips '185.76.151.0/24'
+	list wan_proxy_ipv4_ips '203.208.50.66/32'
+	list wan_proxy_ipv6_ips '2001:67c:4e8::/48'
+	list wan_proxy_ipv6_ips '2001:b28:f23c::/48'
+	list wan_proxy_ipv6_ips '2001:b28:f23d::/48'
+	list wan_proxy_ipv6_ips '2001:b28:f23f::/48'
+	list wan_proxy_ipv6_ips '2a0a:f280::/32'
+
+config hyper 'routing'
+	option default_outbound 'direct-out'
+	option default_outbound_dns 'default-dns'
+
+config hyper 'dns'
+	option dns_strategy 'prefer_ipv4'
+	option default_server 'local-dns'
+	option disable_cache '0'
+	option disable_cache_expire '0'
+
+config hyper 'subscription'
+	option auto_update '1'
+	option auto_update_time '4'
+	option update_via_proxy '0'
+	# Links without an explicit insecure flag skip certificate checks, like the Hyper app (AnyTLS nodes)
+	option allow_insecure '1'
+	option packet_encoding 'xudp'
+
+config hyper 'update'
+	option auto_check '1'
+	option repo 'HyperPteLtd/openwrt-hyper'
+
+config hyper 'rules'
+	# Server rule lists (GET <api_base>/api/subscribe/rules) the user switched off

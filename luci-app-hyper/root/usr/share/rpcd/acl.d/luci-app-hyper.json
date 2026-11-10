@@ -1,0 +1,74 @@
+{
+	"luci-app-hyper": {
+		"description": "Grant access to Hyper",
+		"read": {
+			"file": {
+				"/var/run/hyper/hyper.log": [
+					"read"
+				],
+				"/var/run/hyper/sing-box-c.log": [
+					"read"
+				],
+				"/etc/hyper/resources/direct_list.txt": [
+					"read"
+				],
+				"/etc/hyper/resources/proxy_list.txt": [
+					"read"
+				],
+				"/etc/hyper/rules/index.json": [
+					"read"
+				]
+			},
+			"ubus": {
+				"service": [
+					"list"
+				],
+				"luci.hyper": [
+					"status",
+					"nodes",
+					"traffic",
+					"lan_clients",
+					"logs",
+					"get_config",
+					"health_check",
+					"check_update",
+					"acllist_read",
+					"rules_list",
+					"checkin_status"
+				]
+			},
+			"uci": [
+				"hyper"
+			]
+		},
+		"write": {
+			"ubus": {
+				"luci.hyper": [
+					"set_enabled",
+					"restart",
+					"set_mode",
+					"select_node",
+					"latency",
+					"sync_subscription",
+					"login",
+					"register",
+					"logout",
+					"api",
+					"set_api_base",
+					"set_access_control",
+					"log_clean",
+					"diag",
+					"set_config",
+					"install_update",
+					"acllist_write",
+					"send_code",
+					"set_rule_enabled",
+					"checkin"
+				]
+			},
+			"uci": [
+				"hyper"
+			]
+		}
+	}
+}

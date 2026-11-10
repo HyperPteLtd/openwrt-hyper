@@ -1,0 +1,63 @@
+# ---- Local project notes ----
+/docs/
+
+# ---- Build outputs (CI builds them; never commit) ----
+# Frontend build: npm --prefix web run build writes it into the package
+luci-app-hyper/htdocs/luci-static/hyper/
+web/dist/
+# Local OpenWrt SDK builds (scripts/build-packages.sh) and the sing-box download cache
+/dist/
+# gh-action-sdk / an SDK run in the checkout
+/bin/
+/build_dir/
+/staging_dir/
+/feeds/
+/logs/
+# Packages and binaries
+*.ipk
+*.apk
+*.o
+*.a
+*.so
+# Programs bundled into the package (scripts/stage-binaries.sh): libbox core, hyper-crypt
+luci-app-hyper/root/usr/libexec/hyper/bin/
+
+# ---- Dependencies and tool caches ----
+node_modules/
+.vite/
+*.tsbuildinfo
+coverage/
+__pycache__/
+*.pyc
+
+# ---- Logs and temp files ----
+*.log
+npm-debug.log*
+*.tmp
+*.part
+*.orig
+*.rej
+
+# ---- Secrets: router sessions, tokens, local env ----
+.env
+.env.*
+!.env.example
+session
+*.pem
+
+# ---- Local tooling ----
+.claude/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ---- macOS / Windows ----
+.DS_Store
+._*
+.AppleDouble
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini

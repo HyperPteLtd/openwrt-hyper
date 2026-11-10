@@ -1,0 +1,5 @@
+[
+	{ "key": "cn-direct", "policy": "DIRECT", "enabled": true, "sort": 10, "has_domain": true, "has_ip": false, "geoip": ["cn"], "count": 2, "skipped": 0, "source": "inline" },
+	{ "key": "streaming", "policy": "PROXY", "enabled": true, "sort": 20, "has_domain": true, "has_ip": true, "geoip": [], "count": 3, "skipped": 0, "source": "url" },
+	{ "key": "off", "policy": "PROXY", "enabled": false, "sort": 30, "has_domain": true, "has_ip": false, "geoip": [], "count": 1, "skipped": 0, "source": "inline" }
+]

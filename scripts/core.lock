@@ -1,0 +1,7 @@
+# sing-box core bundled into luci-app-hyper: a HyperPteLtd/libbox release
+# (sing-box plus the loadbalance outbound group), downloaded as is, not compiled.
+# Bump: change LIBBOX_VERSION, copy the CLI archive lines of the release's
+# sha256sums into scripts/libbox.sha256, run the tests (tests/run.sh checks the
+# generated config with this core).
+LIBBOX_REPO=HyperPteLtd/libbox
+LIBBOX_VERSION=0.1.0

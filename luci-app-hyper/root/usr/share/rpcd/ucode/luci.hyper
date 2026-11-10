@@ -1,0 +1,872 @@
+#!/usr/bin/ucode
+/*
+ * SPDX-License-Identifier: GPL-2.0-only
+ *
+ * rpcd backend for the Hyper web UI (ubus object "luci.hyper").
+ *
+ * The browser only ever talks to this object through the LuCI session. PPanel
+ * credentials, the clash_api secret and the subscription token stay here.
+ *
+ * Copyright (C) 2026 Hyper Pte. Ltd.
+ * Parts kanged from luci.homeproxy, Copyright (C) 2023-2024 ImmortalWrt.org
+ */
+
+'use strict';
+
+import { lstat, readfile, writefile } from 'fs';
+import { connect } from 'ubus';
+import { cursor } from 'uci';
+
+import {
+	clearSession, executeCommand, httpRequest, isEmpty, matchWhole, readSession, shellQuote,
+	HP_DIR, RUN_DIR, SINGBOX_BIN, SYNC_STATE_FILE
+} from '/etc/hyper/scripts/hyper.uc';
+import {
+	config as ppanelConfig, isAllowedPath, isValidIdempotencyKey, login, register, request, EMAIL_CODE_TYPE_AUTH
+} from '/etc/hyper/scripts/ppanel.uc';
+import {
+	accountKey, datesFor, load as loadCheckin, record as recordCheckin, save as saveCheckin
+} from '/etc/hyper/scripts/checkin.uc';
+
+const CONF = 'hyper';
+const INIT = '/etc/init.d/hyper';
+const PKG = 'luci-app-hyper';
+
+/* ---------- helpers ---------- */
+
+function uciCursor() {
+	const uci = cursor();
+	uci.load(CONF);
+	return uci;
+}
+
+function readJSON(path) {
+	try {
+		return json(readfile(path) || 'null');
+	} catch (e) {
+		return null;
+	}
+}
+
+function serviceRunning() {
+	const ubus = connect();
+	const svc = ubus.call('service', 'list', { name: CONF })?.[CONF]?.instances?.['sing-box-c'];
+	return svc?.running ? svc : null;
+}
+
+function pidMemoryKB(pid) {
+	const status = readfile(`/proc/${int(pid)}/status`) || '';
+	const m = match(status, /VmRSS:\s+(\d+)\s+kB/);
+	return m ? int(m[1]) : null;
+}
+
+/* Seconds since the process started (procd does not report it) */
+function pidUptime(pid) {
+	const stat = readfile(`/proc/${int(pid)}/stat`) || '';
+	const fields = split(replace(stat, /^.*\) /, ''), ' ');
+	const start_ticks = int(fields[19]);
+	const sys_uptime = split(readfile('/proc/uptime') || '0', ' ')[0] * 1;
+	return (start_ticks > 0) ? int(sys_uptime - start_ticks / 100) : null;
+}
+
+function singboxVersion() {
+	const out = executeCommand(SINGBOX_BIN, 'version', '-n');
+	return (out.exitcode === 0) ? trim(out.stdout) : null;
+}
+
+function packageVersion() {
+	const ctl = readfile(`/usr/lib/opkg/info/${PKG}.control`);
+	if (ctl) {
+		const m = match(ctl, /Version:\s*(\S+)/);
+		if (m)
+			return m[1];
+	}
+	/* apk (OpenWrt 25.x) */
+	const out = executeCommand('/usr/bin/apk', 'list', '-I', PKG);
+	const m = match(out.stdout || '', regexp(`${PKG}-([^ ]+)`));
+	return m ? m[1] : null;
+}
+
+function clash(method, path, body) {
+	const uci = uciCursor();
+	const port = uci.get(CONF, 'infra', 'clash_api_port') || '5334';
+	const secret = uci.get(CONF, 'infra', 'clash_api_secret');
+	const res = httpRequest(method, `http://127.0.0.1:${port}${path}`, {
+		'Authorization': secret ? `Bearer ${secret}` : null,
+		'Content-Type': (body != null) ? 'application/json' : null
+	}, body, 8);
+
+	let data = null;
+	try {
+		data = json(res.body || 'null');
+	} catch (e) {
+		/* 204 etc. */
+	}
+	return { ok: res.status >= 200 && res.status < 300, status: res.status, data, error: res.error };
+}
+
+function serviceAction(action) {
+	return system(`${INIT} ${action} >/dev/null 2>&1`);
+}
+
+function nodeTag(name) {
+	return `cfg-${name}-out`;
+}
+
+function validNodeName(name) {
+	return matchWhole(name, /^[A-Za-z0-9_]+$/);
+}
+
+/* hostname, IPv4 or IPv6, nothing that a shell or a tool could read as an option */
+function validTarget(target) {
+	return matchWhole(target, /^[A-Za-z0-9][A-Za-z0-9.:-]*$/) && length(target) <= 253;
+}
+
+/* ---------- updates (GitHub Releases) ---------- */
+
+const UPDATE_DIR = '/tmp/hyper-update';
+const UPDATE_STATE_FILE = RUN_DIR + '/update.json';
+
+function proxyURL() {
+	if (!serviceRunning())
+		return null;
+	const uci = uciCursor();
+	return 'socks5h://127.0.0.1:' + int(uci.get(CONF, 'infra', 'mixed_port') || '5330');
+}
+
+/* GitHub is often unreachable directly from mainland networks: retry through sing-box */
+function download(url, headers) {
+	let res = httpRequest('GET', url, headers || { 'User-Agent': 'luci-app-hyper' }, null, 60);
+	if (res.status === 0) {
+		const proxy = proxyURL();
+		if (proxy)
+			res = httpRequest('GET', url, headers || { 'User-Agent': 'luci-app-hyper' }, null, 60, proxy);
+	}
+	return res;
+}
+
+function latestRelease() {
+	const uci = uciCursor();
+	const repo = uci.get(CONF, 'update', 'repo') || 'HyperPteLtd/openwrt-hyper';
+	if (!matchWhole(repo, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/))
+		return { ok: false, error: 'illegal repo' };
+
+	const token = uci.get(CONF, 'config', 'github_token');
+	const res = download(`https://api.github.com/repos/${repo}/releases/latest`, {
+		'Accept': 'application/vnd.github+json',
+		'User-Agent': 'luci-app-hyper',
+		'Authorization': token ? `Bearer ${token}` : null
+	});
+
+	let rel;
+	try {
+		rel = json(res.body || 'null');
+	} catch (e) {
+		rel = null;
+	}
+	if (res.status !== 200 || !rel?.tag_name)
+		return { ok: false, error: res.error || `HTTP ${res.status}` };
+
+	return { ok: true, version: replace(rel.tag_name, /^v/, ''), data: rel };
+}
+
+/*
+ * opkg firmware (OpenWrt 23.05-24.10) or apk firmware (25.12+), and this
+ * router's package arch. `family` is the release asset prefix for it.
+ */
+function packageManager() {
+	if (lstat('/usr/bin/apk') && lstat('/etc/apk')) {
+		const out = executeCommand('/usr/bin/apk', '--print-arch');
+		return { name: 'apk', family: '25.12+', ext: '.apk', arch: trim(out.stdout || '') };
+	}
+
+	/* the last line of `opkg print-architecture` is the most specific arch */
+	const out = executeCommand('/bin/opkg', 'print-architecture');
+	let arch = '';
+	for (let line in split(out.stdout || '', '\n')) {
+		const m = match(line, /^arch ([^ ]+) [0-9]+/);
+		if (m && m[1] !== 'all' && m[1] !== 'noarch')
+			arch = m[1];
+	}
+	return { name: 'opkg', family: '23.05-24.10', ext: '.ipk', arch };
+}
+
+/*
+ * Release assets (built by .github/workflows/ci.yml), one package per firmware
+ * family and CPU, like passwall's releases; it bundles the libbox core and hyper-crypt:
+ *   23.05-24.10_luci-app-hyper_<ver>_<arch>.ipk
+ *   25.12+_luci-app-hyper-<ver>-<arch>.apk
+ *   sha256sums
+ */
+function pickAssets(assets, pm) {
+	const packages = [];
+	let checksums = null;
+	const prefix = `${pm.family}_luci-app-hyper`;
+	const suffix = (pm.ext === '.ipk' ? '_' : '-') + pm.arch + pm.ext;
+
+	for (let a in assets) {
+		const name = a.name || '';
+		if (name === 'sha256sums')
+			checksums = a;
+		else if (pm.arch && substr(name, 0, length(prefix)) === prefix && substr(name, -length(suffix)) === suffix)
+			push(packages, a);
+	}
+
+	return { packages: slice(packages, 0, 1), checksums };
+}
+
+/* ---------- settings the UI may change (section.option -> validator) ---------- */
+
+const SETTINGS = {
+	'config.auto_reconnect': /^[01]$/,
+	'control.proxy_router_self': /^[01]$/,
+	'config.ipv6_support': /^[01]$/,
+	'config.log_level': /^(trace|debug|info|warn|error)$/,
+	'config.proxy_mode': /^(redirect_tproxy|redirect|redirect_tun|tun)$/,
+	'config.dns_server': /^[A-Za-z0-9.:\/\[\]_-]{1,255}$/,
+	'config.china_dns_server': /^[A-Za-z0-9.:\/\[\]_-]{1,255}$/,
+	'subscription.auto_update': /^[01]$/,
+	'subscription.auto_update_time': /^([0-9]|1[0-9]|2[0-3])$/,
+	'subscription.update_via_proxy': /^[01]$/,
+	'subscription.country': /^[A-Za-z]{0,3}$/,
+	'update.auto_check': /^[01]$/
+};
+
+/* UI mode -> routing_mode; "dns" keeps the smart DNS split but redirects no traffic (config.dns_only) */
+const MODES = {
+	smart: 'bypass_mainland_china',
+	global: 'global',
+	dns: 'bypass_mainland_china'
+};
+
+/* ---------- methods ---------- */
+
+const methods = {
+	/* Overview */
+	status: {
+		call: function() {
+			const uci = uciCursor();
+			const svc = serviceRunning();
+			const session = readSession();
+			const cfg = ppanelConfig();
+			const main_node = uci.get(CONF, 'config', 'main_node') || 'nil';
+			const routing_mode = uci.get(CONF, 'config', 'routing_mode') || 'bypass_mainland_china';
+			let mode = 'custom';
+			for (let k in MODES)
+				if (k !== 'dns' && MODES[k] === routing_mode)
+					mode = k;
+			if (uci.get(CONF, 'config', 'dns_only') === '1')
+				mode = 'dns';
+
+			return {
+				enabled: uci.get(CONF, 'config', 'enabled') === '1',
+				running: !!svc,
+				memory_kb: svc ? pidMemoryKB(svc.pid) : null,
+				uptime: svc ? pidUptime(svc.pid) : null,
+				main_node: (main_node !== 'nil') ? main_node : null,
+				main_node_label: (main_node !== 'nil') ? uci.get(CONF, main_node, 'label') : null,
+				mode,
+				signed_in: !!session?.jwt,
+				email: session?.email,
+				api_base: cfg.api_base,
+				sync: readJSON(SYNC_STATE_FILE),
+				/* watchdog: ok | degraded | failopen | recovering (failopen = LAN is direct because sing-box is down) */
+				health: readJSON(RUN_DIR + '/health.json'),
+				singbox_version: singboxVersion(),
+				version: packageVersion()
+			};
+		}
+	},
+
+	/* Server rule lists synced from <api_base>/api/subscribe/rules, with the user's on/off overrides */
+	rules_list: {
+		call: function() {
+			const uci = uciCursor();
+			const disabled = uci.get(CONF, 'rules', 'disabled') || [];
+			const index = readJSON(`${HP_DIR}/rules/index.json`) || [];
+			return {
+				rules: map((type(index) === 'array') ? index : [], (r) => ({
+					key: r.key, policy: r.policy, server_enabled: r.enabled, count: r.count,
+					source: r.source, stale: !!r.stale,
+					enabled: !!r.enabled && !(r.key in disabled)
+				})),
+				applies: (uci.get(CONF, 'config', 'routing_mode') || 'bypass_mainland_china') === 'bypass_mainland_china'
+			};
+		}
+	},
+
+	set_rule_enabled: {
+		args: { key: 'key', enabled: true },
+		call: function(req) {
+			const key = req.args?.key;
+			if (!matchWhole(key, /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/))
+				return { result: false, error: 'illegal key' };
+			const uci = uciCursor();
+			let disabled = filter(uci.get(CONF, 'rules', 'disabled') || [], (k) => k !== key);
+			if (!req.args?.enabled)
+				push(disabled, key);
+			if (!uci.get(CONF, 'rules'))
+				uci.set(CONF, 'rules', 'hyper');
+			if (length(disabled))
+				uci.set(CONF, 'rules', 'disabled', disabled);
+			else
+				uci.delete(CONF, 'rules', 'disabled');
+			uci.commit(CONF);
+			if (serviceRunning())
+				serviceAction('restart');
+			return { result: true };
+		}
+	},
+
+	/* Custom domain lists (smart mode): direct_list = always direct, proxy_list = always proxied */
+	acllist_read: {
+		args: { type: 'type' },
+		call: function(req) {
+			if (!(req.args?.type in ['direct_list', 'proxy_list']))
+				return { content: null, error: 'illegal type' };
+			return { content: readfile(`${HP_DIR}/resources/${req.args.type}.txt`) || '' };
+		}
+	},
+
+	acllist_write: {
+		args: { type: 'type', content: 'content' },
+		call: function(req) {
+			const kind = req.args?.type;
+			if (!(kind in ['direct_list', 'proxy_list']))
+				return { result: false, error: 'illegal type' };
+
+			/* one domain keyword per line; drop anything that is not a plausible domain fragment */
+			const lines = [];
+			for (let line in split(replace(req.args?.content || '', /\r\n?/g, '\n'), '\n')) {
+				line = trim(line);
+				if (line === '')
+					continue;
+				if (!matchWhole(line, /^[A-Za-z0-9._-]{1,253}$/))
+					return { result: false, error: `illegal entry: ${substr(line, 0, 64)}` };
+				push(lines, line);
+			}
+
+			system(`mkdir -p ${HP_DIR}/resources`);
+			writefile(`${HP_DIR}/resources/${kind}.txt`, length(lines) ? join('\n', uniq(lines)) + '\n' : '');
+			if (serviceRunning())
+				serviceAction('restart');
+			return { result: true, count: length(uniq(lines)) };
+		}
+	},
+
+	set_enabled: {
+		args: { enabled: true },
+		call: function(req) {
+			const on = !!req.args?.enabled;
+			const uci = uciCursor();
+			uci.set(CONF, 'config', 'enabled', on ? '1' : '0');
+			uci.commit(CONF);
+			const code = serviceAction(on ? 'restart' : 'stop');
+			return { result: code === 0, running: !!serviceRunning() };
+		}
+	},
+
+	restart: {
+		call: function() {
+			return { result: serviceAction('restart') === 0, running: !!serviceRunning() };
+		}
+	},
+
+	set_mode: {
+		args: { mode: 'mode' },
+		call: function(req) {
+			const routing_mode = MODES[req.args?.mode];
+			if (!routing_mode)
+				return { result: false, error: 'illegal mode' };
+
+			const uci = uciCursor();
+			uci.set(CONF, 'config', 'routing_mode', routing_mode);
+			uci.set(CONF, 'config', 'dns_only', (req.args.mode === 'dns') ? '1' : '0');
+			uci.commit(CONF);
+			if (serviceRunning())
+				serviceAction('restart');
+			return { result: true };
+		}
+	},
+
+	/* Nodes */
+	nodes: {
+		call: function() {
+			const uci = uciCursor();
+			const list = [];
+			uci.foreach(CONF, 'node', (s) => {
+				push(list, {
+					name: s['.name'],
+					label: s.label,
+					type: s.type,
+					country: s.country,
+					city: s.city,
+					transport: s.transport,
+					reality: s.tls_reality === '1'
+				});
+			});
+			return { nodes: list, main_node: uci.get(CONF, 'config', 'main_node') };
+		}
+	},
+
+	select_node: {
+		args: { node: 'node' },
+		call: function(req) {
+			const name = req.args?.node;
+			const uci = uciCursor();
+			if (!validNodeName(name) || uci.get(CONF, name) !== 'node')
+				return { result: false, error: 'unknown node' };
+
+			uci.set(CONF, 'config', 'main_node', name);
+			uci.commit(CONF);
+
+			/* Running: switch the selector live, no restart needed */
+			if (serviceRunning()) {
+				const res = clash('PUT', '/proxies/main-out', { name: nodeTag(name) });
+				if (!res.ok)
+					serviceAction('restart');
+			} else if (uci.get(CONF, 'config', 'enabled') === '1')
+				serviceAction('restart');
+
+			return { result: true };
+		}
+	},
+
+	latency: {
+		args: { nodes: [] },
+		call: function(req) {
+			if (!serviceRunning())
+				return { result: false, error: 'not running' };
+
+			const uci = uciCursor();
+			let names = req.args?.nodes;
+			if (type(names) !== 'array' || !length(names)) {
+				names = [];
+				uci.foreach(CONF, 'node', (s) => push(names, s['.name']));
+			}
+
+			const result = {};
+			for (let name in slice(names, 0, 64)) {
+				if (!validNodeName(name))
+					continue;
+				const res = clash('GET', `/proxies/${nodeTag(name)}/delay?url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204&timeout=3000`);
+				result[name] = res.ok ? res.data?.delay : null;
+			}
+			return { result: true, latency: result };
+		}
+	},
+
+	sync_subscription: {
+		call: function() {
+			const out = executeCommand(`${HP_DIR}/scripts/sync_subscription.uc`);
+			return { result: out.exitcode === 0, state: readJSON(SYNC_STATE_FILE) };
+		}
+	},
+
+	/* Traffic (clash_api) */
+	traffic: {
+		call: function() {
+			if (!serviceRunning())
+				return { running: false };
+
+			const res = clash('GET', '/connections');
+			if (!res.ok)
+				return { running: true, error: res.error || `HTTP ${res.status}` };
+
+			const per_source = {};
+			for (let c in res.data?.connections || []) {
+				const ip = c.metadata?.sourceIP;
+				if (!ip)
+					continue;
+				per_source[ip] = per_source[ip] || { upload: 0, download: 0, connections: 0 };
+				per_source[ip].upload += c.upload || 0;
+				per_source[ip].download += c.download || 0;
+				per_source[ip].connections++;
+			}
+
+			return {
+				running: true,
+				upload_total: res.data?.uploadTotal || 0,
+				download_total: res.data?.downloadTotal || 0,
+				memory: res.data?.memory,
+				per_source
+			};
+		}
+	},
+
+	/* Account (PPanel). Credentials go straight to PPanel and are not stored. */
+	/* Email verification code for login (the Hyper app's flow: code login, auto-registers) */
+	send_code: {
+		args: { email: 'email' },
+		call: function(req) {
+			const email = trim(req.args?.email || '');
+			if (!matchWhole(email, /^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$/))
+				return { result: false, error: 'illegal email' };
+			const res = request('POST', '/v1/common/send_code', { auth: false, body: { email, type: EMAIL_CODE_TYPE_AUTH } });
+			return { result: res.ok, code: res.code, msg: res.msg, error: res.error };
+		}
+	},
+
+	login: {
+		args: { email: 'email', password: 'password', code: 'code', cf_token: 'cf_token', invite: 'invite' },
+		call: function(req) {
+			const a = req.args || {};
+			if (isEmpty(a.email) || (isEmpty(a.password) && isEmpty(a.code)))
+				return { result: false, error: 'missing credentials' };
+			const res = login(a.email, a.password, a.code, a.cf_token, a.invite);
+			if (res.ok)
+				executeCommand(`${HP_DIR}/scripts/sync_subscription.uc`);
+			return { result: res.ok, code: res.code, msg: res.msg, error: res.error, sync: readJSON(SYNC_STATE_FILE) };
+		}
+	},
+
+	register: {
+		args: { email: 'email', password: 'password', code: 'code', invite: 'invite', cf_token: 'cf_token' },
+		call: function(req) {
+			const a = req.args || {};
+			if (isEmpty(a.email) || isEmpty(a.password))
+				return { result: false, error: 'missing credentials' };
+			const res = register(a.email, a.password, a.code, a.invite, a.cf_token);
+			return { result: res.ok, code: res.code, msg: res.msg, error: res.error };
+		}
+	},
+
+	logout: {
+		call: function() {
+			if (readSession()?.jwt)
+				request('POST', '/v1/public/user/logout');
+			clearSession();
+
+			const uci = uciCursor();
+			uci.set(CONF, 'config', 'enabled', '0');
+			uci.commit(CONF);
+			serviceAction('stop');
+			return { result: true };
+		}
+	},
+
+	/* Daily check-in. PPanel has no API for it, so the calendar lives on the router (see checkin.uc). */
+	checkin_status: {
+		call: function() {
+			const session = readSession();
+			const key = session?.jwt ? accountKey(session.email) : null;
+			if (!key)
+				return { result: false, error: 'not signed in' };
+			return { result: true, dates: datesFor(loadCheckin(), key) };
+		}
+	},
+
+	checkin: {
+		args: { date: 'date' },
+		call: function(req) {
+			const session = readSession();
+			const key = session?.jwt ? accountKey(session.email) : null;
+			const res = recordCheckin(loadCheckin(), key, req.args?.date, time());
+			if (res.error)
+				return { result: false, error: res.error };
+			if (res.added && !saveCheckin(res.store))
+				return { result: false, error: 'write failed' };
+			return { result: true, added: res.added, dates: res.dates };
+		}
+	},
+
+	/* Generic PPanel proxy for account / purchase pages; allowlisted paths only */
+	api: {
+		args: { method: 'GET', path: '/', query: {}, body: {}, idempotency_key: 'key' },
+		call: function(req) {
+			const method = uc(req.args?.method || 'GET');
+			const path = req.args?.path;
+			if (!(method in ['GET', 'POST', 'PUT', 'DELETE']))
+				return { ok: false, error: 'illegal method' };
+			if (!isAllowedPath(path))
+				return { ok: false, error: 'path not allowed' };
+
+			/* payment-v2 writes must carry an Idempotency-Key, so a retried click never pays twice */
+			const key = req.args?.idempotency_key;
+			if (method === 'POST' && match(path, /^\/v2\/orders\//) && !isValidIdempotencyKey(key))
+				return { ok: false, error: 'idempotency key required' };
+
+			const body = (method === 'GET') ? null : req.args?.body;
+			return request(method, path, { query: req.args?.query, body, idempotency_key: key });
+		}
+	},
+
+	set_api_base: {
+		args: { api_base: 'api_base' },
+		call: function(req) {
+			const base = trim(req.args?.api_base || '');
+			if (base !== '' && !matchWhole(base, /^https?:\/\/[A-Za-z0-9.:\[\]-]+(\/[A-Za-z0-9._~\/-]*)?$/))
+				return { result: false, error: 'illegal url' };
+
+			const uci = uciCursor();
+			if (base !== (uci.get(CONF, 'account', 'api_base') || '')) {
+				uci.set(CONF, 'account', 'api_base', base);
+				uci.commit(CONF);
+				clearSession();
+			}
+			return { result: true };
+		}
+	},
+
+	/* LAN devices and access control */
+	lan_clients: {
+		call: function() {
+			const clients = {};
+			for (let line in split(readfile('/tmp/dhcp.leases') || '', '\n')) {
+				const f = split(line, ' ');
+				if (length(f) >= 4)
+					clients[lc(f[1])] = { mac: lc(f[1]), ip: f[2], name: (f[3] !== '*') ? f[3] : null };
+			}
+
+			const neigh = executeCommand('/sbin/ip', '-4', 'neigh', 'show');
+			for (let line in split(neigh.stdout || '', '\n')) {
+				const m = match(line, /^(\S+) .*lladdr (\S+) (\S+)/);
+				if (m && !(m[3] in ['FAILED', 'INCOMPLETE'])) {
+					const mac = lc(m[2]);
+					clients[mac] = clients[mac] || { mac, ip: m[1], name: null };
+					clients[mac].online = true;
+				}
+			}
+
+			const uci = uciCursor();
+			return {
+				clients: values(clients),
+				lan_proxy_mode: uci.get(CONF, 'control', 'lan_proxy_mode') || 'disabled',
+				direct_macs: uci.get(CONF, 'control', 'lan_direct_mac_addrs') || []
+			};
+		}
+	},
+
+	set_access_control: {
+		args: { mode: 'all', direct_macs: [] },
+		call: function(req) {
+			const mode = req.args?.mode;
+			if (!(mode in ['all', 'pick']))
+				return { result: false, error: 'illegal mode' };
+
+			const macs = filter(req.args?.direct_macs || [], (m) => matchWhole(m, /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/));
+			const uci = uciCursor();
+			if (mode === 'all' || !length(macs)) {
+				uci.set(CONF, 'control', 'lan_proxy_mode', 'disabled');
+				uci.delete(CONF, 'control', 'lan_direct_mac_addrs');
+			} else {
+				uci.set(CONF, 'control', 'lan_proxy_mode', 'except_listed');
+				uci.set(CONF, 'control', 'lan_direct_mac_addrs', map(macs, (m) => lc(m)));
+			}
+			uci.commit(CONF);
+			if (serviceRunning())
+				serviceAction('restart');
+			return { result: true };
+		}
+	},
+
+	/* Logs and diagnostics */
+	logs: {
+		args: { type: 'type', lines: 200 },
+		call: function(req) {
+			const kind = req.args?.type;
+			if (!(kind in ['hyper', 'sing-box-c']))
+				return { error: 'illegal type' };
+			const n = min(max(int(req.args?.lines) || 200, 10), 1000);
+			const out = executeCommand('/usr/bin/tail', '-n', n, shellQuote(`${RUN_DIR}/${kind}.log`));
+			return { content: out.stdout || '' };
+		}
+	},
+
+	log_clean: {
+		args: { type: 'type' },
+		call: function(req) {
+			const kind = req.args?.type;
+			if (!(kind in ['hyper', 'sing-box-c']))
+				return { result: false, error: 'illegal type' };
+			if (lstat(`${RUN_DIR}/${kind}.log`))
+				system(`: > ${shellQuote(RUN_DIR + '/' + kind + '.log')}`);
+			return { result: true };
+		}
+	},
+
+	diag: {
+		args: { type: 'ping', target: 'target', via: 'proxy' },
+		call: function(req) {
+			const kind = req.args?.type, target = req.args?.target;
+			if (!validTarget(target))
+				return { result: false, error: 'illegal target' };
+
+			const q = shellQuote(target);
+			const uci = uciCursor();
+			const mixed = uci.get(CONF, 'infra', 'mixed_port') || '5330';
+			const proxy = (req.args?.via !== 'direct' && serviceRunning()) ? `-x socks5h://127.0.0.1:${int(mixed)}` : '';
+			let cmd;
+			switch (kind) {
+			case 'ping':
+				cmd = `/bin/ping -c 4 -W 2 ${q}`;
+				break;
+			case 'traceroute':
+				cmd = `/usr/bin/traceroute -w 2 -q 1 -m 15 ${q}`;
+				break;
+			case 'nslookup':
+				cmd = `/usr/bin/nslookup ${q} 127.0.0.1`;
+				break;
+			case 'http':
+				cmd = `/usr/bin/curl ${proxy} -o /dev/null -sS -m 10 -w 'HTTP %{http_code} | connect %{time_connect}s | tls %{time_appconnect}s | ttfb %{time_starttransfer}s\\n' https://${q}`;
+				break;
+			default:
+				return { result: false, error: 'illegal type' };
+			}
+
+			const out = executeCommand(cmd);
+			return { result: out.exitcode === 0, output: (out.stdout || '') + (out.stderr || '') };
+		}
+	},
+
+	health_check: {
+		call: function() {
+			const svc = serviceRunning();
+			const uci = uciCursor();
+			const mixed = int(uci.get(CONF, 'infra', 'mixed_port') || '5330');
+			const probe = (url, via_proxy) => {
+				const proxy_arg = via_proxy ? ('-x socks5h://127.0.0.1:' + mixed) : '';
+				const out = executeCommand('/usr/bin/curl', proxy_arg, '-o /dev/null -sS -m 6', "-w '%{http_code} %{time_total}'", shellQuote(url));
+				const m = match(out.stdout || '', /^([0-9]+) ([0-9.]+)/);
+				return { ok: !!(out.exitcode === 0 && m && int(m[1]) > 0 && int(m[1]) < 500), ms: m ? int(m[2] * 1000) : null };
+			};
+
+			return {
+				service: { ok: !!svc },
+				node: svc ? clash('GET', `/proxies/main-out/delay?url=https%3A%2F%2Fwww.gstatic.com%2Fgenerate_204&timeout=3000`).data : null,
+				dns: { ok: executeCommand('/usr/bin/nslookup', 'www.google.com', '127.0.0.1').exitcode === 0 },
+				direct: probe('https://www.baidu.com', false),
+				proxy: svc ? probe('https://www.google.com/generate_204', true) : { ok: false }
+			};
+		}
+	},
+
+	/* Settings */
+	get_config: {
+		call: function() {
+			const uci = uciCursor();
+			const values_ = {};
+			for (let key in SETTINGS) {
+				const p = split(key, '.');
+				values_[key] = uci.get(CONF, p[0], p[1]);
+			}
+			return { config: values_, api_base: ppanelConfig().api_base };
+		}
+	},
+
+	set_config: {
+		args: { values: {} },
+		call: function(req) {
+			const vals = req.args?.values;
+			if (type(vals) !== 'object')
+				return { result: false, error: 'illegal values' };
+
+			const uci = uciCursor();
+			for (let key in vals) {
+				const re = SETTINGS[key], v = `${vals[key]}`;
+				if (!re || !matchWhole(v, re))
+					return { result: false, error: `illegal value for ${key}` };
+			}
+			for (let key in vals) {
+				const p = split(key, '.');
+				uci.set(CONF, p[0], p[1], `${vals[key]}`);
+			}
+			uci.commit(CONF);
+			if (serviceRunning())
+				serviceAction('restart');
+			return { result: true };
+		}
+	},
+
+	/* Updates from GitHub Releases */
+	check_update: {
+		call: function() {
+			const rel = latestRelease();
+			if (!rel.ok)
+				return { result: false, error: rel.error };
+
+			const pm = packageManager();
+			return {
+				result: true,
+				current: packageVersion(),
+				latest: rel.version,
+				published_at: rel.data.published_at,
+				notes: substr(rel.data.body || '', 0, 4000),
+				url: rel.data.html_url,
+				installable: length(pickAssets(rel.data.assets || [], pm).packages) > 0,
+				package_manager: pm.name,
+				update_state: readJSON(UPDATE_STATE_FILE)
+			};
+		}
+	},
+
+	install_update: {
+		args: { force: false },
+		call: function(req) {
+			const rel = latestRelease();
+			if (!rel.ok)
+				return { result: false, error: rel.error };
+
+			const current = packageVersion();
+			if (!req.args?.force && current && current === rel.version)
+				return { result: false, error: 'up_to_date' };
+
+			const pm = packageManager();
+			const picked = pickAssets(rel.data.assets || [], pm);
+			if (!length(picked.packages))
+				return { result: false, error: `no ${pm.ext} package for ${pm.arch} in release ${rel.version}` };
+			if (!picked.checksums)
+				return { result: false, error: 'release has no sha256sums' };
+
+			/* Checksums come from the same release; this guards against corrupt or truncated downloads */
+			const sums_res = download(picked.checksums.browser_download_url);
+			if (sums_res.status !== 200)
+				return { result: false, error: `sha256sums: ${sums_res.error || 'HTTP ' + sums_res.status}` };
+			const sums = {};
+			for (let line in split(sums_res.body, '\n')) {
+				const m = match(trim(line), /^([0-9a-f]{64}) [ *]?(.+)$/);
+				if (m)
+					sums[m[2]] = m[1];
+			}
+
+			system(`rm -rf ${UPDATE_DIR}; mkdir -p ${UPDATE_DIR}`);
+			const files = [];
+			for (let a in picked.packages) {
+				if (!matchWhole(a.name, /^[A-Za-z0-9._+-]+$/))
+					return { result: false, error: `illegal asset name ${a.name}` };
+				if (!sums[a.name])
+					return { result: false, error: `no checksum for ${a.name}` };
+
+				const res = download(a.browser_download_url);
+				if (res.status !== 200)
+					return { result: false, error: `${a.name}: ${res.error || 'HTTP ' + res.status}` };
+
+				const path = `${UPDATE_DIR}/${a.name}`;
+				writefile(path, res.body);
+				const sum = executeCommand('/usr/bin/sha256sum', shellQuote(path));
+				if (substr(sum.stdout || '', 0, 64) !== sums[a.name]) {
+					system(`rm -rf ${UPDATE_DIR}`);
+					return { result: false, error: `checksum mismatch for ${a.name}` };
+				}
+				push(files, shellQuote(path));
+			}
+
+			/*
+			 * Install detached: the package replaces this very rpcd script, so the
+			 * call returns first and the UI polls check_update().update_state.
+			 */
+			writefile(UPDATE_STATE_FILE, sprintf('%J\n', { state: 'installing', version: rel.version, time: time() }));
+			const install = (pm.name === 'apk')
+				? `/usr/bin/apk add --allow-untrusted ${join(' ', files)}`
+				: `/bin/opkg install ${join(' ', files)}`;
+			system(sprintf("(sleep 1; if %s >%s 2>&1; then s=done; else s=failed; fi; " +
+				"printf '{\"state\":\"%%s\",\"version\":\"%s\",\"time\":%%s}\\n' \"$s\" \"$(date +%%s)\" >%s; " +
+				"rm -rf %s; /etc/init.d/rpcd reload) >/dev/null 2>&1 &",
+				install, `${RUN_DIR}/update.log`, rel.version, UPDATE_STATE_FILE, UPDATE_DIR));
+
+			return { result: true, started: true, version: rel.version };
+		}
+	}
+};
+
+return { 'luci.hyper': methods };

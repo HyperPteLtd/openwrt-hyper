@@ -1,0 +1,44 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+
+# Per-router secrets, generated once and kept across upgrades (/etc/config/hyper is a conffile)
+[ -n "$(uci -q get hyper.account.device_id)" ] || \
+	uci -q set hyper.account.device_id="$(cat /proc/sys/kernel/random/uuid)"
+[ -n "$(uci -q get hyper.infra.clash_api_secret)" ] || \
+	uci -q set hyper.infra.clash_api_secret="$(hexdump -n 24 -e '24/1 "%02x"' /dev/urandom)"
+# Releases moved from HyperPteLtd/luci-app-hyper (one package for all CPUs) to
+# HyperPteLtd/openwrt-hyper (one package per CPU and firmware family)
+[ "$(uci -q get hyper.update.repo)" != "HyperPteLtd/luci-app-hyper" ] || \
+	uci -q set hyper.update.repo="HyperPteLtd/openwrt-hyper"
+uci -q commit hyper
+
+# The session file holds the PPanel JWT and subscription token: root only
+[ ! -e /etc/hyper/session ] || chmod 600 /etc/hyper/session
+
+uci -q batch <<-EOT >"/dev/null"
+	delete firewall.hyper_pre
+
+	delete firewall.hyper_forward
+	set firewall.hyper_forward=include
+	set firewall.hyper_forward.type=nftables
+	set firewall.hyper_forward.path="/var/run/hyper/fw4_forward.nft"
+	set firewall.hyper_forward.position="chain-pre"
+	set firewall.hyper_forward.chain="forward"
+
+	delete firewall.hyper_input
+	set firewall.hyper_input=include
+	set firewall.hyper_input.type=nftables
+	set firewall.hyper_input.path="/var/run/hyper/fw4_input.nft"
+	set firewall.hyper_input.position="chain-pre"
+	set firewall.hyper_input.chain="input"
+
+	delete firewall.hyper_post
+	set firewall.hyper_post=include
+	set firewall.hyper_post.type=nftables
+	set firewall.hyper_post.path="/var/run/hyper/fw4_post.nft"
+	set firewall.hyper_post.position="table-post"
+	commit firewall
+EOT
+
+rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
+exit 0
