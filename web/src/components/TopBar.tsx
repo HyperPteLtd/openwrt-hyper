@@ -23,6 +23,11 @@ export function TopBar() {
           <span class="dot" />
           {label}
         </span>
+        {s?.update?.available && (
+          <a href="#/settings" class="pill" style={{ color: "var(--accent)" }}>
+            有新版本 {s.update.latest}
+          </a>
+        )}
         <span style={{ flexGrow: 1 }} />
         {s?.signed_in && s.email && (
           <a href="#/account" class="pill" style={{ minHeight: "36px", padding: "0 14px" }}>

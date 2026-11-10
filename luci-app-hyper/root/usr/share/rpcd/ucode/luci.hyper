@@ -13,12 +13,12 @@
 
 'use strict';
 
-import { lstat, readfile, writefile } from 'fs';
+import { lstat, mkdir, readfile, writefile } from 'fs';
 import { connect } from 'ubus';
 import { cursor } from 'uci';
 
 import {
-	clearSession, executeCommand, httpRequest, isEmpty, matchWhole, readSession, shellQuote,
+	clearSession, executeCommand, httpRequest, isEmpty, matchWhole, readSession, shellQuote, versionCompare,
 	HP_DIR, RUN_DIR, SINGBOX_BIN, SYNC_STATE_FILE
 } from '/etc/hyper/scripts/hyper.uc';
 import {
@@ -69,9 +69,26 @@ function pidUptime(pid) {
 	return (start_ticks > 0) ? int(sys_uptime - start_ticks / 100) : null;
 }
 
+/*
+ * The UI polls `status` every few seconds. The core and package versions only
+ * change when a package is installed, so they are computed once and kept until
+ * the file that changes with them does (rpcd keeps this script loaded).
+ */
+const cache = {};
+
+function cachedBy(key, file, compute) {
+	const st = lstat(file);
+	const stamp = st ? `${st.mtime}:${st.size}` : '';
+	if (cache[key]?.stamp !== stamp)
+		cache[key] = { stamp, value: compute() };
+	return cache[key].value;
+}
+
 function singboxVersion() {
-	const out = executeCommand(SINGBOX_BIN, 'version', '-n');
-	return (out.exitcode === 0) ? trim(out.stdout) : null;
+	return cachedBy('singbox', SINGBOX_BIN, () => {
+		const out = executeCommand(SINGBOX_BIN, 'version', '-n');
+		return (out.exitcode === 0) ? trim(out.stdout) : null;
+	});
 }
 
 function packageVersion() {
@@ -81,10 +98,12 @@ function packageVersion() {
 		if (m)
 			return m[1];
 	}
-	/* apk (OpenWrt 25.x) */
-	const out = executeCommand('/usr/bin/apk', 'list', '-I', PKG);
-	const m = match(out.stdout || '', regexp(`${PKG}-([^ ]+)`));
-	return m ? m[1] : null;
+	/* apk (OpenWrt 25.x): its database changes with every install */
+	return cachedBy('package', '/lib/apk/db/installed', () => {
+		const out = executeCommand('/usr/bin/apk', 'list', '-I', PKG);
+		const m = match(out.stdout || '', regexp(`${PKG}-([^ ]+)`));
+		return m ? m[1] : null;
+	});
 }
 
 function clash(method, path, body) {
@@ -126,6 +145,8 @@ function validTarget(target) {
 
 const UPDATE_DIR = '/tmp/hyper-update';
 const UPDATE_STATE_FILE = RUN_DIR + '/update.json';
+/* last check_update result: { time, latest } (the UI checks at most once a day when update.auto_check is on) */
+const UPDATE_CHECK_FILE = RUN_DIR + '/update_check.json';
 
 function proxyURL() {
 	if (!serviceRunning())
@@ -257,6 +278,8 @@ const methods = {
 					mode = k;
 			if (uci.get(CONF, 'config', 'dns_only') === '1')
 				mode = 'dns';
+			const version = packageVersion();
+			const last_check = readJSON(UPDATE_CHECK_FILE);
 
 			return {
 				enabled: uci.get(CONF, 'config', 'enabled') === '1',
@@ -273,7 +296,13 @@ const methods = {
 				/* watchdog: ok | degraded | failopen | recovering (failopen = LAN is direct because sing-box is down) */
 				health: readJSON(RUN_DIR + '/health.json'),
 				singbox_version: singboxVersion(),
-				version: packageVersion()
+				version,
+				update: {
+					auto_check: uci.get(CONF, 'update', 'auto_check') !== '0',
+					checked: last_check?.time ?? null,
+					latest: last_check?.latest ?? null,
+					available: !!(last_check?.latest && versionCompare(last_check.latest, version) > 0)
+				}
 			};
 		}
 	},
@@ -465,7 +494,8 @@ const methods = {
 
 	/* Traffic (clash_api) */
 	traffic: {
-		call: function() {
+		args: { per_source: true },
+		call: function(req) {
 			if (!serviceRunning())
 				return { running: false };
 
@@ -473,8 +503,8 @@ const methods = {
 			if (!res.ok)
 				return { running: true, error: res.error || `HTTP ${res.status}` };
 
-			const per_source = {};
-			for (let c in res.data?.connections || []) {
+			const per_source = (req.args?.per_source === false) ? null : {};
+			for (let c in (per_source ? res.data?.connections : null) || []) {
 				const ip = c.metadata?.sourceIP;
 				if (!ip)
 					continue;
@@ -782,14 +812,20 @@ const methods = {
 	check_update: {
 		call: function() {
 			const rel = latestRelease();
+			/* remembered even when GitHub is unreachable, so the daily check is not retried on every page load */
+			mkdir(RUN_DIR);	/* exists once the service has run; not yet on a fresh install */
+			writefile(UPDATE_CHECK_FILE, sprintf('%J\n', { time: time(), latest: rel.ok ? rel.version : null }));
 			if (!rel.ok)
 				return { result: false, error: rel.error };
 
 			const pm = packageManager();
+			const current = packageVersion();
 			return {
 				result: true,
-				current: packageVersion(),
+				current,
 				latest: rel.version,
+				/* "0.2.0-r1" installed is the "v0.2.0" release: compare versions, not strings */
+				update_available: !current || versionCompare(rel.version, current) > 0,
 				published_at: rel.data.published_at,
 				notes: substr(rel.data.body || '', 0, 4000),
 				url: rel.data.html_url,
@@ -808,7 +844,7 @@ const methods = {
 				return { result: false, error: rel.error };
 
 			const current = packageVersion();
-			if (!req.args?.force && current && current === rel.version)
+			if (!req.args?.force && current && versionCompare(rel.version, current) <= 0)
 				return { result: false, error: 'up_to_date' };
 
 			const pm = packageManager();

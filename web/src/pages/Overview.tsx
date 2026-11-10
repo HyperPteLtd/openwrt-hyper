@@ -1,9 +1,14 @@
 import { useSignal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
+import { useRef } from "preact/hooks";
 import { app } from "../lib/app";
+import { usePoll } from "../lib/poll";
 import { formatAgo, formatBytes, formatRate, formatUptime } from "../lib/format";
 import { call } from "../lib/rpc";
 import type { Result, Traffic } from "../lib/types";
+
+/* traffic sample every 3 s, 20 bars = the last minute */
+const POLL_MS = 3000;
+const BARS = 20;
 
 const MODES = [
   { id: "smart", label: "智能分流", desc: "国内直连，其余按规则走代理" },
@@ -18,34 +23,35 @@ export function Overview() {
   const totals = useSignal<{ up: number; down: number } | null>(null);
   const bars = useSignal<number[]>([]);
 
-  /* Poll clash_api totals every 2 s and turn the deltas into a rate + sparkline */
-  useEffect(() => {
-    let last: { up: number; down: number; t: number } | null = null;
-    const poll = async () => {
-      if (!app.status?.running) {
-        rate.value = null;
-        return;
+  /*
+   * Poll clash_api totals every 3 s (only while the page is visible) and turn
+   * the deltas into a rate + sparkline. per_source: false skips the per-device
+   * sums the overview does not show.
+   */
+  const last = useRef<{ up: number; down: number; t: number } | null>(null);
+  usePoll(async (resumed) => {
+    if (resumed) last.current = null; /* a gap of minutes is not a rate */
+    if (!app.status?.running) {
+      rate.value = null;
+      return;
+    }
+    try {
+      const t = await call<Traffic>("traffic", { per_source: false });
+      if (!t.running || t.download_total == null || t.upload_total == null) return;
+      const now = Date.now();
+      const prev = last.current;
+      if (prev) {
+        const dt = (now - prev.t) / 1000;
+        const r = { up: Math.max(0, (t.upload_total - prev.up) / dt), down: Math.max(0, (t.download_total - prev.down) / dt) };
+        rate.value = r;
+        bars.value = [...bars.value, r.down].slice(-BARS);
       }
-      try {
-        const t = await call<Traffic>("traffic");
-        if (!t.running || t.download_total == null || t.upload_total == null) return;
-        const now = Date.now();
-        if (last) {
-          const dt = (now - last.t) / 1000;
-          const r = { up: Math.max(0, (t.upload_total - last.up) / dt), down: Math.max(0, (t.download_total - last.down) / dt) };
-          rate.value = r;
-          bars.value = [...bars.value, r.down].slice(-30);
-        }
-        last = { up: t.upload_total, down: t.download_total, t: now };
-        totals.value = { up: t.upload_total, down: t.download_total };
-      } catch {
-        /* keep the last value */
-      }
-    };
-    poll();
-    const id = setInterval(poll, 2000);
-    return () => clearInterval(id);
-  }, []);
+      last.current = { up: t.upload_total, down: t.download_total, t: now };
+      totals.value = { up: t.upload_total, down: t.download_total };
+    } catch {
+      /* keep the last value */
+    }
+  }, POLL_MS);
 
   const toggle = async () => {
     if (!app.status) return;
@@ -152,8 +158,8 @@ export function Overview() {
             <div class="stat"><b style={{ fontSize: "22px" }}>{formatRate(rate.value?.up)}</b><span>上传</span></div>
           </div>
           <div aria-hidden="true" style={{ display: "flex", alignItems: "flex-end", gap: "4px", height: "72px" }}>
-            {Array.from({ length: 30 }, (_, i) => {
-              const v = bars.value[i - (30 - bars.value.length)];
+            {Array.from({ length: BARS }, (_, i) => {
+              const v = bars.value[i - (BARS - bars.value.length)];
               const h = v == null ? 4 : Math.max(4, Math.round((v / peak) * 72));
               return <span key={i} style={{ flex: "1 1 0", minWidth: "3px", borderRadius: "3px", height: `${h}px`, background: v == null ? "#3a3a3d" : "var(--accent)" }} />;
             })}

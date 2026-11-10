@@ -39,9 +39,21 @@ const state: Status = {
     ...({ traffic_used: "42.6 GB", traffic_total: "不限", countries: ["JPN", "HKG", "SGP", "KOR", "USA", "DEU", "GBR"] } as object),
   },
   health: { state: "ok", failures: 0, time: now() },
-  singbox_version: "1.12.22",
-  version: "0.1.0",
+  singbox_version: "1.15.0-alpha.13",
+  version: "0.1.0-r1",
 };
+
+/* last check_update, like /var/run/hyper/update_check.json */
+let lastCheck: { time: number; latest: string | null } | null = null;
+const MOCK_LATEST = "0.2.0";
+
+/** Like versionCompare() in hyper.uc for plain x.y.z: ignores "v" and "-rN" */
+function newer(a: string, b: string): boolean {
+  const parts = (v: string) => v.replace(/^v/, "").replace(/-r\d+$/, "").split(".").map(Number);
+  const x = parts(a), y = parts(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  return false;
+}
 
 const config: Record<string, string> = {
   "config.auto_reconnect": "1",
@@ -184,11 +196,23 @@ const ppanel = (path: string, body: Record<string, unknown>, query: Record<strin
   }
 };
 
+/* calls per method (demo mode only), to check polling in a browser: window.hyperMockCalls */
+const calls: Record<string, number> = ((globalThis as { hyperMockCalls?: Record<string, number> }).hyperMockCalls = {});
+
 export async function mockCall(method: string, args: Record<string, unknown>): Promise<unknown> {
+  calls[method] = (calls[method] ?? 0) + 1;
   await delay(150);
   switch (method) {
     case "status":
-      return { ...state, health: updateState ? state.health : state.health };
+      return {
+        ...state,
+        update: {
+          auto_check: config["update.auto_check"] !== "0",
+          checked: lastCheck?.time ?? null,
+          latest: lastCheck?.latest ?? null,
+          available: !!lastCheck?.latest && newer(lastCheck.latest, state.version ?? ""),
+        },
+      };
     case "set_enabled":
       state.enabled = !!args.enabled;
       state.running = state.enabled;
@@ -278,19 +302,21 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
       if (args.api_base && !/^https?:\/\//.test(String(args.api_base))) return { result: false, error: "illegal url" };
       state.api_base = String(args.api_base);
       return { result: true };
-    case "check_update":
+    case "check_update": {
       await delay(500);
+      lastCheck = { time: now(), latest: MOCK_LATEST };
       return {
-        result: true, current: state.version, latest: updateState?.state === "done" ? state.version : "0.2.0",
+        result: true, current: state.version, latest: MOCK_LATEST, update_available: newer(MOCK_LATEST, state.version ?? ""),
         published_at: "2026-11-20T08:00:00Z", notes: "- 节点页支持按延迟排序\n- 修复 IPv6 设备偶尔不走代理",
         url: "https://github.com/HyperPteLtd/openwrt-hyper/releases/tag/v0.2.0", installable: true, package_manager: "opkg",
         update_state: updateState,
       };
+    }
     case "install_update":
       updateState = { state: "installing", version: "0.2.0", time: now() };
       setTimeout(() => {
         updateState = { state: "done", version: "0.2.0", time: now() };
-        state.version = "0.2.0";
+        state.version = "0.2.0-r1";
       }, 4000);
       return { result: true, started: true, version: "0.2.0" };
     case "logs":

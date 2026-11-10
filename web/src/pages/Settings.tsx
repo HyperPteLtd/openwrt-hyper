@@ -13,6 +13,8 @@ type Config = Record<string, string | null>;
 interface UpdateInfo extends Result {
   current?: string | null;
   latest?: string;
+  /** compared as versions by the backend: installed "0.2.0-r1" is release "v0.2.0" */
+  update_available?: boolean;
   published_at?: string;
   notes?: string;
   url?: string;
@@ -128,9 +130,15 @@ export function Settings() {
     busy.value = "";
   };
 
+  /* the daily check found a new version: load its notes and package right away */
+  const pending = !!app.status?.update?.available;
+  useEffect(() => {
+    if (pending && !update.value) checkUpdate();
+  }, [pending]);
+
   const s = app.status;
   const u = update.value;
-  const hasNew = !!(u?.result && u.latest && u.latest !== u.current);
+  const hasNew = !!(u?.result && u.update_available);
 
   return (
     <main class="page">
@@ -242,7 +250,7 @@ export function Settings() {
                 )}
               </div>
               {hasNew && u?.notes && <pre class="mono small" style={{ margin: 0, whiteSpace: "pre-wrap", color: "#c8c8cc", maxHeight: "160px", overflow: "auto" }}>{u.notes}</pre>}
-              <Row title="每天自动检查更新" desc="只提醒，不会自动安装">
+              <Row title="每天自动检查更新" desc="打开页面时每天最多检查一次，有新版本会在顶部提示，不会自动安装">
                 <Switch label="每天自动检查更新" checked={flag("update.auto_check")} onToggle={(on) => set("update.auto_check", on ? "1" : "0")} />
               </Row>
             </div>

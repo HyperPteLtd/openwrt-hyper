@@ -115,6 +115,54 @@ export function strToTime(str) {
 	return !isEmpty(str) ? (str + 's') : null;
 };
 
+function versionPart(x, y) {
+	const nx = match(x, /^[0-9]+$/), ny = match(y, /^[0-9]+$/);
+	if (nx && ny) {
+		x = int(x);
+		y = int(y);
+	} else if (nx || ny) {
+		return nx ? -1 : 1;	/* numeric identifiers sort before words (semver) */
+	}
+	return (x < y) ? -1 : (x > y) ? 1 : 0;
+}
+
+/*
+ * Compare package versions: -1, 0 or 1. A leading "v" (release tags) and
+ * OpenWrt's "-r<PKG_RELEASE>" suffix are ignored, so the installed "0.2.0-r1"
+ * equals the release tag "v0.2.0". A pre-release ("0.2.0-beta.1") sorts
+ * before its release; missing parts count as 0 ("1.2" equals "1.2.0").
+ */
+export function versionCompare(a, b) {
+	const parse = (v) => {
+		v = replace(replace(trim(`${v ?? ''}`), /^v/, ''), /-r[0-9]+$/, '');
+		const dash = index(v, '-');
+		return {
+			main: (v === '') ? [] : split((dash >= 0) ? substr(v, 0, dash) : v, '.'),
+			pre: (dash >= 0) ? split(substr(v, dash + 1), '.') : []
+		};
+	};
+	const x = parse(a), y = parse(b);
+
+	const n = (length(x.main) > length(y.main)) ? length(x.main) : length(y.main);
+	for (let i = 0; i < n; i++) {
+		const c = versionPart(x.main[i] ?? '0', y.main[i] ?? '0');
+		if (c)
+			return c;
+	}
+
+	if (!length(x.pre) || !length(y.pre))
+		return length(x.pre) ? -1 : length(y.pre) ? 1 : 0;
+	const m = (length(x.pre) > length(y.pre)) ? length(x.pre) : length(y.pre);
+	for (let i = 0; i < m; i++) {
+		if (x.pre[i] == null || y.pre[i] == null)
+			return (x.pre[i] == null) ? -1 : 1;
+		const c = versionPart(x.pre[i], y.pre[i]);
+		if (c)
+			return c;
+	}
+	return 0;
+};
+
 export function removeBlankAttrs(res) {
 	let content;
 

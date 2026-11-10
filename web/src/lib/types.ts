@@ -33,6 +33,8 @@ export interface Status {
   health: HealthState | null;
   singbox_version: string | null;
   version: string | null;
+  /** last daily update check (luci.hyper check_update) */
+  update?: { auto_check: boolean; checked: number | null; latest: string | null; available: boolean };
 }
 
 export interface NodeInfo {

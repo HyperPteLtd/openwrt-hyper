@@ -99,6 +99,43 @@ if ubus -t 10 wait_for luci.hyper && ubus -v list luci.hyper | grep -q '"checkin
 	echo "ok   rpcd serves luci.hyper ($(ubus -v list luci.hyper | grep -c '^[[:space:]]*"') methods)"
 	if res="$(ubus call luci.hyper checkin_status)"; then echo "ok   ubus call luci.hyper checkin_status: $(echo $res | head -c 120)"
 	else echo "FAIL ubus call luci.hyper checkin_status"; rc=1; fi
+
+	# The UI polls status every few seconds: it must start sing-box for the core
+	# version only once, and again only after the binary changes
+	mv "$BIN/sing-box" "$BIN/sing-box.real"
+	printf '#!/bin/sh\necho run >> /tmp/sing-box-runs\nexec %s/sing-box.real "$@"\n' "$BIN" > "$BIN/sing-box"
+	chmod +x "$BIN/sing-box"
+	for i in 1 2 3; do ubus call luci.hyper status >/dev/null; done
+	runs1=$(($(cat /tmp/sing-box-runs 2>/dev/null | wc -l)))
+	echo '# changed' >> "$BIN/sing-box"
+	ubus call luci.hyper status >/dev/null
+	runs2=$(($(cat /tmp/sing-box-runs 2>/dev/null | wc -l)))
+	mv "$BIN/sing-box.real" "$BIN/sing-box"
+	if [ "$runs1" = 1 ] && [ "$runs2" = 2 ]; then echo "ok   status starts sing-box once for its version (cached until the binary changes)"
+	else echo "FAIL status started sing-box $runs1 time(s) for 3 calls, $runs2 after the binary changed (want 1, 2)"; rc=1; fi
+
+	# check_update records when it ran, also on a fresh install (no /var/run/hyper yet)
+	# and when GitHub is unreachable, so the daily check does not repeat on every page load
+	rm -rf /var/run/hyper
+	ubus -t 60 call luci.hyper check_update >/dev/null 2>&1 || true
+	checked="$(ubus call luci.hyper status | jsonfilter -e '@.update.checked' || true)"
+	if [ -n "$checked" ]; then echo "ok   check_update records when it ran"
+	else echo "FAIL check_update did not record the check"; rc=1; fi
+
+	# Update hint from the last daily check: a newer release shows, the installed one does not
+	mkdir -p /var/run/hyper
+	installed="$(ubus call luci.hyper status | jsonfilter -e '@.version' || true)"
+	echo "{\"time\": $(date +%s), \"latest\": \"9.9.9\"}" > /var/run/hyper/update_check.json
+	newer="$(ubus call luci.hyper status | jsonfilter -e '@.update.available' || true)"
+	same=false
+	if [ -n "$installed" ]; then
+		# the release tag has no -r<PKG_RELEASE>: v0.1.0 is the installed 0.1.0-r1
+		echo "{\"time\": $(date +%s), \"latest\": \"${installed%-r*}\"}" > /var/run/hyper/update_check.json
+		same="$(ubus call luci.hyper status | jsonfilter -e '@.update.available' || true)"
+	fi
+	rm -f /var/run/hyper/update_check.json
+	if [ "$newer" = true ] && [ "$same" = false ]; then echo "ok   update hint: 9.9.9 is newer, ${installed:-(not installed)} is current"
+	else echo "FAIL update hint: newer=$newer, same version ($installed) available=$same"; rc=1; fi
 else
 	echo "FAIL rpcd does not serve luci.hyper"; rc=1
 fi

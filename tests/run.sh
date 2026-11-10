@@ -63,6 +63,7 @@ run "$HERE/ppanel_test.uc" || fail=1
 run "$HERE/rules_test.uc" || fail=1
 run "$HERE/checkin_test.uc" || fail=1
 run "$HERE/md5_test.uc" || fail=1
+run "$HERE/version_test.uc" || fail=1
 
 python3 "$HERE/echo_server.py" "$ECHO_PORT" &
 echo_pid=$!

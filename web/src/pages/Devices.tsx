@@ -1,5 +1,6 @@
 import { useSignal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
+import { usePoll } from "../lib/poll";
 import { Notice, PageTitle, Switch } from "../components/ui";
 import { app } from "../lib/app";
 import { formatBytes } from "../lib/format";
@@ -29,25 +30,29 @@ export function Devices() {
   const msg = useSignal("");
   const ok = useSignal("");
 
-  const tick = app.tick;
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await call<LanClients>("lan_clients");
-        clients.value = [...(r.clients || [])].sort((a, b) => (a.ip || "").localeCompare(b.ip || "", undefined, { numeric: true }));
-        /* only refresh the editable state when nothing is pending */
-        const key = JSON.stringify([r.lan_proxy_mode, [...(r.direct_macs || [])].sort()]);
-        if (!savedKey.value || savedKey.value === JSON.stringify([mode.value === "pick" ? "except_listed" : "disabled", [...direct.value].sort()])) {
-          mode.value = r.lan_proxy_mode === "except_listed" ? "pick" : "all";
-          direct.value = r.direct_macs || [];
-        }
-        savedKey.value = key;
-        const t = await call<Traffic>("traffic");
-        traffic.value = t.per_source || {};
-      } catch (e) {
-        msg.value = (e as Error).message;
+  const load = async () => {
+    try {
+      const r = await call<LanClients>("lan_clients");
+      clients.value = [...(r.clients || [])].sort((a, b) => (a.ip || "").localeCompare(b.ip || "", undefined, { numeric: true }));
+      /* only refresh the editable state when nothing is pending */
+      const key = JSON.stringify([r.lan_proxy_mode, [...(r.direct_macs || [])].sort()]);
+      if (!savedKey.value || savedKey.value === JSON.stringify([mode.value === "pick" ? "except_listed" : "disabled", [...direct.value].sort()])) {
+        mode.value = r.lan_proxy_mode === "except_listed" ? "pick" : "all";
+        direct.value = r.direct_macs || [];
       }
-    })();
+      savedKey.value = key;
+      const t = await call<Traffic>("traffic");
+      traffic.value = t.per_source || {};
+    } catch (e) {
+      msg.value = (e as Error).message;
+    }
+  };
+  /* devices come and go and their traffic grows: refresh every 10 s while visible, and after saving */
+  usePoll(load, 10000);
+  const tick = app.tick;
+  const mountTick = useRef(tick);
+  useEffect(() => {
+    if (tick !== mountTick.current) load();
   }, [tick]);
 
   const currentKey = JSON.stringify([mode.value === "pick" ? "except_listed" : "disabled", [...direct.value].sort()]);

@@ -2,6 +2,7 @@ import type { VNode } from "preact";
 import { useEffect } from "preact/hooks";
 import { TopBar } from "./components/TopBar";
 import { app, type Route, routeFromHash } from "./lib/app";
+import { usePoll } from "./lib/poll";
 import { call, isMock, reportHeight } from "./lib/rpc";
 import type { Status } from "./lib/types";
 import { Account } from "./pages/Account";
@@ -17,7 +18,7 @@ import { Settings } from "./pages/Settings";
 import "./global.css";
 
 export function Root() {
-  /* Hash routing (#/nodes ...), iframe height reporting and status polling */
+  /* Hash routing (#/nodes ...) and iframe height reporting */
   useEffect(() => {
     const onHash = () => {
       app.route = routeFromHash(location.hash);
@@ -27,18 +28,18 @@ export function Root() {
 
     const ro = new ResizeObserver(() => reportHeight());
     ro.observe(document.body);
-
-    /* Refresh status every 5 s so start/stop and watchdog changes show up */
-    const id = setInterval(() => app.tick++, 5000);
     return () => {
       window.removeEventListener("hashchange", onHash);
       ro.disconnect();
-      clearInterval(id);
     };
   }, []);
 
-  const tick = app.tick;
-  useEffect(() => {
+  /*
+   * Status every 5 s so start/stop and watchdog changes show up (only while the
+   * page is visible), and right after an action bumps app.tick. Pages reload
+   * their own data on app.tick, not on this poll.
+   */
+  const loadStatus = () =>
     call<Status>("status")
       .then((s) => {
         app.status = s;
@@ -46,7 +47,24 @@ export function Root() {
       })
       .catch((e: Error) => (app.error = e.message))
       .finally(() => (app.loading = false));
+  usePoll(loadStatus, 5000);
+  const tick = app.tick;
+  useEffect(() => {
+    if (tick) loadStatus();
   }, [tick]);
+
+  /* "Check for updates daily": at most once a day, when the page is opened */
+  const update = app.status?.update;
+  useEffect(() => {
+    if (!update?.auto_check || autoChecked) return;
+    if (update.checked && Date.now() / 1000 - update.checked < 86400) return;
+    autoChecked = true;
+    call("check_update")
+      .then(loadStatus)
+      .catch(() => {
+        /* shown again tomorrow */
+      });
+  }, [update?.auto_check, update?.checked]);
 
   const s = app.status;
   let page;
@@ -67,6 +85,9 @@ export function Root() {
     </>
   );
 }
+
+/* one automatic update check per page load */
+let autoChecked = false;
 
 const PAGES: Record<Route, () => VNode> = {
   overview: () => <Overview />,

@@ -12,8 +12,8 @@ export function Switch({ checked, label, disabled, onToggle }: { checked: boolea
 /** A settings row: title + description on the left, a control on the right */
 export function Row({ title, desc, children }: { title: string; desc?: string; children?: ComponentChildren }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "12px", minHeight: "64px", borderTop: "1px solid var(--line)" }}>
-      <span style={{ flexGrow: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 12px", minHeight: "64px", padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+      <span style={{ flex: "1 1 160px", display: "flex", flexDirection: "column", gap: "4px" }}>
         <span style={{ fontSize: "15px" }}>{title}</span>
         {desc && <span class="muted small">{desc}</span>}
       </span>
