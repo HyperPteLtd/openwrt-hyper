@@ -174,7 +174,10 @@ jobs:
             case "$name" in
               *.ipk) out="dist/${family}_${name}"
                      tar -xzOf "$f" --wildcards '*data.tar.gz' | tar -tzf - | grep -q 'usr/libexec/hyper/bin/sing-box$' \
-                       || { echo "::error::$name does not contain the bundled core"; exit 1; } ;;
+                       || { echo "::error::$name does not contain the bundled core"; exit 1; }
+                     # the core inside is for one CPU: an "all" package would install anywhere
+                     arch="$(tar -xzOf "$f" --wildcards '*control.tar.gz' | tar -xzOf - --wildcards '*/control' | sed -n 's/^Architecture: //p')"
+                     [ "$arch" = "$pkg_arch" ] || { echo "::error::$name is built for '$arch', not $pkg_arch"; exit 1; } ;;
               *.apk) out="dist/${family}_${name%.apk}-${pkg_arch}.apk"   # apk names carry no arch
                      [ "$(stat -c %s "$f")" -gt 10000000 ] || { echo "::error::$name is too small to contain the bundled core"; exit 1; } ;;
             esac
@@ -260,14 +263,22 @@ jobs:
             exit 1
           fi
 
+      # One directory per build: merged into one folder, two packages with the
+      # same name would overwrite each other without a word (v0.1.0 lost ten ipks).
       - uses: actions/download-artifact@v8
         with:
-          path: artifacts
+          path: built
           pattern: packages-*
-          merge-multiple: true
 
-      - name: Checksums
+      - name: Collect and checksum
         run: |
+          builds="$(find built -mindepth 1 -maxdepth 1 -type d -name 'packages-*' | wc -l)"
+          dupes="$(find built -type f -printf '%f\n' | sort | uniq -d)"
+          [ -z "$dupes" ] || { echo "::error::packages with the same name from different builds: $dupes"; exit 1; }
+          mkdir -p artifacts
+          find built -type f \( -name '*.ipk' -o -name '*.apk' \) -exec cp {} artifacts/ \;
+          count="$(find artifacts -type f | wc -l)"
+          [ "$count" -eq "$builds" ] || { echo "::error::$builds builds but $count packages"; exit 1; }
           cd artifacts
           ls -la
           sha256sum *.ipk *.apk > sha256sums

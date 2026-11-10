@@ -6,9 +6,12 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=Hyper for OpenWrt
-# One package per CPU (no LUCI_PKGARCH:=all): it bundles the libbox sing-box core
-# and hyper-crypt in /usr/libexec/hyper/bin, which scripts/stage-binaries.sh puts
-# under root/ before the build. luci-base / rpcd-mod-ucode run the UI and the
+# One package per CPU: it bundles the libbox sing-box core and hyper-crypt in
+# /usr/libexec/hyper/bin, which scripts/stage-binaries.sh puts under root/ before
+# the build. luci.mk makes every app without a src/Makefile "all"
+# (LUCI_PKGARCH?=...all), so the package arch is set to the target's here.
+LUCI_PKGARCH:=$(ARCH_PACKAGES)
+# luci-base / rpcd-mod-ucode run the UI and the
 # luci.hyper backend; the last three dependencies are sing-box's own. All exist
 # from OpenWrt 23.05 on (ucode-mod-digest does not, hence scripts/md5.uc).
 LUCI_DEPENDS:= \

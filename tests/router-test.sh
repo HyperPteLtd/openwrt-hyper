@@ -65,6 +65,14 @@ if [ -n "$pkg" ]; then
 	else
 		echo "FAIL $(basename "$pkg") does not install:"; tail -n 30 /tmp/install.log; exit 1
 	fi
+	# the bundled programs are for one CPU, so the package must be too (not all / noarch)
+	if command -v apk >/dev/null 2>&1; then
+		parch="$(apk list -I luci-app-hyper 2>/dev/null | awk 'NR == 1 { print $2 }')"
+	else
+		parch="$(opkg status luci-app-hyper | sed -n 's/^Architecture: //p')"
+	fi
+	if [ "$parch" = "$DISTRIB_ARCH" ]; then echo "ok   package architecture is $parch"
+	else echo "FAIL package architecture is '$parch', not $DISTRIB_ARCH"; rc=1; fi
 else
 	deps="$(sed -n '/^LUCI_DEPENDS/,/^$/p' /src/Makefile | grep -o '+[A-Za-z0-9_.-]*' | tr -d +)"
 	if out="$(pm_try $deps 2>&1)"; then
