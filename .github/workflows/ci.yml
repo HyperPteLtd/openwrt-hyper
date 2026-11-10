@@ -16,7 +16,9 @@ concurrency:
   group: ${{ github.ref == 'refs/heads/main' && 'openwrt-main' || format('ci-{0}', github.run_id) }}
 
 env:
-  UCODE_REF: master
+  # Host ucode for the fast tests, pinned so an upstream change cannot break CI
+  # (install-test runs the same tests on each firmware's own ucode)
+  UCODE_REF: a2c42eac6369a0bba0315007c7dc7b7130275340
 
 jobs:
   test:
@@ -47,7 +49,9 @@ jobs:
 
       - name: Build ucode (host)
         run: |
-          git clone --depth 1 --branch "$UCODE_REF" https://github.com/jow-/ucode.git /tmp/ucode
+          git init -q /tmp/ucode
+          git -C /tmp/ucode fetch -q --depth 1 https://github.com/jow-/ucode.git "$UCODE_REF"
+          git -C /tmp/ucode checkout -q FETCH_HEAD
           cmake -S /tmp/ucode -B /tmp/ucode/build -DCMAKE_BUILD_TYPE=Release \
             -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DRTNL_SUPPORT=OFF \
             -DNL80211_SUPPORT=OFF -DDEBUG_SUPPORT=OFF -DFFI_SUPPORT=OFF -DDIGEST_SUPPORT=OFF \
@@ -86,18 +90,33 @@ jobs:
         # <package arch>-<OpenWrt SDK>. Like passwall's releases, each entry gives ONE
         # package for that CPU: the 24.10 SDK builds the 23.05-24.10 .ipk, the 25.12
         # SDK the 25.12+ .apk. The package bundles the libbox core and hyper-crypt.
-        # SDK images: openwrt/sdk on Docker Hub; scripts/build-packages.sh does the same locally.
+        # SDK images: ghcr.io/openwrt/sdk:<arch>-<release> (every tag below exists);
+        # scripts/build-packages.sh does the same locally. libbox has a core for each
+        # (scripts/stage-binaries.sh maps the arch). riscv64 is riscv64_riscv64 in
+        # 24.10 and riscv64_generic from 25.12.
         arch:
           - x86_64-24.10.8
           - aarch64_cortex-a53-24.10.8
+          - aarch64_cortex-a72-24.10.8
           - aarch64_generic-24.10.8
           - arm_cortex-a7_neon-vfpv4-24.10.8
+          - arm_cortex-a9_vfpv3-d16-24.10.8
+          - arm_cortex-a15_neon-vfpv4-24.10.8
           - mipsel_24kc-24.10.8
+          - i386_pentium4-24.10.8
+          - riscv64_riscv64-24.10.8
+          - loongarch64_generic-24.10.8
           - x86_64-25.12.6
           - aarch64_cortex-a53-25.12.6
+          - aarch64_cortex-a72-25.12.6
           - aarch64_generic-25.12.6
           - arm_cortex-a7_neon-vfpv4-25.12.6
+          - arm_cortex-a9_vfpv3-d16-25.12.6
+          - arm_cortex-a15_neon-vfpv4-25.12.6
           - mipsel_24kc-25.12.6
+          - i386_pentium4-25.12.6
+          - riscv64_generic-25.12.6
+          - loongarch64_generic-25.12.6
     steps:
       - uses: actions/checkout@v7
         with:
@@ -169,42 +188,52 @@ jobs:
           name: packages-${{ matrix.arch }}
           path: dist/*
 
-  # Install the x86_64 packages on the oldest and newest firmware of each family
-  # (rootfs from downloads.openwrt.org) and rerun the tests on that userland: the
-  # dependencies resolve, the bundled core runs, rpcd serves luci.hyper.
+  # Install the packages on the oldest and newest firmware of each family (rootfs
+  # from downloads.openwrt.org) and rerun the tests on that userland: the
+  # dependencies resolve, the bundled programs run, rpcd serves luci.hyper.
+  # x86_64 runs natively; aarch64 (the armsr/armv8 rootfs, same arm64 core as
+  # every aarch64_* package) runs under QEMU, which works on any runner.
   install-test:
-    name: Install on OpenWrt ${{ matrix.release }}
+    name: Install on OpenWrt ${{ matrix.release }} (${{ matrix.cpu }})
     needs: build
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - release: 23.05.6
-            packages: packages-x86_64-24.10.8
-          - release: 24.10.8
-            packages: packages-x86_64-24.10.8
-          - release: 25.12.6
-            packages: packages-x86_64-25.12.6
+          - { release: 23.05.6, cpu: x86_64, target: x86/64, platform: linux/amd64, packages: packages-x86_64-24.10.8 }
+          - { release: 24.10.8, cpu: x86_64, target: x86/64, platform: linux/amd64, packages: packages-x86_64-24.10.8 }
+          - { release: 25.12.6, cpu: x86_64, target: x86/64, platform: linux/amd64, packages: packages-x86_64-25.12.6 }
+          - { release: 23.05.6, cpu: aarch64_generic, target: armsr/armv8, platform: linux/arm64, packages: packages-aarch64_generic-24.10.8 }
+          - { release: 24.10.8, cpu: aarch64_generic, target: armsr/armv8, platform: linux/arm64, packages: packages-aarch64_generic-24.10.8 }
+          - { release: 25.12.6, cpu: aarch64_generic, target: armsr/armv8, platform: linux/arm64, packages: packages-aarch64_generic-25.12.6 }
     steps:
       - uses: actions/checkout@v7
+
+      - uses: docker/setup-qemu-action@v4
+        if: matrix.platform != 'linux/amd64'
+        with:
+          platforms: arm64
 
       - uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.packages }}
           path: pkg
 
-      - name: OpenWrt ${{ matrix.release }} rootfs
+      - name: OpenWrt ${{ matrix.release }} ${{ matrix.target }} rootfs
         env:
           RELEASE: ${{ matrix.release }}
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
-          curl -fsSL "https://downloads.openwrt.org/releases/$RELEASE/targets/x86/64/openwrt-$RELEASE-x86-64-rootfs.tar.gz" |
-            docker import - "openwrt-rootfs:$RELEASE"
+          curl -fsSL "https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/openwrt-$RELEASE-${TARGET//\//-}-rootfs.tar.gz" |
+            docker import --platform "$PLATFORM" - "openwrt-rootfs:$RELEASE"
 
       - name: Install the package and run the tests
         env:
           RELEASE: ${{ matrix.release }}
-        run: sh tests/router-test.sh "openwrt-rootfs:$RELEASE" pkg/*
+          PLATFORM: ${{ matrix.platform }}
+        run: sh tests/router-test.sh "openwrt-rootfs:$RELEASE" pkg/* "$PLATFORM"
 
   release:
     name: GitHub Release

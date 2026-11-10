@@ -20,7 +20,7 @@ Hyper for OpenWrt 是一个 LuCI 插件。用 Hyper 账户登录路由器后，�
 | 23.05、24.10 | opkg | `23.05-24.10_luci-app-hyper_<版本>_<架构>.ipk` |
 | 25.12 及以后 | apk | `25.12+_luci-app-hyper-<版本>-<架构>.apk` |
 
-发布包提供 `aarch64_cortex-a53`、`aarch64_generic`、`arm_cortex-a7_neon-vfpv4`、`mipsel_24kc` 和 `x86_64`。用以下命令确认路由器的固件版本和软件包架构。
+发布包提供 `aarch64_cortex-a53`、`aarch64_cortex-a72`、`aarch64_generic`、`arm_cortex-a7_neon-vfpv4`、`arm_cortex-a9_vfpv3-d16`、`arm_cortex-a15_neon-vfpv4`、`i386_pentium4`、`loongarch64_generic`、`mipsel_24kc`、`riscv64_riscv64`（23.05、24.10）/ `riscv64_generic`（25.12+）和 `x86_64`。用以下命令确认路由器的固件版本和软件包架构。
 
 ```sh
 cat /etc/openwrt_release
@@ -54,7 +54,7 @@ apk add --allow-untrusted /tmp/25.12+_luci-app-hyper-*.apk
 3. 在 **账户与订阅** 用邮箱验证码登录，等待节点同步。
 4. 在 **概览** 选择模式并启动服务。需要直连的设备可在 **接入设备** 单独设置。
 
-在 **设置 → 关于 Hyper 路由器版** 可以检查并安装更新。每天自动检查更新只发送提醒，安装由管理员发起。卸载时使用 `opkg remove luci-app-hyper` 或 `apk del luci-app-hyper`。
+在 **设置 → 关于 Hyper 路由器版** 可以检查并安装更新。开启“每天自动检查更新”后，打开插件页面时每天最多检查一次，有新版本会在顶部提示，安装由管理员发起。卸载时使用 `opkg remove luci-app-hyper` 或 `apk del luci-app-hyper`。
 
 ## 开发与贡献
 
@@ -94,7 +94,7 @@ sh scripts/build-packages.sh mediatek/filogic
 | `BREAKING CHANGE:` 或 `feat!:` 等破坏性变更标记 | Major |
 | `docs:`、`test:`、`ci:`、`chore:` | 仅运行 CI |
 
-CI 为每种架构构建 IPK 和 APK，并在 OpenWrt 23.05、24.10 和 25.12 的用户空间安装测试。通过后创建标签和 GitHub Release，附上软件包及 `sha256sums`。维护者也可以推送 `vX.Y.Z` 标签来指定版本。 [查看 CI](https://github.com/HyperPteLtd/openwrt-hyper/actions/workflows/ci.yml)
+CI 为每种架构构建 IPK 和 APK，并在 OpenWrt 23.05、24.10 和 25.12 的 x86_64 与 aarch64 用户空间安装测试。通过后创建标签和 GitHub Release，附上软件包及 `sha256sums`。维护者也可以推送 `vX.Y.Z` 标签来指定版本。 [查看 CI](https://github.com/HyperPteLtd/openwrt-hyper/actions/workflows/ci.yml)
 
 ## 许可证
 
