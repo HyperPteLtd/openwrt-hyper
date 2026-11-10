@@ -1,12 +1,12 @@
 # sha256 of the libbox CLI archives for LIBBOX_VERSION in scripts/core.lock,
 # copied from the release's sha256sums (https://github.com/HyperPteLtd/libbox/releases).
-fe4d6a6a45c738caef8c8ac11a980189900088a03f76817fd048c7a26b45ede5  libbox-0.1.0-linux-386-softfloat.tar.gz
-85be5ae952415e0bb0f9095bfb32fd6a6d6ec261cab43bf03c0676a594194dd4  libbox-0.1.0-linux-amd64.tar.gz
-aa56dd3a63d35c557a85b5d9f7f2d19e089d71624c0c51648331ff07acfda165  libbox-0.1.0-linux-arm64.tar.gz
-44873d024fb9a4f5c5539a3be4b94dca89d524530d379ed81e67dc19d5d4fca7  libbox-0.1.0-linux-armv5.tar.gz
-2f73998d180e0d715eb29322b3ff81ffa7598a7bdce5d7ceeee75e5ae98e98f4  libbox-0.1.0-linux-armv6.tar.gz
-4026361ba3668b9801a369cf6818377130fdc9d3c9c131fd6da9b656cc00f70a  libbox-0.1.0-linux-armv7.tar.gz
-ace09ad9c328005a0de1389f60b94786eea484abbf39541a707ef2653f775c27  libbox-0.1.0-linux-loong64.tar.gz
-a322d621af9e96b731a3c8e81618cf9de9c2079f229d31dcd80a69f418a1aa2e  libbox-0.1.0-linux-mips-softfloat.tar.gz
-757a291f450dd8a0c73878d9e75f719b46114e7375acc8ce42d50c76bfa278a2  libbox-0.1.0-linux-mipsle-softfloat.tar.gz
-291c3f716a125ca8d275088d06069e5f7ce23cf6230fc626a525448ebdd67f0d  libbox-0.1.0-linux-riscv64.tar.gz
+4b4bf27c7b4463ef888b22d87b414e1ada61e75844a46633db225a211196fec2  libbox-0.1.1-linux-386-softfloat.tar.gz
+ed4c74eb86fd52e9b753215d6041579f02d60e1c29df33d2a0d2eb268c6499d6  libbox-0.1.1-linux-amd64.tar.gz
+ca2266f60fcac5a9324fda07f30b97a8ed2f45da1ecde2f8e5eb71e9cd4e620e  libbox-0.1.1-linux-arm64.tar.gz
+5a63642788230f0f2b9cba6c8da0ecfd9c36dd314e15fbb7eff7b08a65d9b352  libbox-0.1.1-linux-armv5.tar.gz
+63c562bf5e73dc61ad47b6d6c861cbef5a3db24dd04b9802e479e79d8f12aa36  libbox-0.1.1-linux-armv6.tar.gz
+099d5a6076f1a23de468d63e2670533068a49f9e309d201d3fe76efffc7e5e91  libbox-0.1.1-linux-armv7.tar.gz
+3869a7b798935e45c5cdf52f8869e6db49e5220498cb67b51775e0f28d4e027f  libbox-0.1.1-linux-loong64.tar.gz
+e48ea15206699829c00764731d0b0f6af69a4bb5776b88d35d6aca1b01af23db  libbox-0.1.1-linux-mips-softfloat.tar.gz
+80daddc600526f1efd43ada810a322ec420df350b4a3a5223fca6701df9432f5  libbox-0.1.1-linux-mipsle-softfloat.tar.gz
+7a058961cf117e5764ea0a1de7c23124b606e95627e694fed8de67e3832d109e  libbox-0.1.1-linux-riscv64.tar.gz

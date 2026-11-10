@@ -4,4 +4,4 @@
 # sha256sums into scripts/libbox.sha256, run the tests (tests/run.sh checks the
 # generated config with this core).
 LIBBOX_REPO=HyperPteLtd/libbox
-LIBBOX_VERSION=0.1.0
+LIBBOX_VERSION=0.1.1
