@@ -90,9 +90,21 @@ npm --prefix web run dev
 npm --prefix web run typecheck
 npm --prefix web test
 (cd hyper-crypt && go test ./...)
+python3 tests/stage_binaries_test.py
 ```
 
-本地打包需要能运行 Linux x86_64 容器的 Docker。以下命令使用 OpenWrt SDK 为目标平台打包，产物位于 `dist/`。
+核心从 `scripts/core.lock` 固定的 libbox 0.1.3 源码提交编译，下载归档先校验 SHA-256，再检查源码 SDK 版本。路由器专用标签为 `with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0`，保留当前配置需要的协议、DNS 和控制接口，不修改 libbox 通用 CLI 的默认构建。版本号读取源码 `internal/singbox/runtime.go`，Revision 写入完整提交号。构建使用 Go 1.25.5、`CGO_ENABLED=0`、`-mod=readonly`、`-trimpath` 和去除符号的链接参数；不会回退到通用预编译核心。
+
+单独暂存核心和解密工具需要 Python 3、curl、tar，以及 Go 或 Docker。脚本固定 `GOTOOLCHAIN=go1.25.5`，本机 Go 可按需下载该工具链；没有 Go 时，用 `golang:1.25.5-bookworm` 容器编译两个程序。源码中的构建脚本不会执行。离线回归测试使用编译器与网络替身，检查归档拒绝、版本保护、架构映射和两条构建路径；CI 另行编译并启动真实核心验证。
+
+```sh
+OUT_DIR=/tmp/hyper-core CACHE_DIR=/tmp/hyper-build-cache \
+  sh scripts/stage-binaries.sh aarch64_cortex-a53
+```
+
+`OUT_DIR` 默认是包内的 `usr/libexec/hyper/bin`，`CACHE_DIR` 默认为 `dist/.cache`，用于保存源码归档。本机 Go 沿用标准依赖与编译缓存，也保留显式设置的 `GOMODCACHE`、`GOCACHE`，各架构构建和 CI 可以复用已有缓存。Docker 路径通过 tar 流传输源码和产物，不要求挂载工作区，使用 `hyper-router-go-cache` named volume 复用 Go 缓存。校验失败会停止构建；若本地源码缓存损坏，删除对应的 `libbox-<提交号>.tar.gz` 后重新运行。
+
+本地打包还需要能运行 Linux x86_64 容器的 Docker。以下命令使用 OpenWrt SDK 为目标平台打包，产物位于 `dist/`。
 
 ```sh
 sh scripts/build-packages.sh mediatek/filogic

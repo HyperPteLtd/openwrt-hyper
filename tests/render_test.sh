@@ -106,6 +106,25 @@ else
 	echo "FAIL generate_client.uc with TUN"; fail=1
 fi
 
+echo "== custom DHCP DNS (router build feature)"
+DHCP="$TMP/uci-dhcp.json"
+python3 - "$FIXTURE" "$DHCP" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d['hyper']['config']['routing_mode'] = 'custom'
+d['hyper']['dns']['default_server'] = 'wan_dhcp'
+d['hyper']['wan_dhcp'] = {'.type': 'dns_server', 'enabled': '1', 'type': 'dhcp'}
+json.dump(d, open(sys.argv[2], 'w'))
+PY
+rm -f "$TMP/run/sing-box-c.json"
+if run "$DHCP" "$SCR/generate_client.uc"; then
+	CONF="$TMP/run/sing-box-c.json"
+	check "custom DHCP DNS retained" "$(q "[s['type'] for s in c['dns']['servers'] if s['tag']=='cfg-wan_dhcp-dns']")" "['dhcp']"
+	singbox_check "$CONF" "custom DHCP DNS"
+else
+	echo "FAIL generate_client.uc with custom DHCP DNS"; fail=1
+fi
+
 echo "== share links of every protocol -> snapshot.uc -> generate_client.uc"
 LINKS="$TMP/uci-links.json"
 if summary="$(run "$FIXTURE" "$HERE/links_fixture.uc" "$HERE/fixtures/links.txt" "$FIXTURE" "$LINKS")"; then

@@ -60,12 +60,22 @@ jobs:
 
       - name: ucode tests
         run: |
+          python3 tests/stage_binaries_test.py
           python3 scripts/bundled-rules.py
           UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/run.sh
 
+      - name: Read the pinned Go toolchain
+        id: go-toolchain
+        run: |
+          . scripts/core.lock
+          echo "version=${GO_TOOLCHAIN#go}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v6
         with:
-          go-version-file: hyper-crypt/go.mod
+          go-version: ${{ steps.go-toolchain.outputs.version }}
+          cache-dependency-path: |
+            hyper-crypt/go.*
+            scripts/core.lock
 
       - name: hyper-crypt tests
         working-directory: hyper-crypt
@@ -74,8 +84,8 @@ jobs:
           go vet ./...
           go test ./...
 
-      # The generated config must load on the bundled core: the libbox release pinned
-      # in scripts/core.lock (its CLI archives are static, so they run on the runner).
+      # Compile the router profile from the source commit/hash in scripts/core.lock.
+      # The static core must load the generated config and pass actual startup tests.
       - name: Validate and start the bundled core
         run: |
           OUT_DIR=/tmp/core sh scripts/stage-binaries.sh x86_64
@@ -93,8 +103,8 @@ jobs:
         # package for that CPU: the 24.10 SDK builds the 23.05-24.10 .ipk, the 25.12
         # SDK the 25.12+ .apk. The package bundles the libbox core and hyper-crypt.
         # SDK images: ghcr.io/openwrt/sdk:<arch>-<release> (every tag below exists);
-        # scripts/build-packages.sh does the same locally. libbox has a core for each
-        # (scripts/stage-binaries.sh maps the arch). riscv64 is riscv64_riscv64 in
+        # scripts/build-packages.sh does the same locally. stage-binaries.sh cross-
+        # compiles the pinned router core for each arch. riscv64 is riscv64_riscv64 in
         # 24.10 and riscv64_generic from 25.12.
         arch:
           - x86_64-24.10.8
@@ -145,9 +155,18 @@ jobs:
           npm --prefix web test
           npm --prefix web run build
 
+      - name: Read the pinned Go toolchain
+        id: go-toolchain
+        run: |
+          . scripts/core.lock
+          echo "version=${GO_TOOLCHAIN#go}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v6
         with:
-          go-version-file: hyper-crypt/go.mod
+          go-version: ${{ steps.go-toolchain.outputs.version }}
+          cache-dependency-path: |
+            hyper-crypt/go.*
+            scripts/core.lock
 
       - name: Bundle the core and hyper-crypt
         run: sh scripts/stage-binaries.sh "${MATRIX_ARCH%-*}"

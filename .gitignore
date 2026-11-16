@@ -5,7 +5,7 @@
 # Frontend build: npm --prefix web run build writes it into the package
 luci-app-hyper/htdocs/luci-static/hyper/
 web/dist/
-# Local OpenWrt SDK builds (scripts/build-packages.sh) and the sing-box download cache
+# Local OpenWrt SDK builds (scripts/build-packages.sh) and the pinned core source cache
 /dist/
 # gh-action-sdk / an SDK run in the checkout
 /bin/
