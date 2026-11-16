@@ -35,7 +35,14 @@ export interface Status {
   singbox_version: string | null;
   version: string | null;
   /** last daily update check (luci.hyper check_update) */
-  update?: { auto_check: boolean; checked: number | null; latest: string | null; available: boolean };
+  update?: { auto_check: boolean; auto_update?: boolean; checked: number | null; latest: string | null; available: boolean; state?: SoftwareUpdateState | null };
+}
+
+export interface SoftwareUpdateState {
+  state: "installing" | "done" | "failed";
+  version: string;
+  time: number;
+  error?: string;
 }
 
 export interface ServiceOperation {

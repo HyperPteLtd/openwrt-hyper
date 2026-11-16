@@ -110,6 +110,15 @@ echo "ok   manual addresses removed; Hyper sessions kept and custom panel sessio
 if id sing-box >/dev/null 2>&1; then echo "ok   bundled core service identity exists"
 else echo "FAIL bundled core service identity missing"; rc=1; fi
 
+if [ "$(grep -c '#hyper_software_update$' /etc/crontabs/root)" = 1 ]; then echo "ok   software update schedule is idempotent"
+else echo "FAIL software update schedule duplicated or missing"; rc=1; fi
+uci set hyper.update.auto_check=0
+uci set hyper.update.auto_update=0
+uci commit hyper
+/etc/hyper/scripts/auto_update.sh force
+if [ ! -f /var/run/hyper-software-update/check.json ]; then echo "ok   disabled automatic updates make no request"
+else echo "FAIL disabled automatic updates checked a release"; rc=1; fi
+
 cd /src
 PATH="$BIN:$PATH" UCODE=/usr/bin/ucode UCODE_LIB=/usr/lib/ucode sh tests/run.sh || rc=1
 
@@ -149,6 +158,7 @@ if ubus -t 10 wait_for luci.hyper && ubus -v list luci.hyper | grep -q '"checkin
 	if [ "$runs1" = 1 ] && [ "$runs2" = 2 ]; then echo "ok   status starts sing-box once for its version (cached until the binary changes)"
 	else echo "FAIL status started sing-box $runs1 time(s) for 3 calls, $runs2 after the binary changed (want 1, 2)"; rc=1; fi
 	python3 /src/tests/control_rpc_test.py || rc=1
+	HYPER_TEST_CONTAINER=1 python3 /src/tests/software_update_worker_test.py || rc=1
 
 	# check_update records when it ran, also on a fresh install (no /var/run/hyper yet)
 	# and when GitHub is unreachable, so the daily check does not repeat on every page load
@@ -161,15 +171,15 @@ if ubus -t 10 wait_for luci.hyper && ubus -v list luci.hyper | grep -q '"checkin
 	# Update hint from the last daily check: a newer release shows, the installed one does not
 	mkdir -p /var/run/hyper
 	installed="$(ubus call luci.hyper status | jsonfilter -e '@.version' || true)"
-	echo "{\"time\": $(date +%s), \"latest\": \"9.9.9\"}" > /var/run/hyper/update_check.json
+	echo "{\"time\": $(date +%s), \"latest\": \"9.9.9\"}" > /var/run/hyper-software-update/check.json
 	newer="$(ubus call luci.hyper status | jsonfilter -e '@.update.available' || true)"
 	same=false
 	if [ -n "$installed" ]; then
 		# the release tag has no -r<PKG_RELEASE>: v0.1.0 is the installed 0.1.0-r1
-		echo "{\"time\": $(date +%s), \"latest\": \"${installed%-r*}\"}" > /var/run/hyper/update_check.json
+		echo "{\"time\": $(date +%s), \"latest\": \"${installed%-r*}\"}" > /var/run/hyper-software-update/check.json
 		same="$(ubus call luci.hyper status | jsonfilter -e '@.update.available' || true)"
 	fi
-	rm -f /var/run/hyper/update_check.json
+	rm -f /var/run/hyper-software-update/check.json
 	if [ "$newer" = true ] && [ "$same" = false ]; then echo "ok   update hint: 9.9.9 is newer, ${installed:-(not installed)} is current"
 	else echo "FAIL update hint: newer=$newer, same version ($installed) available=$same"; rc=1; fi
 else

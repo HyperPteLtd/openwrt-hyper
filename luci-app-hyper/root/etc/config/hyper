@@ -83,6 +83,7 @@ config hyper 'subscription'
 
 config hyper 'update'
 	option auto_check '1'
+	option auto_update '0'
 	option repo 'HyperPteLtd/openwrt-hyper'
 
 config hyper 'rules'

@@ -80,7 +80,9 @@ with tempfile.TemporaryDirectory() as root:
         for tag, index in [("default-dns", 0), ("system-dns", 0), ("china-dns", 0), ("main-dns", 1)]
     ]
     for outbound in config["outbounds"]:
-        if sys.platform != "linux":
+        # The hosted CI runner is unprivileged. Router tests run as root with
+        # NET_ADMIN and keep marks; this loopback smoke needs no policy routing.
+        if sys.platform != "linux" or os.geteuid() != 0:
             outbound.pop("routing_mark", None)
         if outbound["tag"] == "main-out":
             outbound["outbounds"].append("direct-out")

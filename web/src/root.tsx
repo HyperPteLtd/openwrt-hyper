@@ -4,19 +4,20 @@ import { useEffect } from "preact/hooks";
 import { TopBar } from "./components/TopBar";
 import { app, type Route, routeFromHash } from "./lib/app";
 import { usePoll } from "./lib/poll";
-import { call, isMock, reportHeight, setCacheIdentity } from "./lib/rpc";
+import { call, isMock, reportHeight, readCachedStatus, rememberStatus } from "./lib/rpc";
 import type { Status } from "./lib/types";
 import { operationPending } from "./lib/service";
 import { Account } from "./pages/Account";
-import { Devices } from "./pages/Devices";
 import { Login } from "./pages/Login";
 import { Logs } from "./pages/Logs";
 import { Overview } from "./pages/Overview";
 import { Plans } from "./pages/Plans";
-import { Routing } from "./pages/Routing";
 import { Settings } from "./pages/Settings";
 
 import "./global.css";
+
+const cachedStatus = readCachedStatus();
+if (cachedStatus) app.status = cachedStatus;
 
 export function Root() {
   /* Hash routing and iframe height reporting */
@@ -46,7 +47,8 @@ export function Root() {
       .then((s) => {
         // A response started before the control acknowledgment must not erase it.
         if (app.status?.operation?.id !== operationAtRequest) return;
-        setCacheIdentity(s.signed_in ? s.email || "signed-in" : "signed-out");
+        rememberStatus(s);
+        app.liveStatus = true;
         app.status = s;
         app.statusAt = performance.now();
         app.error = "";
@@ -60,18 +62,6 @@ export function Root() {
     if (tick) loadStatus();
   }, [tick]);
 
-  /* "Check for updates daily": at most once a day, when the page is opened */
-  const update = app.status?.update;
-  useEffect(() => {
-    if (!update?.auto_check || autoChecked) return;
-    if (update.checked && Date.now() / 1000 - update.checked < 86400) return;
-    autoChecked = true;
-    call("check_update", {}, { fresh: true })
-      .then(loadStatus)
-      .catch(() => {
-        /* shown again tomorrow */
-      });
-  }, [update?.auto_check, update?.checked]);
 
   const s = app.status;
   let page;
@@ -91,15 +81,10 @@ export function Root() {
   );
 }
 
-/* one automatic update check per page load */
-let autoChecked = false;
-
 const PAGES: Record<Route, () => VNode> = {
   overview: () => <Overview />,
-  routing: () => <Routing />,
-  devices: () => <Devices />,
   account: () => <Account />,
   plans: () => <Plans />,
-  logs: () => <Logs />,
+  diagnostics: () => <Logs />,
   settings: () => <Settings />,
 };

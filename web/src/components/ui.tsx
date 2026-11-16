@@ -1,69 +1,45 @@
 import type { ComponentChildren } from "preact";
 import { serviceText } from "../lib/display";
 
+/** Shared surfaces keep page spacing and headings consistent. */
+export function Card({ children, className = "", label, id }: { children: ComponentChildren; className?: string; label?: string; id?: string }) {
+  return <section id={id} class={`card ${className}`} aria-label={label}>{children}</section>;
+}
+
+export function CardHeader({ title, desc, children, id }: { title: string; desc?: string; children?: ComponentChildren; id?: string }) {
+  return <div class="card-header"><div class="card-heading"><h2 id={id}>{title}</h2>{desc && <p class="muted small">{desc}</p>}</div>{children && <div class="card-actions">{children}</div>}</div>;
+}
+
+/** Native disclosure keeps keyboard and expanded-state behavior consistent. */
+export function Disclosure({ title, children }: { title: string; children: ComponentChildren }) {
+  return <details class="disclosure"><summary>{title}</summary><div class="disclosure-content">{children}</div></details>;
+}
+
+export function Toolbar({ children }: { children: ComponentChildren }) {
+  return <div class="toolbar">{children}</div>;
+}
+
 /** Accessible on/off switch (role="switch") */
 export function Switch({ checked, label, disabled, onToggle }: { checked: boolean; label: string; disabled?: boolean; onToggle: (next: boolean) => void }) {
-  return (
-    <button type="button" role="switch" class="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onToggle(!checked)}>
-      <span />
-    </button>
-  );
+  return <button type="button" role="switch" class="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onToggle(!checked)}><span /></button>;
 }
 
-/** A settings row: title + description on the left, a control on the right */
+/** A settings row: title + description on the left, a control on the right. */
 export function Row({ title, desc, children }: { title: string; desc?: string; children?: ComponentChildren }) {
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 12px", minHeight: "64px", padding: "8px 0", borderTop: "1px solid var(--line)" }}>
-      <span style={{ flex: "1 1 160px", display: "flex", flexDirection: "column", gap: "4px" }}>
-        <span style={{ fontSize: "15px" }}>{title}</span>
-        {desc && <span class="muted small">{desc}</span>}
-      </span>
-      {children}
-    </div>
-  );
+  return <div class="settings-row"><span class="settings-row-copy"><span class="settings-row-title">{title}</span>{desc && <span class="muted small">{desc}</span>}</span><div class="settings-row-control">{children}</div></div>;
 }
 
-/** Segmented control / tab strip */
+/** Selection control for workflows, never used for secondary page navigation. */
 export function Segmented({ label, value, options, onChange }: { label: string; value: string; options: { id: string; label: string }[]; onChange: (id: string) => void }) {
-  return (
-    <div role="tablist" aria-label={label} style={{ display: "flex", flexWrap: "wrap", gap: "4px", padding: "4px", borderRadius: "24px", background: "var(--card)", alignSelf: "flex-start" }}>
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          role="tab"
-          aria-selected={value === o.id}
-          onClick={() => onChange(o.id)}
-          class="btn"
-          style={{ minHeight: "40px", padding: "0 18px", background: value === o.id ? "var(--control)" : "transparent", color: value === o.id ? "var(--text)" : "#b4b4ba" }}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
+  return <div role="tablist" aria-label={label} class="segmented">{options.map((o) => <button key={o.id} type="button" role="tab" aria-selected={value === o.id} onClick={() => onChange(o.id)} class="btn">{o.label}</button>)}</div>;
 }
 
-export function PageTitle({ title, sub }: { title: string; sub?: string }) {
-  return (
-    /* basis 0 + min-width: a 280px basis would become a 280px *height* in a column layout */
-    <div style={{ flex: "1 1 0", minWidth: "min(280px, 100%)", display: "flex", flexDirection: "column", gap: "6px" }}>
-      <h2 style={{ margin: 0, fontSize: "26px", fontWeight: 600 }}>{title}</h2>
-      {sub && <p class="muted" style={{ margin: 0 }}>{sub}</p>}
-    </div>
-  );
+export function PageTitle({ title, sub, children }: { title: string; sub?: string; children?: ComponentChildren }) {
+  return <div class="page-header"><div class="page-heading"><h2>{title}</h2>{sub && <p class="muted">{sub}</p>}</div>{children && <div class="toolbar">{children}</div>}</div>;
 }
 
-/** Inline message: error (default), warn or ok */
+/** Inline message: error (default), warn or ok. */
 export function Notice({ text, tone = "error" }: { text: string; tone?: "error" | "warn" | "ok" }) {
   if (!text) return null;
-  return (
-    <div
-      class={`banner ${tone === "warn" ? "warn" : ""}`}
-      role={tone === "error" ? "alert" : "status"}
-      style={tone === "ok" ? { background: "#141a0a", borderColor: "#3e5214", color: "#dde8c8" } : undefined}
-    >
-      {serviceText(text)}
-    </div>
-  );
+  return <div class={`banner ${tone}`} role={tone === "error" ? "alert" : "status"}>{serviceText(text)}</div>;
 }

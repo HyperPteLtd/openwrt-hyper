@@ -3,6 +3,7 @@ import { t as tr } from "./i18n";
 import { call } from "./rpc";
 import type { ReadOptions } from "./cache";
 import { locale } from "./i18n";
+import { DEFAULT_SITE_CURRENCY, formatMinorMoney, MINOR_AMOUNT_SCALE, type CurrencyDisplay } from "./currency";
 
 export interface ApiResult<T> {
   ok: boolean;
@@ -50,10 +51,9 @@ export function daysLeft(ts: number | null | undefined): number | null {
   return d ? Math.max(0, Math.ceil((d.getTime() - Date.now()) / 86400000)) : null;
 }
 
-/** Amounts are minor units (scale 100 unless the plan list says otherwise) */
-export function money(amount: number | null | undefined, symbol = "¥", scale = 100): string {
-  if (amount == null) return "--";
-  return `${symbol}${(amount / scale).toFixed(2)}`;
+/** Account and order/pre amounts use scale 100; plan lists declare their scale. */
+export function money(amount: number | null | undefined, currency: CurrencyDisplay = DEFAULT_SITE_CURRENCY, scale = MINOR_AMOUNT_SCALE): string {
+  return formatMinorMoney(amount, currency, scale, locale);
 }
 
 export const UNIT_LABEL: Record<string, string> = {

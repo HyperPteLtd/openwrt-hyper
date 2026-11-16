@@ -22,7 +22,7 @@ const Tick = () => (
 );
 
 /** Daily check-in (Figma M21). Kept on the router per account; PPanel has no check-in API. */
-export function CheckIn() {
+export function CheckIn({ embedded = false }: { embedded?: boolean }) {
   const dates = useSignal<string[]>([]);
   const loaded = useSignal(false);
   const busy = useSignal(false);
@@ -85,7 +85,7 @@ export function CheckIn() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px", width: "100%", maxWidth: "760px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+      {!embedded && <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
         <div style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
           <h2 style={{ margin: 0, fontSize: "26px", fontWeight: 600 }}>{tr("每日签到")}</h2>
           <p class="muted" style={{ margin: 0 }}>{tr("每天来看看，记录连续签到的天数")}</p>
@@ -99,19 +99,19 @@ export function CheckIn() {
             <path d="M8 3v4M16 3v4M3.5 10h17M9 15l2 2 4-4" />
           </svg>
         </span>
-      </div>
+      </div>}
 
       <Notice text={notice.text} tone={notice.tone} />
 
-      <section class="card" aria-busy={!isLoaded} style={{ gap: "18px" }}>
+      <section class={embedded ? "checkin-panel" : "card"} aria-busy={!isLoaded} style={{ gap: "18px" }}>
         <div class="card-head" style={{ flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            <button type="button" class="btn ghost" style={{ minHeight: "36px", width: "36px", padding: 0 }} aria-label={tr("上个月")} disabled={atFirst} onClick={() => go(-1)}>
+            <button type="button" class="btn ghost icon" aria-label={tr("上个月")} disabled={atFirst} onClick={() => go(-1)}>
               ‹
             </button>
             <h3 aria-live="polite" style={{ margin: 0, fontSize: "16px", fontWeight: 600, minWidth: "104px", textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
               {tr("{0} 年 {1} 月", [month.year, month.month + 1])}</h3>
-            <button type="button" class="btn ghost" style={{ minHeight: "36px", width: "36px", padding: 0 }} aria-label={tr("下个月")} disabled={atLast} onClick={() => go(1)}>
+            <button type="button" class="btn ghost icon" aria-label={tr("下个月")} disabled={atLast} onClick={() => go(1)}>
               ›
             </button>
           </div>
@@ -162,13 +162,13 @@ export function CheckIn() {
             </b>
             <span class="muted small">{tr("已累计签到")}{run > 0 ? tr(" · 连续 {0} 天", [run]) : ""}</span>
           </div>
-          <button type="button" class="btn primary big" style={{ minWidth: "128px" }} disabled={buttonDisabled} onClick={() => submit()}>
+          <button type="button" class="btn primary" style={{ minWidth: "128px" }} disabled={buttonDisabled} onClick={() => submit()}>
             {buttonLabel}
           </button>
         </div>
       </section>
 
-      <p class="muted small" style={{ margin: 0, lineHeight: 1.6 }}>{tr("签到暂不发放会员时长。记录按账户保存在这台路由器上：退出登录不会清除，重置或更换路由器后不会保留")} </p>
+      {!embedded && <p class="muted small" style={{ margin: 0, lineHeight: 1.6 }}>{tr("签到暂不发放会员时长。记录按账户保存在这台路由器上：退出登录不会清除，重置或更换路由器后不会保留")} </p>}
     </div>
   );
 }

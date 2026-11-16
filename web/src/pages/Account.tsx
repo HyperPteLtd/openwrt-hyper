@@ -1,18 +1,18 @@
 import { t as tr } from "../lib/i18n";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
-import { Notice, Segmented } from "../components/ui";
+import { Card, CardHeader, Notice } from "../components/ui";
 import { app } from "../lib/app";
 import { api, apiError, formatDate, money, type ApiResult } from "../lib/ppanel";
 import { expiryText, localizedText } from "../lib/display";
 import { call } from "../lib/rpc";
-import { CheckIn } from "./CheckIn";
+import { useSiteCurrency } from "../lib/site-currency";
+import "./Account.css";
 
 interface UserInfo {
   id?: number;
   nickname?: string;
   avatar?: string;
-  balance?: number;
   commission?: number;
   refer_code?: string;
 }
@@ -33,25 +33,13 @@ interface UserDevice {
   current?: boolean;
   last_login_at?: number;
 }
-interface Announcement {
-  id: number;
-  title: string;
-  content: string;
-  created_at: number;
-  pinned?: boolean;
-}
-
-type Tab = "profile" | "checkin" | "invite" | "messages";
-
 export function Account() {
-  const tab = useSignal<Tab>("profile");
+  const currency = useSiteCurrency();
   const msg = useSignal("");
   const info = useSignal<UserInfo | null>(null);
   const subs = useSignal<UserSubscribe[]>([]);
   const devices = useSignal<UserDevice[]>([]);
   const affiliate = useSignal<{ registers?: number; total_commission?: number } | null>(null);
-  const notices = useSignal<Announcement[]>([]);
-  const openNotice = useSignal<number | null>(null);
   const busy = useSignal("");
   const copied = useSignal(false);
 
@@ -65,8 +53,10 @@ export function Account() {
       try {
         await Promise.all([
           api<UserInfo>("GET", "/v1/public/user/info", { onUpdate: user }).then(user),
-          api<{ list: UserSubscribe[] }>("GET", "/v1/public/user/subscribe", { onUpdate: membership }).then(membership),
-          api<{ list: UserDevice[] }>("GET", "/v1/public/user/devices", { onUpdate: deviceList }).then(deviceList),
+          ...[
+            api<{ list: UserSubscribe[] }>("GET", "/v1/public/user/subscribe", { onUpdate: membership }).then(membership),
+            api<{ list: UserDevice[] }>("GET", "/v1/public/user/devices", { onUpdate: deviceList }).then(deviceList),
+          ],
         ]);
       } catch (e) {
         if (live) msg.value = (e as Error).message;
@@ -75,30 +65,24 @@ export function Account() {
     return () => { live = false; };
   }, [tick]);
 
-  const t = tab.value;
   useEffect(() => {
     let live = true;
     (async () => {
       try {
-        if (t === "invite" && !affiliate.value) {
+        {
           const r = await api<{ registers: number; total_commission: number }>("GET", "/v1/public/user/affiliate/count", {
             onUpdate: (r) => { if (live && r.ok) affiliate.value = r.data ?? {}; },
           });
           if (!live) return;
           affiliate.value = r.ok ? r.data ?? {} : {};
         }
-        if (t === "messages" && !notices.value.length) {
-          const r = await api<{ announcements: Announcement[] }>("GET", "/v1/public/announcement/list", { query: { page: 1, size: 30 }, onUpdate: (r) => { if (live && r.ok) notices.value = r.data?.announcements ?? []; } });
-          if (!live) return;
-          notices.value = r.ok ? r.data?.announcements ?? [] : [];
-          if (notices.value.length) openNotice.value = notices.value[0].id;
-        }
+
       } catch (e) {
         msg.value = (e as Error).message;
       }
     })();
     return () => { live = false; };
-  }, [t]);
+  }, [tick]);
 
   const kick = async (id: number) => {
     busy.value = `kick-${id}`;
@@ -130,148 +114,78 @@ export function Account() {
   const sync = app.status?.sync as (Record<string, unknown> & { traffic_used?: string; traffic_total?: string }) | null | undefined;
   const name = info.value?.nickname || app.status?.email || "";
   const hasSubs = subs.value.length > 0;
+  const trafficTotal = sync?.traffic_total === "不限" ? tr("不限") : sync?.traffic_total;
 
   return (
-    <main class="page">
-      <Segmented
-        label={tr("账户")}
-        value={tab.value}
-        options={[{ id: "profile", label: tr("资料与套餐") }, { id: "checkin", label: tr("每日签到") }, { id: "invite", label: tr("邀请好友") }, { id: "messages", label: tr("消息") }]}
-        onChange={(id) => (tab.value = id as Tab)}
-      />
+    <main class="page account-page">
       <Notice text={msg.value} />
-
-      {tab.value === "profile" && (
-        <div class="row" style={{ alignItems: "flex-start" }}>
-          <section class="card" style={{ flex: "1 1 320px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-              <span style={{ width: "56px", height: "56px", borderRadius: "28px", background: "var(--control)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "22px", fontWeight: 600 }}>
-                {(name[0] || "?").toUpperCase()}
-              </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
-                <b style={{ fontSize: "20px", overflowWrap: "anywhere" }}>{name || "--"}</b>
-                <span class="muted small">{app.status?.email}</span>
-              </span>
+      <div class="account-top-grid">
+      <Card className="account-summary-grid" label={tr("账户与订阅")}>
+        <section class="account-summary account-profile" aria-label={tr("账户与订阅")}>
+          <div class="account-profile-heading">
+            <span class="account-avatar" aria-hidden="true">{(name[0] || "?").toUpperCase()}</span>
+            <div class="account-identity">
+              <h2>{name || "--"}</h2>
+              <span class="muted small">{app.status?.email}</span>
             </div>
-            <dl class="grid-stats" style={{ margin: 0 }}>
-              <div class="stat"><b>{money(info.value?.balance)}</b><span>{tr("余额")}</span></div>
-              <div class="stat"><b>{money(info.value?.commission)}</b><span>{tr("佣金")}</span></div>
-            </dl>
-            <button type="button" class="btn" style={{ color: "var(--danger-text)" }} disabled={busy.value === "logout"} onClick={() => logout()}>{tr("在这台路由器上退出登录")} </button>
-          </section>
-
-          <div style={{ flex: "2 1 460px", display: "flex", flexDirection: "column", gap: "20px", minWidth: 0 }}>
-            <section class="card">
-              <span class="small" style={{ color: "var(--accent)", fontWeight: 600, letterSpacing: "0.4px" }}>HYPER VIP</span>
-              <b style={{ fontSize: "24px" }}>{localizedText(active?.subscribe?.name, hasSubs ? tr("套餐") : tr("还没有套餐"))}</b>
-              {active ? (
-                <span class="muted">
-                  {expiryText(active.expire_time, active.status)}
-                </span>
-              ) : (
-                <span class="muted">{tr("购买套餐后，这台路由器就能连接")}</span>
-              )}
-              {sync?.traffic_total && (
-                <dl class="grid-stats" style={{ margin: 0 }}>
-                  <div class="stat"><b>{sync.traffic_used}</b><span>{tr("已用流量")}</span></div>
-                  <div class="stat"><b>{sync.traffic_total}</b><span>{tr("总流量")}</span></div>
-                  <div class="stat"><b>{active?.subscribe?.device_limit || "--"}</b><span>{tr("设备上限")}</span></div>
-                </dl>
-              )}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-                <a href="#/plans" class="btn primary">{active ? tr("续费 / 升级") : tr("购买套餐")}</a>
-              </div>
-            </section>
-
-            <section class="card">
-              <h2>{tr("已登录的设备")}</h2>
-              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {devices.value.map((d) => (
-                  <li key={d.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", minHeight: "60px", borderTop: "1px solid var(--line)" }}>
-                    <span style={{ flex: "1 1 200px", display: "flex", flexDirection: "column", gap: "3px", minWidth: 0 }}>
-                      <span>{d.current ? tr("本路由器") : d.platform || d.user_agent || tr("设备")}</span>
-                      <span class="muted small">
-                        {[d.ip, d.online ? tr("在线") : tr("离线"), d.last_login_at ? tr("登录于 {0}", [formatDate(d.last_login_at)]) : ""].filter(Boolean).join(" · ")}
-                      </span>
-                    </span>
-                    {d.current ? (
-                      <span class="small" style={{ color: "var(--accent)" }}>{tr("当前")}</span>
-                    ) : (
-                      <button type="button" class="btn" style={{ minHeight: "36px" }} disabled={busy.value === `kick-${d.id}`} onClick={() => kick(d.id)}>{tr("下线")} </button>
-                    )}
-                  </li>
-                ))}
-                {!devices.value.length && <li class="muted" style={{ padding: "12px 0" }}>{tr("没有设备记录")}</li>}
-              </ul>
-            </section>
+            <button type="button" class="btn text danger-text account-heading-action account-logout" disabled={busy.value === "logout"} onClick={() => logout()}>{tr("退出登录")}</button>
           </div>
+        </section>
+
+        <section class="account-summary account-plan" aria-label={tr("套餐")}>
+          <CardHeader
+            title={localizedText(active?.subscribe?.name, hasSubs ? tr("套餐") : tr("还没有套餐"))}
+            desc={active ? expiryText(active.expire_time, active.status) : tr("购买套餐后，这台路由器就能连接")}
+          >
+            <a href="#/plans" class="btn primary account-heading-action">{active ? tr("续费 / 升级") : tr("购买套餐")}</a>
+          </CardHeader>
+          {active && sync?.traffic_total && <dl class="account-metrics account-plan-metrics">
+            <div><dt>{tr("已用流量")}</dt><dd>{sync.traffic_used}</dd></div>
+            <div><dt>{tr("总流量")}</dt><dd>{trafficTotal}</dd></div>
+            <div><dt>{tr("设备上限")}</dt><dd>{active?.subscribe?.device_limit || "--"}</dd></div>
+          </dl>}
+        </section>
+      </Card>
+
+      <Card className="account-invite" label={tr("邀请好友")}>
+        <div class="account-invite-copy">
+          <h2>{tr("邀请好友")}</h2>
+          <p class="muted small">{tr("好友注册时填写你的邀请码，购买后你会获得返佣")}</p>
         </div>
-      )}
-
-      {tab.value === "checkin" && <CheckIn />}
-
-      {tab.value === "invite" && (
-        <div class="row" style={{ alignItems: "flex-start" }}>
-          <section class="card" style={{ flex: "1 1 360px" }}>
-            <h2 style={{ fontSize: "22px" }}>{tr("邀请好友")}</h2>
-            <p class="muted" style={{ margin: 0 }}>{tr("好友注册时填写你的邀请码，购买后你会获得返佣")}</p>
-            {info.value?.refer_code ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "52px", padding: "0 8px 0 16px", borderRadius: "14px", background: "var(--control)" }}>
-                <span class="mono" style={{ flexGrow: 1, fontSize: "20px", fontWeight: 600, letterSpacing: "2px" }}>{info.value.refer_code}</span>
-                <button type="button" class="btn primary" style={{ minHeight: "40px" }} onClick={() => copyCode(info.value!.refer_code!)}>
-                  {copied.value ? tr("已复制") : tr("复制")}
-                </button>
-              </div>
-            ) : (
-              <span class="muted">{tr("没有邀请码")}</span>
-            )}
-          </section>
-          <section class="card" style={{ flex: "1 1 360px" }}>
-            <dl class="grid-stats" style={{ margin: 0 }}>
-              <div class="stat"><b style={{ fontSize: "26px" }}>{affiliate.value?.registers ?? "--"}</b><span>{tr("已邀请")}</span></div>
-              <div class="stat"><b style={{ fontSize: "26px" }}>{money(affiliate.value?.total_commission)}</b><span>{tr("累计返佣")}</span></div>
-            </dl>
-          </section>
+        <div class="account-invite-code">
+          {info.value?.refer_code ? <>
+            <span class="mono">{info.value.refer_code}</span>
+            <button type="button" class={`account-copy${copied.value ? " is-copied" : ""}`} aria-label={copied.value ? tr("已复制") : tr("复制")} title={copied.value ? tr("已复制") : tr("复制")} onClick={() => copyCode(info.value!.refer_code!)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                {copied.value ? <path d="m5 12 4 4L19 6" /> : <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>}
+              </svg>
+            </button>
+            <span class="account-copy-status" role="status">{copied.value ? tr("已复制") : ""}</span>
+          </> : <span class="muted small">{tr("没有邀请码")}</span>}
         </div>
-      )}
+        <dl class="account-metrics account-invite-metrics">
+          <div><dt>{tr("佣金")}</dt><dd>{money(info.value?.commission, currency)}</dd></div>
+          <div><dt>{tr("已邀请")}</dt><dd>{affiliate.value?.registers ?? "--"}</dd></div>
+          <div><dt>{tr("累计返佣")}</dt><dd>{money(affiliate.value?.total_commission, currency)}</dd></div>
+        </dl>
+      </Card>
+      </div>
 
-      {tab.value === "messages" &&
-        (notices.value.length ? (
-          <div class="row" style={{ alignItems: "flex-start" }}>
-            <ul class="card" style={{ flex: "1 1 320px", listStyle: "none", margin: 0, padding: "8px", gap: "4px" }}>
-              {notices.value.map((n) => (
-                <li key={n.id}>
-                  <button
-                    type="button"
-                    class="option"
-                    aria-pressed={openNotice.value === n.id}
-                    style={{ width: "100%", flexDirection: "column", alignItems: "flex-start", border: 0, background: openNotice.value === n.id ? "var(--control)" : "transparent" }}
-                    onClick={() => (openNotice.value = n.id)}
-                  >
-                    <b>{n.pinned ? tr("置顶 · ") : ""}{n.title}</b>
-                    <span class="muted small">{formatDate(n.created_at)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {(() => {
-              const n = notices.value.find((x) => x.id === openNotice.value);
-              return n ? (
-                <article class="card" style={{ flex: "2 1 460px", minHeight: "320px" }}>
-                  <h2 style={{ fontSize: "22px" }}>{n.title}</h2>
-                  <span class="muted small">{formatDate(n.created_at)}</span>
-                  {/* announcements may contain markdown or HTML; shown as plain text on purpose */}
-                  <p style={{ margin: 0, lineHeight: 1.7, whiteSpace: "pre-line", color: "var(--text-2)" }}>{n.content}</p>
-                </article>
-              ) : null;
-            })()}
-          </div>
-        ) : (
-          <section class="card empty">
-            <b style={{ fontSize: "18px" }}>{tr("暂时没有消息")}</b>
-            <span class="muted">{tr("服务公告会出现在这里")}</span>
-          </section>
-        ))}
+      <Card className="account-devices" label={tr("已登录的设备")}>
+        <CardHeader title={tr("已登录的设备")} />
+        <ul class="account-device-list">
+          {devices.value.map((d) => <li key={d.id}>
+            <span class="account-device-name">{d.current ? tr("本路由器") : d.platform || d.user_agent || tr("设备")}</span>
+            <span class="account-device-ip">{d.ip || "--"}</span>
+            <span class="account-device-status">{d.online ? tr("在线") : tr("离线")}</span>
+            <span class="account-device-date">{d.last_login_at ? tr("登录于 {0}", [formatDate(d.last_login_at)]) : "--"}</span>
+            <div class="account-device-action">{d.current ? <span class="small account-current">{tr("当前")}</span> :
+              <button type="button" class="btn text danger-text" disabled={busy.value === `kick-${d.id}`} onClick={() => kick(d.id)}>{tr("下线")}</button>}</div>
+          </li>)}
+          {!devices.value.length && <li class="muted small account-devices-empty">{tr("没有设备记录")}</li>}
+        </ul>
+      </Card>
+
     </main>
   );
 }

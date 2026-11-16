@@ -1,0 +1,59 @@
+.page.overview-page { gap: 16px; }
+.overview-dashboard { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+.overview-control-column, .overview-content-column { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.overview-control-column > .card { padding: 20px; gap: 16px; }
+.overview-control-column > .connection-card { gap: 12px; }
+.overview-control-column .connection-heading { text-align: center; }
+.overview-control-column .connection-heading h2 { font-size: 22px; }
+.overview-control-column .connection-controls { display: flex; flex-direction: column; gap: 12px; }
+.overview-control-column .power-control { align-items: center; width: 100%; }
+.overview-control-column .power-button { flex-direction: column; min-height: 112px; gap: 10px; padding: 8px; font-size: 14px; }
+.overview-control-column .power-symbol { width: 70px; height: 70px; }
+.overview-control-column .power-symbol svg { width: 38px; height: 38px; }
+.connection-uptime { height: 18px; line-height: 18px; margin: 0; color: var(--accent); text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.connection-card .overview-telemetry { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 0 0; border-top: 1px solid var(--line); }
+.traffic-summary { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+.traffic-summary h3 { margin: 0; font-size: 14px; font-weight: 500; }
+.overview-content-column .node-toolbar { gap: 8px; }
+.overview-content-column .node-heading { flex-basis: 100%; }
+.overview-content-column .node-actions { width: 100%; }
+.overview-content-column .node-search { flex: 1; }
+.overview-content-column .node-section { padding: 20px; gap: 14px; }
+.overview-content-column .node-list { min-width: 0; }
+.overview-content-column .node-list .empty { min-height: 150px; }
+.overview-content-column .node-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 342px; }
+.network-section .embedded-settings > .row > .card { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.network-section .embedded-settings > .row { gap: 20px; }
+.network-section .settings-row { padding: 10px 0; min-height: 56px; gap: 8px 16px; }
+.network-section .card h2 { font-size: 14px; }
+.network-section > .card-header h2 { font-size: 16px; }
+@media (max-width: 1000px) {
+  .overview-content-column .node-actions .btn { flex: 1; }
+  .overview-content-column .node-search { flex-basis: 100%; }
+  .overview-content-column .node-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .overview-dashboard { display: flex; flex-direction: column; align-items: stretch; gap: 16px; }
+  .overview-control-column, .overview-content-column { display: contents; }
+  .overview-dashboard .card { min-width: 0; padding: 16px; }
+  .overview-dashboard .connection-card { order: 0; }
+  .overview-dashboard .node-section { order: 1; }
+  .overview-dashboard .network-custom { order: 2; }
+  .overview-dashboard .network-rules { order: 3; }
+  .overview-dashboard .network-dns { order: 4; }
+  .overview-dashboard .network-devices { order: 5; }
+  .overview-control-column .connection-heading p { min-height: 3em; }
+  .overview-control-column .power-button { min-height: 100px; }
+  .overview-content-column .node-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; }
+}
+@media (max-width: 440px) {
+  .overview-content-column .node-grid { grid-template-columns: 1fr; }
+  .traffic-summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .traffic-summary > h3 { grid-column: 1; grid-row: 1; justify-self: start; }
+  .traffic-summary > .small { grid-column: 1; grid-row: 2; justify-self: end; white-space: nowrap; font-variant-numeric: tabular-nums; }
+}
+
+.connection-mode-section { padding-top: 4px; display: flex; flex-direction: column; gap: 8px; }
+.overview-control-column .connection-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.overview-control-column .connection-modes .option { justify-content: center; text-align: center; }
+.domain-lists { display: flex; flex-direction: column; gap: 8px; }

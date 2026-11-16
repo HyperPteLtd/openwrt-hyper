@@ -55,5 +55,14 @@ uci -q batch <<-EOT >"/dev/null"
 	commit firewall
 EOT
 
+# Software updates run independently of the proxy service and the browser.
+mkdir -p /etc/crontabs
+touch /etc/crontabs/root
+sed -i '/#hyper_software_update$/d' /etc/crontabs/root
+printf '%s\n' '17 * * * * /etc/hyper/scripts/auto_update.sh #hyper_software_update' >> /etc/crontabs/root
+chmod 600 /etc/crontabs/root
+/etc/init.d/cron enable
+/etc/init.d/cron restart
+
 rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 exit 0

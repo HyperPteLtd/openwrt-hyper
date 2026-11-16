@@ -7,7 +7,8 @@ import { t as tr } from "./i18n";
  * it falls back to the mock backend in ./mock.ts.
  */
 import { mockCall } from "./mock";
-import { invalidatedReads, ReadCache, readPolicy, type ReadOptions } from "./cache";
+import { AccountReadCache, CacheInvalidatedError, invalidatedReads, readPolicy, type ReadOptions } from "./cache";
+import type { Status } from "./types";
 
 type LuciEnv = { sessionid?: string; ubuspath?: string };
 
@@ -34,23 +35,39 @@ export class RpcError extends Error {
 
 let seq = 0;
 let storage: Storage | undefined;
-try { storage = sessionStorage; } catch { /* storage disabled */ }
-const reads = new ReadCache(storage);
-let identity: string | undefined;
+try { storage = localStorage; } catch { /* storage disabled */ }
+const scope = `${isMock() ? "demo" : "router"}:${window.location.origin}`;
+const reads = new AccountReadCache(storage, scope);
 
 export function setCacheIdentity(account: string): void {
-  if (identity !== account) reads.invalidate();
-  identity = account;
+  reads.setIdentity(account);
 }
+
+/** Display-only bootstrap data. Service controls still wait for a live status. */
+export function readCachedStatus(): Status | null { return reads.readStatus(); }
+export function rememberStatus(status: Status): void { reads.rememberStatus(status); }
+export function readNodeLatency(nodes: readonly { name: string }[]) { return reads.readNodeLatency(nodes); }
+export function beginNodeMeasurement() { return reads.beginNodeMeasurement(); }
 
 /** Cache only named read methods; live status, diagnostics and payments bypass it. */
 export async function call<T = Record<string, unknown>>(method: string, args: Record<string, unknown> = {}, opts: ReadOptions<T> = {}): Promise<T> {
+  if (["login", "register", "logout"].includes(method)) {
+    reads.clear();
+    try { return await send<T>(method, args); } finally { reads.clear(); }
+  }
+  const generation = reads.generation;
   const prefixes = invalidatedReads(method, args);
-  const invalidate = () => reads.invalidate((key) => prefixes.some((prefix) => key.startsWith(prefix)));
+  const invalidate = () => {
+    if (prefixes.length && generation === reads.generation) reads.invalidate((key) => prefixes.some((prefix) => key.startsWith(prefix)));
+  };
   const policy = readPolicy(method, args);
   if (policy) return reads.read(`${method}:${JSON.stringify(args)}`, () => send<T>(method, args), policy, opts);
   invalidate();
-  try { return await send<T>(method, args); } finally { invalidate(); }
+  try {
+    const result = await send<T>(method, args);
+    if (generation !== reads.generation) throw new CacheInvalidatedError();
+    return result;
+  } finally { invalidate(); }
 }
 
 /** Call luci.hyper.<method>. Rejects on transport / ubus errors; method-level errors stay in the result. */

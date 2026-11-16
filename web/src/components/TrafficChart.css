@@ -1,0 +1,23 @@
+.traffic-chart { display: flex; flex-direction: column; gap: 7px; width: 100%; min-width: 0; margin: 0; }
+.traffic-chart-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; color: var(--muted); font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.traffic-chart-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.traffic-chart-live { color: var(--text); }
+.traffic-chart-key { width: 15px; height: 0; border-top: 2px solid var(--accent); }
+.traffic-chart-key.upload { border-color: var(--info); border-top-style: dashed; }
+.traffic-chart-plot { position: relative; width: 100%; min-width: 0; height: 112px; }
+.traffic-chart-svg { display: block; width: 100%; height: 112px; overflow: visible; }
+.traffic-chart-grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.traffic-chart-grid.vertical { stroke-dasharray: 2 4; opacity: .7; }
+.traffic-chart-axis { fill: var(--muted); font-family: var(--mono); font-size: 10px; font-variant-numeric: tabular-nums; }
+.traffic-chart-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.traffic-chart-line.download { stroke: var(--accent); }
+.traffic-chart-line.upload { stroke: var(--info); stroke-width: 1.7; stroke-dasharray: 4 3; }
+.traffic-chart-point.download { fill: var(--accent); }
+.traffic-chart-point.upload { fill: var(--info); }
+.traffic-chart-empty { position: absolute; inset: 8px 8px 26px 62px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; text-align: center; }
+.traffic-chart-empty > span { padding: 5px 8px; background: var(--card); border-radius: 5px; }
+@media (max-width: 440px) {
+  .traffic-chart-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .traffic-chart-legend > span { display: grid; grid-template-columns: 15px minmax(0, 1fr); gap: 2px 6px; }
+  .traffic-chart-live { grid-column: 2; white-space: nowrap; }
+}

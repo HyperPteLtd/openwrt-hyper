@@ -95,7 +95,7 @@ export function Login() {
           <>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "48px", padding: "0 14px", borderRadius: "12px", background: "var(--card-2)" }}>
               <span style={{ flexGrow: 1 }}>{email.value}</span>
-              <button type="button" class="btn ghost" style={{ minHeight: "40px", padding: "0 8px", color: "var(--accent)" }} onClick={() => { step.value = "email"; message.value = ""; }}>{tr("更换")} </button>
+              <button type="button" class="btn text" style={{ color: "var(--accent)" }} onClick={() => { step.value = "email"; message.value = ""; }}>{tr("更换")} </button>
             </div>
             <label class="field">{tr("验证码")} <input class="input" inputMode="numeric" autocomplete="one-time-code" required value={code.value} onInput={(e) => (code.value = e.currentTarget.value)} placeholder={tr("邮件里的验证码")} />
               <span class="muted small">{tr("验证码已发送到你的邮箱。没有账号会自动注册")}</span>
@@ -105,7 +105,7 @@ export function Login() {
 
         <Notice text={message.value} />
 
-        <button type="submit" class="btn primary big" disabled={busy.value}>
+        <button type="submit" class="btn primary" disabled={busy.value}>
           {busy.value ? tr("请稍候…") : step.value === "email" ? tr("下一步") : tr("登录")}
         </button>
         {step.value === "code" && (

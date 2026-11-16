@@ -69,6 +69,7 @@ const config: Record<string, string> = {
   "subscription.auto_update_time": "4",
   "subscription.update_via_proxy": "0",
   "update.auto_check": "1",
+  "update.auto_update": "0",
 };
 
 const rules = [
@@ -114,12 +115,12 @@ const AMOUNTS: Record<number, string> = { 12: "297.60", 3: "82.80", 1: "29.90" }
 
 function paymentSession() {
   const now = Math.floor(Date.now() / 1000);
-  const base = { order_no: mockOrder.no, order_status: mockOrder.status, amount: mockOrder.amount, currency: "CNY", quantity: 1, reused: false };
+  const base = { order_no: mockOrder.no, order_status: mockOrder.status, amount: mockOrder.amount, currency: "USD", quantity: 1, reused: false };
   if (mockOrder.status !== "pending")
     return { ...base, payment_action: { type: "none", state: mockOrder.status === "paid" ? "paid" : "cancelled" } };
   if (mockOrder.polls < 1)
     return { ...base, payment_action: { type: "preparing", state: "preparing", retry_after_ms: 800 } };
-  const common = { state: "ready", expires_at: now + 900, payment_amount: mockOrder.amount, payment_currency: "CNY" };
+  const common = { state: "ready", expires_at: now + 900, payment_amount: mockOrder.amount, payment_currency: "USD" };
   if (mockOrder.method === 1)
     return { ...base, payment_action: { ...common, type: "qr", provider: "alipay", qr_content: `https://qr.alipay.com/bax0${mockOrder.no}` } };
   if (mockOrder.method === 2)
@@ -154,6 +155,8 @@ const ppanel = (path: string, body: Record<string, unknown>, query: Record<strin
     return ok(paymentSession());
   }
   switch (path) {
+    case "/v1/common/site/config":
+      return ok({ currency: { currency_unit: "USD", currency_symbol: "$" } });
     case "/v1/public/user/info":
       return ok({ id: 1, nickname: "Astra345", balance: 3600, commission: 3600, refer_code: "HYPR8K2Q" });
     case "/v1/public/user/subscribe":
@@ -170,12 +173,12 @@ const ppanel = (path: string, body: Record<string, unknown>, query: Record<strin
       return ok({ registers: 3, total_commission: 3600 });
     case "/v1/public/announcement/list":
       return ok({ announcements: [
-        { id: 1, title: "新增 新加坡 02 节点", content: "新加坡 02 已上线。\n路由器会在下次自动同步时获取，也可以在“节点”页手动同步。", created_at: Date.now() - 86400e3, pinned: true },
+        { id: 1, title: "新增 新加坡 02 节点", content: "新加坡 02 已上线\n在概览中选择即可连接", created_at: Date.now() - 86400e3, pinned: true },
         { id: 2, title: "11 月 15 日凌晨维护", content: "02:00–04:00 部分节点维护，期间可能短暂断线。", created_at: Date.now() - 4 * 86400e3 },
       ], total: 2 });
     case "/v1/public/subscribe/list":
       return ok({
-        units: { amount_scale: 100, currency_symbol: "¥" },
+        units: { amount_scale: 100, currency_unit: "USD", currency_symbol: "$" },
         list: [{
           id: 1, name: '{"en-US":"Basic","zh-CN":"Basic"}', unit_time: "Month", device_limit: 5,
           discount: [
@@ -211,6 +214,8 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
         uptime: state.running ? Math.floor((Date.now() - startedAt) / 1000) : null,
         update: {
           auto_check: config["update.auto_check"] !== "0",
+          auto_update: config["update.auto_update"] === "1",
+          state: updateState,
           checked: lastCheck?.time ?? null,
           latest: lastCheck?.latest ?? null,
           available: !!lastCheck?.latest && newer(lastCheck.latest, state.version ?? ""),
@@ -316,7 +321,7 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
       lastCheck = { time: now(), latest: MOCK_LATEST };
       return {
         result: true, current: state.version, latest: MOCK_LATEST, update_available: newer(MOCK_LATEST, state.version ?? ""),
-        published_at: "2026-11-20T08:00:00Z", notes: "- 节点页支持按延迟排序\n- 修复 IPv6 设备偶尔不走代理",
+        published_at: "2026-11-20T08:00:00Z", notes: "- 概览支持按延迟排序\n- 修复 IPv6 设备偶尔不走代理",
         url: "https://github.com/HyperPteLtd/openwrt-hyper/releases/tag/v0.2.0", installable: true, package_manager: "opkg",
         update_state: updateState,
       };
@@ -329,7 +334,7 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
       }, 4000);
       return { result: true, started: true, version: "0.2.0" };
     case "logs":
-      return { content: args.type === "hyper" ? "2026-11-09 11:15:02 [SYNC] 9 nodes from 7 countries (1 added, 0 removed, 0 invalid links).\n2026-11-09 11:15:03 [SYNC] Rules: 4 lists." : LOG };
+      return { content: LOG.split("\n").concat("2026-11-09 11:15:02 INFO Hyper ready").sort((a, b) => (a.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)?.[0] || "").localeCompare(b.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/)?.[0] || "")).join("\n") };
     case "log_clean":
       return { result: true };
     case "diag":

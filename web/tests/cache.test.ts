@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ReadCache, readPolicy, invalidatedReads } from "../src/lib/cache.ts";
+import { CacheInvalidatedError, ReadCache, readPolicy, invalidatedReads } from "../src/lib/cache.ts";
 
 const tick = () => new Promise<void>((r) => setImmediate(r));
 const deferred = <T>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
@@ -36,10 +36,11 @@ test("invalidated in-flight reads cannot repopulate cache or update a new accoun
   const cache = new ReadCache();
   const pending = deferred<{ n: number }>();
   const old = cache.read("a", () => pending.promise, { ttl: 10000 });
+  const discarded = assert.rejects(old, CacheInvalidatedError);
   cache.invalidate();
   await cache.read("a", async () => ({ n: 2 }), { ttl: 10000 });
   pending.resolve({ n: 1 });
-  await old;
+  await discarded;
   assert.deepEqual(await cache.read("a", async () => ({ n: 3 }), { ttl: 10000 }), { n: 2 });
 });
 
@@ -53,18 +54,54 @@ test("errors are never cached; expired values do not mask a failed fresh request
   await assert.rejects(cache.read("b", async () => { throw Error("offline"); }, { ttl: 1000 }));
 });
 
-test("only public catalog data persists, and a reload obeys its expiry", async () => {
+test("restored display data returns immediately and revalidates even within its TTL", async () => {
   const values = new Map<string, string>();
   const storage = { getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => { values.set(k, v); }, removeItem: (k: string) => { values.delete(k); } };
   let now = 1000;
   const cache = new ReadCache(storage, () => now);
   await cache.read("public", async () => ({ name: "Basic" }), { ttl: 100, persist: true });
   await cache.read("private", async () => ({ email: "private@example.com" }), { ttl: 100 });
-  assert.equal(values.size, 1);
+  assert(![...values.keys()].some((key) => key.includes("private")));
   const restored = new ReadCache(storage, () => now);
-  assert.deepEqual(await restored.read("public", async () => ({ name: "New" }), { ttl: 100, persist: true }), { name: "Basic" });
+  const pending = deferred<{ name: string }>();
+  let calls = 0, shown = "Basic";
+  const load = () => { calls++; return pending.promise; };
+  assert.deepEqual(await restored.read("public", load, { ttl: 100, persist: true }, { onUpdate: (v) => { shown = v.name; } }), { name: "Basic" });
+  assert.equal(calls, 1);
+  pending.resolve({ name: "New" });
+  await tick();
+  assert.equal(shown, "New");
   now += 101;
-  assert.deepEqual(await restored.read("public", async () => ({ name: "New" }), { ttl: 100, persist: true }), { name: "New" });
+  assert.deepEqual(await new ReadCache(storage, () => now).read("public", async () => ({ name: "Expired" }), { ttl: 100, persist: true }), { name: "Expired" });
+});
+
+test("unchanged display values and failed refreshes do not notify or replace the last good value", async () => {
+  let now = 1000, updates = 0;
+  const cache = new ReadCache(undefined, () => now);
+  const policy = { ttl: 100, stale: 60000 };
+  await cache.read("a", async () => ({ n: 1 }), policy);
+  now += 1000;
+  await cache.read("a", async () => ({ n: 1 }), policy, { onUpdate: () => updates++ });
+  await tick();
+  now += 1000;
+  await cache.read("a", async () => ({ ok: false, error: "offline" }), policy, { onUpdate: () => updates++ });
+  await tick();
+  assert.equal(updates, 0);
+  assert.deepEqual(await cache.read("a", async () => ({ n: 2 }), policy), { n: 1 });
+});
+
+test("invalidation removes persisted entries that have not been loaded into memory", async () => {
+  const values = new Map<string, string>();
+  const storage = { getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => { values.set(k, v); }, removeItem: (k: string) => { values.delete(k); } };
+  const first = new ReadCache(storage);
+  await first.read("api:account", async () => ({ id: 1 }), { ttl: 1000, persist: true });
+  await first.read("nodes:list", async () => ({ count: 2 }), { ttl: 1000, persist: true });
+  const reloaded = new ReadCache(storage);
+  reloaded.invalidate((key) => key.startsWith("api:"));
+  assert(![...values.keys()].some((key) => key.endsWith("api:account")));
+  assert([...values.keys()].some((key) => key.endsWith("nodes:list")));
+  reloaded.invalidate();
+  assert.equal(values.size, 0);
 });
 
 test("live service and payment results bypass cache; writes invalidate affected reads", () => {
@@ -74,4 +111,6 @@ test("live service and payment results bypass cache; writes invalidate affected 
   assert.deepEqual(invalidatedReads("logout", {}), [""]);
   assert(invalidatedReads("sync_subscription", {}).includes("api:"));
   assert(invalidatedReads("set_config", {}).includes("get_config:"));
+  assert.equal(readPolicy("api", { method: "GET", path: "/v1/public/user/subscribe", query: { token: "must-not-persist" } })?.persist, false);
+  assert.equal(readPolicy("api", { method: "GET", path: "/v1/public/user/info", body: { jwt: "must-not-persist" } })?.persist, false);
 });

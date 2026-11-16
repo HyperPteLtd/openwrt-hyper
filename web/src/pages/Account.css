@@ -1,0 +1,59 @@
+.page.account-page { gap: 16px; }
+.account-page .card { padding: 20px; }
+.account-top-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.account-page .account-invite { display: flex; flex-direction: column; gap: 16px; }
+.account-invite-copy { min-width: 0; }
+.account-invite-copy p { margin: 4px 0 0; }
+.account-invite-code { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; min-width: 0; }
+.account-invite-code .mono { font-size: 18px; font-weight: 600; letter-spacing: .08em; overflow-wrap: anywhere; user-select: all; }
+.account-copy { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 var(--control-height); width: var(--control-height); height: var(--control-height); border: 0; background: transparent; color: var(--muted); padding: 8px; cursor: pointer; border-radius: var(--radius-control); }
+.account-copy:hover, .account-copy.is-copied { color: var(--accent); }
+.account-copy-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.account-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 0; }
+.account-metrics > div { min-width: 0; }
+.account-metrics dt { color: var(--muted); font-size: 12px; line-height: 1.5; margin-bottom: 5px; }
+.account-metrics dd { margin: 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.4; overflow-wrap: anywhere; }
+.account-invite-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); }
+.account-page .account-summary-grid { display: flex; flex-direction: column; gap: 16px; }
+.account-page .account-summary { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.account-profile { justify-content: center; }
+.account-plan { padding-top: 16px; border-top: 1px solid var(--line); }
+.account-profile-heading { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-width: 0; min-height: 48px; }
+.account-avatar { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; background: var(--control); font-size: 20px; font-weight: 600; }
+.account-identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.account-summary .card-header { min-height: 48px; }
+.account-plan .card-header { flex-wrap: nowrap; }
+.account-plan .card-heading { flex: 1 1 0; overflow-wrap: anywhere; }
+.account-plan .card-actions { flex: 0 0 auto; }
+.account-summary .account-metrics { padding-top: 16px; border-top: 1px solid var(--line); }
+.account-plan-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.account-page .account-devices { gap: 12px; }
+.account-device-list { list-style: none; padding: 0; margin: 0; }
+.account-device-list > li:not(.account-devices-empty) { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) 64px minmax(150px, 1.3fr) 64px; align-items: center; min-height: 56px; padding: 10px 0; gap: 16px; border-top: 1px solid var(--line); }
+.account-device-list > li > * { min-width: 0; overflow-wrap: anywhere; }
+.account-device-name { font-size: 14px; font-weight: 500; }
+.account-device-ip, .account-device-status, .account-device-date { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.account-device-action { display: flex; align-items: center; justify-content: flex-end; min-height: var(--control-height); }
+.account-device-action .account-current { font-size: var(--control-font-size); padding-right: 1px; }
+.account-current { color: var(--accent); }
+.account-devices-empty { padding: 12px 0 0; }
+
+@media (max-width: 900px) {
+  .account-top-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 850px) {
+  .account-device-list > li:not(.account-devices-empty) { grid-template-columns: minmax(0, 1fr) 72px; gap: 4px 12px; }
+  .account-device-name { grid-column: 1; grid-row: 1; }
+  .account-device-action { grid-column: 2; grid-row: 1 / 3; align-self: start; }
+  .account-device-ip { grid-column: 1; grid-row: 2; }
+  .account-device-status { grid-column: 1; grid-row: 3; }
+  .account-device-date { grid-column: 1; grid-row: 4; }
+}
+
+@media (max-width: 720px) {
+  .account-page .card { padding: 16px; }
+  .account-invite-metrics { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); }
+  .account-plan-metrics { grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 12px; }
+  .account-metrics dd { font-size: 18px; }
+}

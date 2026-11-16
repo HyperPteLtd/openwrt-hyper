@@ -13,6 +13,8 @@ import {
 import { api, apiError, money, UNIT_LABEL, type ApiResult } from "../lib/ppanel";
 import { localizedText } from "../lib/display";
 import { call } from "../lib/rpc";
+import { amountScale, resolveCurrency, type AmountUnits } from "../lib/currency";
+import { useSiteCurrency } from "../lib/site-currency";
 
 interface Tier {
   quantity: number;
@@ -29,10 +31,6 @@ interface Plan {
   device_limit?: number;
   traffic?: number;
   discount?: Tier[];
-}
-interface Units {
-  amount_scale?: number;
-  currency_symbol?: string;
 }
 interface PayMethod {
   id: number;
@@ -69,8 +67,9 @@ const Row = ({ label, value, strong }: { label: string; value: string; strong?: 
  *   (QR code, payment page, crypto transfer) -> poll v2/orders/{no}/payment until paid
  */
 export function Plans() {
+  const currency = useSiteCurrency();
   const plans = useSignal<Plan[]>([]);
-  const units = useSignal<Units>({});
+  const units = useSignal<AmountUnits>({});
   const methods = useSignal<PayMethod[]>([]);
   const sel = useStore({ plan: 0, quantity: 0, payment: 0, coupon: "" });
   const step = useSignal<Step>("pick");
@@ -113,7 +112,7 @@ export function Plans() {
 
   async function load() {
     try {
-      const setPlans = (p: ApiResult<{ list: Plan[]; units?: Units }>) => {
+      const setPlans = (p: ApiResult<{ list: Plan[]; units?: AmountUnits }>) => {
         if (!p.ok) { msg.text = apiError(p, tr("套餐加载失败")); return; }
         // Once checkout starts, its server price preview owns the selected offer.
         if (step.value !== "pick") return;
@@ -135,7 +134,7 @@ export function Plans() {
         if (!methods.value.some((m) => m.id === sel.payment)) sel.payment = methods.value[0]?.id ?? 0;
       };
       await Promise.all([
-        api<{ list: Plan[]; units?: Units }>("GET", "/v1/public/subscribe/list", { onUpdate: setPlans }).then(setPlans),
+        api<{ list: Plan[]; units?: AmountUnits }>("GET", "/v1/public/subscribe/list", { onUpdate: setPlans }).then(setPlans),
         api<{ list: PayMethod[] }>("GET", "/v1/public/payment/methods", { onUpdate: setMethods }).then(setMethods),
       ]);
 
@@ -155,8 +154,8 @@ export function Plans() {
     }
   }
 
-  const scale = units.value.amount_scale || 100;
-  const sym = units.value.currency_symbol || "¥";
+  const scale = amountScale(units.value);
+  const planCurrency = resolveCurrency(units.value, currency);
   const plan = plans.value.find((p) => p.id === sel.plan);
   const tier = plan?.discount?.find((t) => t.quantity === sel.quantity);
   const unit = UNIT_LABEL[plan?.unit_time || ""] ?? plan?.unit_time ?? "";
@@ -361,8 +360,8 @@ export function Plans() {
                       }}
                     >
                       <span>{t.quantity} {UNIT_LABEL[p.unit_time || ""] ?? p.unit_time}</span>
-                      <b style={{ fontSize: "28px", color: on ? "var(--accent)" : "var(--text)", fontVariantNumeric: "tabular-nums" }}>{money(t.sell_price, sym, scale)}</b>
-                      {t.original_price && t.original_price > t.sell_price ? <s class="muted small">{money(t.original_price, sym, scale)}</s> : null}
+                      <b style={{ fontSize: "28px", color: on ? "var(--accent)" : "var(--text)", fontVariantNumeric: "tabular-nums" }}>{money(t.sell_price, planCurrency, scale)}</b>
+                      {t.original_price && t.original_price > t.sell_price ? <s class="muted small">{money(t.original_price, planCurrency, scale)}</s> : null}
                       {t.recommend && <span class="small" style={{ padding: "3px 10px", borderRadius: "10px", background: "#2e3a0e", color: "var(--accent)" }}>{tr("推荐")}</span>}
                     </button>
                   );
@@ -374,8 +373,8 @@ export function Plans() {
           {plan && tier && (
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: "16px 32px" }}>
               <span class="muted">{plan.name} · {tier.quantity} {unit}</span>
-              <b style={{ fontSize: "32px", color: "var(--accent)" }}>{money(tier.sell_price, sym, scale)}</b>
-              <button type="button" class="btn primary big" style={{ minWidth: "200px" }} disabled={busy.value || !methods.value.length} onClick={() => toConfirm()}>
+              <b style={{ fontSize: "32px", color: "var(--accent)" }}>{money(tier.sell_price, planCurrency, scale)}</b>
+              <button type="button" class="btn primary" style={{ minWidth: "200px" }} disabled={busy.value || !methods.value.length} onClick={() => toConfirm()}>
                 {busy.value ? tr("请稍候…") : tr("购买")}
               </button>
             </div>
@@ -391,14 +390,14 @@ export function Plans() {
             <dl style={{ margin: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("套餐")}</dt><dd style={{ margin: 0 }}>{plan.name}</dd></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("时长")}</dt><dd style={{ margin: 0 }}>{sel.quantity} {unit}</dd></div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("原价")}</dt><dd style={{ margin: 0 }}>{money(preview.value?.price, sym, scale)}</dd></div>
-              {!!preview.value?.discount && <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("优惠")}</dt><dd style={{ margin: 0 }}>-{money(preview.value.discount, sym, scale)}</dd></div>}
-              {!!preview.value?.coupon_discount && <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("优惠码")}</dt><dd style={{ margin: 0 }}>-{money(preview.value.coupon_discount, sym, scale)}</dd></div>}
-              {!!preview.value?.fee_amount && <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("手续费")}</dt><dd style={{ margin: 0 }}>{money(preview.value.fee_amount, sym, scale)}</dd></div>}
+              <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("原价")}</dt><dd style={{ margin: 0 }}>{money(preview.value?.price, currency)}</dd></div>
+              {!!preview.value?.discount && <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("优惠")}</dt><dd style={{ margin: 0 }}>-{money(preview.value.discount, currency)}</dd></div>}
+              {!!preview.value?.coupon_discount && <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("优惠码")}</dt><dd style={{ margin: 0 }}>-{money(preview.value.coupon_discount, currency)}</dd></div>}
+              {!!preview.value?.fee_amount && <div style={{ display: "flex", justifyContent: "space-between" }}><dt class="muted">{tr("手续费")}</dt><dd style={{ margin: 0 }}>{money(preview.value.fee_amount, currency)}</dd></div>}
             </dl>
             <label class="field">{tr("优惠码")} <span style={{ display: "flex", gap: "10px" }}>
                 <input class="input" value={sel.coupon} onInput={(e) => (sel.coupon = e.currentTarget.value)} placeholder={tr("输入优惠码")} />
-                <button type="button" class="btn" style={{ borderRadius: "12px", minHeight: "48px", flexShrink: 0 }} disabled={busy.value} onClick={() => toConfirm()}>{tr("使用")}</button>
+                <button type="button" class="btn" style={{ flexShrink: 0 }} disabled={busy.value} onClick={() => toConfirm()}>{tr("使用")}</button>
               </span>
             </label>
             <fieldset style={{ border: 0, margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -412,9 +411,9 @@ export function Plans() {
           </section>
           <section class="card" style={{ flex: "1 1 300px" }}>
             <span class="muted">{tr("应付")}</span>
-            <b style={{ fontSize: "36px", color: "var(--accent)" }}>{money(preview.value?.amount, sym, scale)}</b>
+            <b style={{ fontSize: "36px", color: "var(--accent)" }}>{money(preview.value?.amount, currency)}</b>
             <p class="muted small" style={{ margin: 0 }}>{tr("点“去支付”后生成订单：扫码支付会在这里显示二维码，其他方式会给出支付页面或收款地址。这个页面会自动检查支付结果")}</p>
-            <button type="button" class="btn primary big" disabled={busy.value} onClick={() => payNow()}>{busy.value ? tr("请稍候…") : tr("去支付")}</button>
+            <button type="button" class="btn primary" disabled={busy.value} onClick={() => payNow()}>{busy.value ? tr("请稍候…") : tr("去支付")}</button>
             <button type="button" class="btn" onClick={() => (step.value = "pick")}>{tr("返回修改")}</button>
           </section>
         </div>
@@ -458,7 +457,7 @@ export function Plans() {
                 return (
                   <>
                     {https && (
-                      <a class="btn primary big" href={https} target="_blank" rel="noopener noreferrer" style={{ minWidth: "240px" }}>{tr("打开支付页面")} </a>
+                      <a class="btn primary" href={https} target="_blank" rel="noopener noreferrer" style={{ minWidth: "240px" }}>{tr("打开支付页面")} </a>
                     )}
                     <QrCode value={https ?? wallet!} label={tr("支付链接二维码")} size={180} />
                     <span class="muted small">{https ? tr("也可以用手机扫码，在手机上完成支付") : tr("请用手机扫码，在手机上完成支付")}</span>
@@ -468,7 +467,7 @@ export function Plans() {
 
             {a.type === "stripe" &&
               (httpsTarget(a.provider_url) ? (
-                <a class="btn primary big" href={httpsTarget(a.provider_url)!} target="_blank" rel="noopener noreferrer" style={{ minWidth: "240px" }}>{tr("打开支付页面")} </a>
+                <a class="btn primary" href={httpsTarget(a.provider_url)!} target="_blank" rel="noopener noreferrer" style={{ minWidth: "240px" }}>{tr("打开支付页面")} </a>
               ) : (
                 <span class="muted">{tr("这种支付方式请在 Hyper App 里完成，或取消订单后换一种支付方式")}</span>
               ))}
@@ -496,12 +495,12 @@ export function Plans() {
                 <fieldset style={{ border: 0, margin: 0, padding: 0, display: "flex", flexWrap: "wrap", gap: "8px" }}>
                   <legend class="muted small" style={{ padding: "0 0 8px" }}>{tr("币种")}</legend>
                   {((a.supported_assets ?? []).find((n) => n.network === asset.network)?.tokens ?? []).map((t) => (
-                    <button key={t} type="button" role="radio" aria-checked={asset.token === t} class="option" style={{ flex: "0 0 auto", minHeight: "44px", padding: "0 18px" }} onClick={() => (asset.token = t)}>
+                    <button key={t} type="button" role="radio" aria-checked={asset.token === t} class="option" style={{ flex: "0 0 auto" }} onClick={() => (asset.token = t)}>
                       {t}
                     </button>
                   ))}
                 </fieldset>
-                <button type="button" class="btn primary big" disabled={busy.value || !asset.token} onClick={() => chooseAsset()}>
+                <button type="button" class="btn primary" disabled={busy.value || !asset.token} onClick={() => chooseAsset()}>
                   {busy.value ? tr("请稍候…") : tr("获取收款地址")}
                 </button>
               </div>

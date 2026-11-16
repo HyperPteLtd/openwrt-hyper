@@ -1,0 +1,32 @@
+.page.settings-page { gap: 16px; }
+.settings-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+.settings-column { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.settings-page .card { padding: 20px; gap: 16px; }
+.settings-page .card-header { align-items: center; }
+.settings-page .card-heading p { margin-top: 4px; }
+.settings-page .settings-row { padding: 12px 0; min-height: 64px; gap: 8px 16px; }
+.settings-page .settings-fields > .settings-row:first-child { border-top: 0; padding-top: 0; min-height: 52px; }
+.settings-page .settings-row:last-child { padding-bottom: 0; }
+.settings-page .settings-row-copy { gap: 4px; }
+.settings-page .settings-row-control { flex-shrink: 0; }
+.settings-software .card-header { flex-wrap: nowrap; }
+.settings-software .card-heading { flex: 1 1 0; }
+.settings-software .card-actions { flex-shrink: 0; }
+.settings-update-button { white-space: nowrap; }
+.settings-update-state { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--line); padding-top: 12px; overflow-wrap: anywhere; }
+.settings-update-state strong { font-size: 14px; font-weight: 500; }
+.settings-update-state[data-state="error"] strong { color: var(--danger-text); }
+.settings-update-state[data-state="available"] strong, .settings-update-state[data-state="done"] strong { color: var(--accent); }
+.settings-release-notes { margin: 0; padding: 12px; border-radius: 8px; background: var(--surface); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }
+.settings-links { display: flex; flex-wrap: wrap; gap: 8px 16px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 12px; }
+@media (max-width: 800px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .settings-page .card { padding: 16px; }
+}
+@media (max-width: 640px) {
+  .settings-page .settings-row { min-height: 60px; padding: 10px 0; }
+  .settings-page .settings-fields > .settings-row:first-child { padding-top: 0; min-height: 48px; }
+  .settings-page .settings-row:last-child { padding-bottom: 0; }
+}

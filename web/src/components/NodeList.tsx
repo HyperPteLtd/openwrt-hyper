@@ -6,22 +6,33 @@ import { formatAgo, latencyTone } from "../lib/format";
 import { serviceText } from "../lib/display";
 import { operationPending } from "../lib/service";
 import { nodeLabel, nodeRegion, regionFlag, regionName } from "../lib/regions";
-import { call } from "../lib/rpc";
+import { beginNodeMeasurement, call, readNodeLatency } from "../lib/rpc";
+import type { NodeMeasurements } from "../lib/node-latency";
 import type { NodeInfo, NodesResult, Result, SyncState } from "../lib/types";
+import { Card } from "./ui";
 
 const TONE: Record<string, string> = { good: "var(--good)", warn: "var(--warn)", none: "#8e8e93" };
 
 export function NodeList() {
   const nodes = useSignal<NodeInfo[]>([]);
-  const latency = useSignal<Record<string, number | null>>({});
+  const latency = useSignal<NodeMeasurements>({});
   const query = useSignal("");
   const busy = useSignal("");
   const message = useSignal("");
   const loadId = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const load = async () => {
     const id = ++loadId.current;
-    const apply = (r: NodesResult) => { if (id === loadId.current) nodes.value = r.nodes || []; };
+    const apply = (r: NodesResult) => {
+      if (id !== loadId.current) return;
+      nodes.value = r.nodes || [];
+      latency.value = readNodeLatency(nodes.value);
+    };
     try {
       apply(await call<NodesResult>("nodes", {}, { onUpdate: apply }));
     } catch (e) {
@@ -30,22 +41,37 @@ export function NodeList() {
   };
 
   const tick = app.tick;
+  const identity = app.status?.signed_in ? app.status.email || "signed-in" : "signed-out";
+  const loadedIdentity = useRef(identity);
   useEffect(() => {
+    if (loadedIdentity.current !== identity) {
+      loadedIdentity.current = identity;
+      nodes.value = [];
+      latency.value = {};
+      message.value = "";
+    }
     load();
     return () => { loadId.current++; };
-  }, [tick]);
+  }, [tick, identity]);
 
   const measure = async () => {
     busy.value = "latency";
     message.value = "";
+    const remember = beginNodeMeasurement();
     try {
       const r = await call<Result & { latency?: Record<string, number | null> }>("latency");
-      if (r.result && r.latency) latency.value = r.latency;
-      else message.value = r.error === "not running" ? tr("Hyper 运行时才能测速") : r.error || tr("测速失败");
+      if (r.result && r.latency) {
+        const snapshot = remember(r.latency);
+        if (snapshot && mounted.current) {
+          latency.value = snapshot;
+          return r.latency;
+        }
+      } else if (mounted.current) message.value = r.error === "not running" ? tr("Hyper 运行时才能测速") : r.error || tr("测速失败");
     } catch (e) {
-      message.value = (e as Error).message;
+      if (mounted.current) message.value = (e as Error).message;
+    } finally {
+      if (mounted.current) busy.value = "";
     }
-    busy.value = "";
   };
 
   const sync = async () => {
@@ -75,9 +101,11 @@ export function NodeList() {
   };
 
   const autoPick = async () => {
-    await measure();
-    const best = Object.entries(latency.value)
-      .filter(([, ms]) => ms != null && ms > 0)
+    const measured = await measure();
+    if (!measured) return;
+    const names = new Set(nodes.value.map((node) => node.name));
+    const best = Object.entries(measured)
+      .filter(([name, ms]) => names.has(name) && ms != null && ms > 0)
       .sort((a, b) => (a[1] as number) - (b[1] as number))[0];
     if (best) await select(best[0]);
   };
@@ -87,24 +115,24 @@ export function NodeList() {
     (n) => !q || [n.label, nodeLabel(n.label), regionName(nodeRegion(n)), n.country, n.city].some((text) => text?.toLowerCase().includes(q)),
   );
   const current = app.status?.main_node;
-  const isBusy = !!busy.value || !!app.controlAction || operationPending(app.status?.operation);
+  const isBusy = !app.liveStatus || !!busy.value || !!app.controlAction || operationPending(app.status?.operation);
 
   return (
-    <section id="overview-nodes" aria-label={tr("节点")} style={{ display: "flex", flexDirection: "column", gap: "16px", scrollMarginTop: "20px" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: "16px" }}>
-        <div style={{ flex: "1 1 280px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <h2 style={{ margin: 0, fontSize: "22px", fontWeight: 600 }}>{tr("选择节点")}</h2>
-          <p class="muted" style={{ margin: 0 }}>{tr("共 {0} 个节点 · {1}更新", [nodes.value.length, formatAgo(app.status?.sync?.time)])}</p>
+    <Card id="overview-nodes" className="node-section" label={tr("节点")}>
+      <div class="node-toolbar">
+        <div class="node-heading">
+          <h2>{tr("选择节点")}</h2>
+          <p class="muted small">{tr("共 {0} 个节点 · {1}更新", [nodes.value.length, formatAgo(app.status?.sync?.time)])}</p>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: "8px", minHeight: "44px", padding: "0 16px", borderRadius: "22px", background: "var(--card)", minWidth: "220px" }}>
+        <div class="node-actions">
+          <label class="node-search">
             <span class="muted" aria-hidden="true">⌕</span>
             <input
               type="search"
               aria-label={tr("搜索节点")}
               placeholder={tr("搜索国家、地区或城市")}
               value={query.value} onInput={(e) => (query.value = e.currentTarget.value)}
-              style={{ all: "unset", flexGrow: 1, fontSize: "14px" }}
+              style={{ all: "unset", flexGrow: 1, fontSize: "var(--control-font-size)" }}
             />
           </label>
           <button type="button" class="btn" disabled={isBusy} onClick={() => measure()}>{busy.value === "latency" ? tr("测速中…") : tr("刷新延迟")}</button>
@@ -115,11 +143,12 @@ export function NodeList() {
 
       {message.value && <div class="banner">{serviceText(message.value)}</div>}
 
-      <section class="card" style={{ padding: "8px 12px" }}>
+      <div class="node-list">
         {list.length ? (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0, maxHeight: "420px", overflowY: "auto" }}>
+          <ul class="node-grid">
             {list.map((n) => {
-              const ms = latency.value[n.name];
+              const measurement = latency.value[n.name];
+              const ms = measurement?.ms;
               const tone = latencyTone(ms);
               const on = n.name === current;
               const region = nodeRegion(n);
@@ -127,18 +156,17 @@ export function NodeList() {
                 <li key={n.name}>
                   <button
                     type="button"
-                    class="option"
+                    class="option node-option"
                     aria-pressed={on}
                     disabled={isBusy}
                     onClick={() => select(n.name)}
-                    style={{ width: "100%", border: 0, background: on ? "var(--control)" : "transparent", minHeight: "64px" }}
                   >
-                    <span aria-hidden="true" style={{ fontSize: "26px", minWidth: "36px", flexShrink: 0 }}>{regionFlag(region)}</span>
-                    <span class="grow" style={{ minWidth: 0 }}>
-                      <span style={{ fontSize: "15px", fontWeight: 600, overflowWrap: "anywhere" }}>{nodeLabel(n.label)}</span>
-                      {on && <span class="muted small">{tr("当前")}</span>}
+                    <span aria-hidden="true" class="node-flag">{regionFlag(region)}</span>
+                    <span class="node-name">
+                      <span>{nodeLabel(n.label)}</span>
+                      {on && <span class="node-current">{tr("当前")}</span>}
                     </span>
-                    <span style={{ minWidth: "64px", textAlign: "right", color: TONE[tone], fontVariantNumeric: "tabular-nums" }}>
+                    <span class="node-latency" title={measurement ? formatAgo(Math.floor(measurement.measuredAt / 1000)) : undefined} style={{ color: TONE[tone] }}>
                       {ms === undefined ? "" : tone === "none" ? tr("超时") : `${ms} ms`}
                     </span>
                   </button>
@@ -155,7 +183,7 @@ export function NodeList() {
             )}
           </div>
         )}
-      </section>
-    </section>
+      </div>
+    </Card>
   );
 }

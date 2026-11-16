@@ -3,17 +3,20 @@ import { useSignal } from "@preact/signals";
 import { useRef } from "preact/hooks";
 import { app } from "../lib/app";
 import { usePoll } from "../lib/poll";
-import { formatAgo, formatBytes, formatRate, formatUptime } from "../lib/format";
+import { formatBytes, formatUptime } from "../lib/format";
 import { call } from "../lib/rpc";
 import { serviceText } from "../lib/display";
-import { nodeLabel } from "../lib/regions";
+import { Announcements } from "../components/Announcements";
+import { Card } from "../components/ui";
 import { NodeList } from "../components/NodeList";
+import { OverviewNetwork } from "../components/OverviewNetwork";
+import { TrafficChart, type TrafficSample } from "../components/TrafficChart";
+import "./Overview.css";
 import { liveUptime, operationPending } from "../lib/service";
-import type { Result, ServiceOperation, Traffic } from "../lib/types";
+import type { Mode, Result, ServiceOperation, Traffic } from "../lib/types";
 
-/* traffic sample every 3 s, 20 bars = the last minute */
+/* Real counter samples every 3 seconds, displayed over the last minute. */
 const POLL_MS = 3000;
-const BARS = 20;
 
 const MODES = [
   { id: "smart", label: tr("智能分流"), desc: tr("国内直连，其余按规则走代理") },
@@ -23,12 +26,12 @@ const MODES = [
 
 export function Overview() {
   const busy = useSignal(false);
+  const pendingMode = useSignal<Mode | null>(null);
   const clock = useSignal(performance.now());
-  usePoll(() => { clock.value = performance.now(); }, 1000, !!app.status?.running);
+  usePoll(() => { clock.value = performance.now(); }, 1000, app.liveStatus && !!app.status?.running);
   const message = useSignal("");
-  const rate = useSignal<{ up: number; down: number } | null>(null);
   const totals = useSignal<{ up: number; down: number } | null>(null);
-  const bars = useSignal<number[]>([]);
+  const samples = useSignal<TrafficSample[]>([]);
 
   /*
    * Poll clash_api totals every 3 s (only while the page is visible) and turn
@@ -37,9 +40,14 @@ export function Overview() {
    */
   const last = useRef<{ up: number; down: number; t: number } | null>(null);
   usePoll(async (resumed) => {
-    if (resumed) last.current = null; /* a gap of minutes is not a rate */
-    if (!app.status?.running) {
-      rate.value = null;
+    if (resumed) {
+      last.current = null;
+      samples.value = [];
+    }
+    if (!app.liveStatus || !app.status?.running) {
+      totals.value = null;
+      samples.value = [];
+      last.current = null;
       return;
     }
     try {
@@ -47,11 +55,12 @@ export function Overview() {
       if (!t.running || t.download_total == null || t.upload_total == null) return;
       const now = Date.now();
       const prev = last.current;
-      if (prev) {
+      if (prev && t.upload_total >= prev.up && t.download_total >= prev.down && now > prev.t) {
         const dt = (now - prev.t) / 1000;
         const r = { up: Math.max(0, (t.upload_total - prev.up) / dt), down: Math.max(0, (t.download_total - prev.down) / dt) };
-        rate.value = r;
-        bars.value = [...bars.value, r.down].slice(-BARS);
+        samples.value = [...samples.value.filter((point) => now - point.time <= 60000), { time: now, ...r }].slice(-32);
+      } else {
+        samples.value = [];
       }
       last.current = { up: t.upload_total, down: t.download_total, t: now };
       totals.value = { up: t.upload_total, down: t.download_total };
@@ -61,7 +70,7 @@ export function Overview() {
   }, POLL_MS);
 
   const toggle = async () => {
-    if (!app.status || busy.value || operationPending(app.status.operation)) return;
+    if (!app.liveStatus || !app.status || busy.value || operationPending(app.status.operation)) return;
     busy.value = true;
     const enabled = !app.status.running;
     app.controlAction = enabled ? "start" : "stop";
@@ -78,112 +87,106 @@ export function Overview() {
     app.tick++;
   };
 
-  const setMode = async (mode: string) => {
+  const setMode = async (mode: Mode) => {
+    if (!app.liveStatus || !app.status || busy.value || app.controlAction || operationPending(app.status.operation) || app.status.mode === mode) return;
     busy.value = true;
+    pendingMode.value = mode;
+    message.value = "";
     try {
-      await call("set_mode", { mode });
+      const result = await call<Result>("set_mode", { mode });
+      if (!result.result) throw new Error(result.error || result.msg || tr("模式切换失败，请重试"));
+      // The acknowledged response confirms the saved mode; the next status read
+      // reconciles the service operation without reverting the selected option.
+      if (app.status) app.status = { ...app.status, mode };
     } catch (e) {
-      message.value = (e as Error).message;
+      message.value = e instanceof Error ? e.message : tr("模式切换失败，请重试");
+    } finally {
+      pendingMode.value = null;
+      busy.value = false;
+      app.tick++;
     }
-    busy.value = false;
-    app.tick++;
   };
 
   const s = app.status;
   if (!s) return <main class="page muted">{tr("加载中…")}</main>;
 
   const pending = app.controlAction || (operationPending(s.operation) ? s.operation!.action : null);
-  const failed = s.enabled && !s.running && !pending;
-  const isBusy = busy.value || !!pending;
-  const actionLabel = pending === "stop" ? tr("正在停止…") : pending === "restart" ? tr("正在重启…") : pending ? tr("正在启动…") : s.running ? tr("停止") : failed ? tr("重试") : tr("启动");
-  const peak = Math.max(1, ...bars.value);
+  const live = app.liveStatus;
+  const failed = live && s.enabled && !s.running && !pending;
+  const isBusy = !live || busy.value || !!pending;
+  const actionLabel = !live ? tr("正在连接路由器…") : pending === "stop" ? tr("正在停止…") : pending === "restart" ? tr("正在重启…") : pending ? tr("正在启动…") : s.running ? tr("停止") : failed ? tr("重试") : tr("启动");
 
   return (
-    <main class="page">
-      {s.health?.state === "failopen" && (
-        <div class="banner warn">{tr("代理服务没有响应，Hyper 已暂时让局域网直连，避免整个网络断开。恢复后会自动切回代理")} <a href="#/logs" style={{ marginLeft: "8px", color: "#fff" }}>{tr("查看日志 ›")}</a>
+    <main class="page overview-page">
+      <Announcements />
+      {live && s.health?.state === "failopen" && (
+        <div class="banner warn">{tr("代理服务没有响应，Hyper 已暂时让局域网直连，避免整个网络断开。恢复后会自动切回代理")} <a href="#/diagnostics" style={{ marginLeft: "8px", color: "#fff" }}>{tr("查看日志 ›")}</a>
         </div>
       )}
 
-      <div class="row">
-        <section class="card" style={{ flex: "3 1 460px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <h2 style={{ fontSize: "24px" }}>{pending ? actionLabel : s.running ? tr("世界很大，自在连接") : failed ? tr("连接没有成功") : tr("Hyper 已停止")}</h2>
-            <p class="muted" style={{ margin: 0 }}>
-              {pending ? tr("正在应用连接设置，请稍候") : s.running
+      <div class="overview-dashboard">
+        <div class="overview-control-column">
+        <Card className="connection-card">
+          <div class="connection-heading">
+            <h2>{!live ? tr("正在连接路由器…") : pending ? actionLabel : s.running ? tr("已连接") : failed ? tr("连接没有成功") : tr("Hyper 已停止")}</h2>
+            <p class="muted">
+              {!live ? tr("正在读取路由器状态") : pending ? tr("正在应用连接设置，请稍候") : s.running
                 ? tr("接入这台路由器的设备，正在经由 Hyper 访问网络")
                 : failed
                   ? tr("可以换一个节点，或查看日志找原因")
                   : tr("启动后，接入这台路由器的设备会经由 Hyper 访问网络")}
             </p>
           </div>
-          {(failed || (s.operation?.state === "failed" && !pending)) && (
-            <div class="banner">{tr("服务操作未完成，请查看日志")} <a href="#/logs" style={{ color: "#fff" }}>{tr("查看日志 ›")}</a>
+          {live && (failed || (s.operation?.state === "failed" && !pending)) && (
+            <div class="banner">{tr("服务操作未完成，请查看日志")} <a href="#/diagnostics" style={{ color: "#fff" }}>{tr("查看日志 ›")}</a>
             </div>
           )}
-          <dl class="grid-stats" style={{ margin: 0 }}>
-            <div class="stat"><b>{s.running ? formatUptime(liveUptime(s.uptime, app.statusAt, clock.value)) : "--"}</b><span>{tr("运行时长")}</span></div>
-            <div class="stat"><b>{s.memory_kb ? `${Math.round(s.memory_kb / 1024)} MB` : "--"}</b><span>{tr("内存占用")}</span></div>
-            <div class="stat"><b>{s.version || "--"}</b><span>{tr("软件版本")}</span></div>
-            <div class="stat"><b>{s.sync?.count ?? "--"}</b><span>{tr("节点 · {0}更新", [formatAgo(s.sync?.time)])}</span></div>
-          </dl>
-          <div class="power-control">
-            <button type="button" class={`power-button ${s.running ? "is-on" : ""} ${pending ? "is-busy" : ""}`} aria-busy={!!pending} disabled={isBusy || (!s.running && !s.main_node)} onClick={() => toggle()}>
+          <div class="connection-controls">
+            <p class="connection-uptime" aria-label={live && s.running ? tr("运行时长") : undefined} aria-hidden={!live || !s.running}>{live && s.running ? formatUptime(liveUptime(s.uptime, app.statusAt, clock.value)) : "\u00a0"}</p>
+            <div class="power-control">
+            <button type="button" class={`power-button ${live && s.running ? "is-on" : ""} ${pending || !live ? "is-busy" : ""}`} aria-busy={!!pending || !live} disabled={isBusy || (!s.running && !s.main_node)} onClick={() => toggle()}>
               <span class="power-symbol" aria-hidden="true">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                   <path d="M12 3v9M6.2 5.8a8.5 8.5 0 1 0 11.6 0" />
                 </svg>
               </span>
-              <span>{actionLabel}</span>
+              <span>{!live ? tr("加载中") : actionLabel}</span>
             </button>
-            <span class="muted small" role="status">{pending ? tr("正在应用连接设置，请稍候") : s.running ? tr("已连接，局域网设备可通过 Hyper 上网") : tr("一键连接，让局域网设备自在上网")}</span>
-            {!s.main_node && <span class="muted">{tr("还没有节点，请先在下方更新节点")}</span>}
+            {live && !s.main_node && <span class="muted">{tr("还没有节点，请先在下方更新节点")}</span>}
+          </div>
           </div>
           {message.value && <div class="banner">{serviceText(message.value)}</div>}
-        </section>
-
-        <section class="card" style={{ flex: "2 1 320px" }}>
-          <div class="card-head">
-            <h2>{tr("当前节点")}</h2>
-            <button type="button" class="btn ghost" onClick={() => document.getElementById("overview-nodes")?.scrollIntoView()}>{tr("切换 ›")}</button>
-          </div>
-          <div style={{ fontSize: "17px", fontWeight: 600 }}>{nodeLabel(s.main_node_label || tr("未选择"))}</div>
-          <div style={{ height: "1px", background: "var(--line)" }} />
+          <div class="connection-mode-section">
           <h3 style={{ margin: 0, fontSize: "15px" }}>{tr("代理模式")}</h3>
-          <div role="group" aria-label={tr("代理模式")} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div role="group" aria-label={tr("代理模式")} aria-busy={!!pendingMode.value} class="connection-modes">
             {MODES.map((m) => (
-              <button key={m.id} type="button" class="option" aria-pressed={s.mode === m.id} disabled={isBusy} onClick={() => setMode(m.id)}>
+              <button key={m.id} type="button" class="option" aria-pressed={(pendingMode.value || s.mode) === m.id} aria-busy={pendingMode.value === m.id} aria-label={pendingMode.value === m.id ? `${m.label} · ${tr("正在切换…")}` : m.label} disabled={isBusy} title={m.desc} onClick={() => setMode(m.id)}>
                 <span class="grow">
-                  <span style={{ fontSize: "15px" }}>{m.label}</span>
-                  <span class="muted small">{m.desc}</span>
+                  <span aria-live="polite">{pendingMode.value === m.id ? tr("正在切换…") : m.label}</span>
                 </span>
               </button>
             ))}
           </div>
-        </section>
+          </div>
+      <div class="overview-telemetry">
+        <div class="traffic-summary">
+          <h3>{tr("实时流量")}</h3>
+          <span class="muted small">{tr("累计 ↓")} {formatBytes(live && s.running ? totals.value?.down : undefined)} · ↑ {formatBytes(live && s.running ? totals.value?.up : undefined)}</span>
+        </div>
+        <TrafficChart samples={live && s.running ? samples.value : []} />
+      </div>
+        </Card>
+        <OverviewNetwork section="custom" />
+        <OverviewNetwork section="rules" />
       </div>
 
-      <NodeList />
+      <div class="overview-content-column">
 
-      <div class="row">
-        <section class="card" style={{ flex: "3 1 380px" }}>
-          <div class="card-head">
-            <h2>{tr("实时流量")}</h2>
-            <span class="muted small">{tr("累计 ↓")} {formatBytes(totals.value?.down)} · ↑ {formatBytes(totals.value?.up)}</span>
-          </div>
-          <div style={{ display: "flex", gap: "28px", flexWrap: "wrap" }}>
-            <div class="stat"><b style={{ fontSize: "22px" }}>{formatRate(rate.value?.down)}</b><span>{tr("下载")}</span></div>
-            <div class="stat"><b style={{ fontSize: "22px" }}>{formatRate(rate.value?.up)}</b><span>{tr("上传")}</span></div>
-          </div>
-          <div aria-hidden="true" style={{ display: "flex", alignItems: "flex-end", gap: "4px", height: "72px" }}>
-            {Array.from({ length: BARS }, (_, i) => {
-              const v = bars.value[i - (BARS - bars.value.length)];
-              const h = v == null ? 4 : Math.max(4, Math.round((v / peak) * 72));
-              return <span key={i} style={{ flex: "1 1 0", minWidth: "3px", borderRadius: "3px", height: `${h}px`, background: v == null ? "#3a3a3d" : "var(--accent)" }} />;
-            })}
-          </div>
-          <span class="muted small">{tr("最近 60 秒的实时流量")}</span>
-        </section>
+
+      <NodeList />
+      <OverviewNetwork section="dns" />
+      <OverviewNetwork section="devices" />
+      </div>
       </div>
     </main>
   );
