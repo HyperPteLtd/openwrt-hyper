@@ -24,7 +24,7 @@ interface UpdateInfo extends Result {
 }
 
 const PROXY_MODES = [
-  { id: "redirect_tproxy", label: "TProxy（推荐，支持 UDP）" },
+  { id: "redirect_tproxy", label: "TProxy（推荐）" },
   { id: "redirect", label: "Redirect（仅 TCP）" },
   { id: "redirect_tun", label: "Redirect + TUN" },
   { id: "tun", label: "TUN" },
@@ -34,17 +34,15 @@ const LOG_LEVELS = ["error", "warn", "info", "debug"];
 export function Settings() {
   const saved = useSignal<Config>({});
   const draft = useStore<{ v: Config }>({ v: {} });
-  const apiBase = useSignal("");
   const msg = useStore({ text: "", tone: "error" as "error" | "warn" | "ok" });
   const busy = useSignal("");
   const update = useSignal<UpdateInfo | null>(null);
 
   useEffect(() => {
-    call<{ config: Config; api_base: string }>("get_config")
+    call<{ config: Config }>("get_config")
       .then((r) => {
         saved.value = r.config;
         draft.v = { ...r.config };
-        apiBase.value = r.api_base || "";
       })
       .catch((e: Error) => (msg.text = e.message));
   }, []);
@@ -70,20 +68,6 @@ export function Settings() {
         msg.text = r.error || "保存失败";
         msg.tone = "error";
       }
-    } catch (e) {
-      msg.text = (e as Error).message;
-      msg.tone = "error";
-    }
-    busy.value = "";
-    app.tick++;
-  };
-
-  const saveApiBase = async () => {
-    busy.value = "api";
-    try {
-      const r = await call<Result>("set_api_base", { api_base: apiBase.value.trim() });
-      msg.text = r.result ? "服务地址已保存。地址变了的话需要重新登录。" : r.error === "illegal url" ? "地址格式不对，应以 https:// 开头。" : r.error || "保存失败";
-      msg.tone = r.result ? "ok" : "error";
     } catch (e) {
       msg.text = (e as Error).message;
       msg.tone = "error";
@@ -147,29 +131,23 @@ export function Settings() {
         <div style={{ flex: "1 1 460px", display: "flex", flexDirection: "column", gap: "20px", minWidth: 0 }}>
           <section class="card">
             <h2>服务器与订阅</h2>
-            <label class="field">
-              服务地址（PPanel API）
-              <span style={{ display: "flex", gap: "10px" }}>
-                <input class="input mono" type="url" value={apiBase.value} onInput={(e) => (apiBase.value = e.currentTarget.value)} placeholder="https://api.example.com" />
-                <button type="button" class="btn" style={{ borderRadius: "12px", minHeight: "48px", flexShrink: 0 }} disabled={busy.value === "api"} onClick={() => saveApiBase()}>
-                  保存
-                </button>
-              </span>
-              <span class="muted small">修改后需要重新登录。</span>
-            </label>
             <div>
+              <Row title="服务连接" desc="自动获取服务地址，连接异常时切换备用地址。">
+                <span class="muted small">自动选择</span>
+              </Row>
               <Row title="自动同步节点" desc={`每天在设定的时间同步一次 · 上次 ${formatAgo(s?.sync?.time)}`}>
                 <Switch label="自动同步节点" checked={flag("subscription.auto_update")} onToggle={(on) => set("subscription.auto_update", on ? "1" : "0")} />
               </Row>
               <Row title="同步时间" desc="路由器本地时间">
                 <select
                   aria-label="同步时间"
-                  class="input"
-                  style={{ width: "auto", minHeight: "40px" }}
+                  class="input settings-select"
+                  value={draft.v["subscription.auto_update_time"] ?? "4"}
+                  disabled={isBusy}
                   onChange={(e) => set("subscription.auto_update_time", e.currentTarget.value)}
                 >
                   {Array.from({ length: 24 }, (_, h) => (
-                    <option key={h} value={String(h)} selected={String(h) === (draft.v["subscription.auto_update_time"] || "4")}>{`${String(h).padStart(2, "0")}:00`}</option>
+                    <option key={h} value={String(h)}>{`${String(h).padStart(2, "0")}:00`}</option>
                   ))}
                 </select>
               </Row>
@@ -183,9 +161,9 @@ export function Settings() {
             <h2>路由器</h2>
             <div>
               <Row title="透明代理方式" desc="TProxy 同时代理 TCP 和 UDP">
-                <select aria-label="透明代理方式" class="input" style={{ width: "auto", minHeight: "40px" }} onChange={(e) => set("config.proxy_mode", e.currentTarget.value)}>
+                <select aria-label="透明代理方式" class="input settings-select" value={draft.v["config.proxy_mode"] || "redirect_tproxy"} disabled={isBusy} onChange={(e) => set("config.proxy_mode", e.currentTarget.value)}>
                   {PROXY_MODES.map((m) => (
-                    <option key={m.id} value={m.id} selected={m.id === (draft.v["config.proxy_mode"] || "redirect_tproxy")}>{m.label}</option>
+                    <option key={m.id} value={m.id}>{m.label}</option>
                   ))}
                 </select>
               </Row>
@@ -196,9 +174,9 @@ export function Settings() {
                 <Switch label="路由器自身流量走代理" checked={draft.v["control.proxy_router_self"] !== "0"} onToggle={(on) => set("control.proxy_router_self", on ? "1" : "0")} />
               </Row>
               <Row title="日志级别">
-                <select aria-label="日志级别" class="input" style={{ width: "auto", minHeight: "40px" }} onChange={(e) => set("config.log_level", e.currentTarget.value)}>
+                <select aria-label="日志级别" class="input settings-select" value={draft.v["config.log_level"] || "warn"} disabled={isBusy} onChange={(e) => set("config.log_level", e.currentTarget.value)}>
                   {LOG_LEVELS.map((l) => (
-                    <option key={l} value={l} selected={l === (draft.v["config.log_level"] || "warn")}>{l}</option>
+                    <option key={l} value={l}>{l}</option>
                   ))}
                 </select>
               </Row>
@@ -213,7 +191,7 @@ export function Settings() {
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <h2>关于 Hyper 路由器版</h2>
                 <span class="muted small mono">
-                  luci-app-hyper {s?.version || "?"} · sing-box {s?.singbox_version || "?"}
+                  版本 {s?.version || "--"}
                 </span>
               </div>
             </div>

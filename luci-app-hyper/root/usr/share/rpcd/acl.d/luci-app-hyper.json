@@ -54,7 +54,6 @@
 					"register",
 					"logout",
 					"api",
-					"set_api_base",
 					"set_access_control",
 					"log_clean",
 					"diag",

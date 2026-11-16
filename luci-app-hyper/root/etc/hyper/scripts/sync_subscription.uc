@@ -29,7 +29,7 @@ import {
 	executeCommand, getTime, isEmpty, shellQuote, httpRequest,
 	readSession, CRYPT_BIN, HP_DIR, RUN_DIR, SINGBOX_BIN, SYNC_STATE_FILE
 } from 'hyper';
-import { config as ppanelConfig, request, refreshSubscriptionToken, subscribeEndpoint } from 'ppanel';
+import { request, refreshSubscriptionToken, subscribeEndpoint } from 'ppanel';
 import { parseFeatures, parseLocations, parseStatus, parseSubscription } from 'snapshot';
 import { normalizeCatalog, parseRuleList, toRuleSetSources } from 'rules';
 
@@ -116,7 +116,7 @@ function fetch_country(ep, token, country, opts, proxy) {
 		return { error: 'crypt_unavailable' };
 
 	const res = request('GET', ep.path, {
-		base: ep.base, auth: false, raw: true, timeout: 30, proxy,
+		auth: false, raw: true, timeout: 30, proxy,
 		query: { token, country, client_public_key: keypair.public_key }
 	});
 	if (!res.ok)
@@ -131,7 +131,7 @@ function fetch_country(ep, token, country, opts, proxy) {
 
 /* Rule catalog -> rule-set source files + index.json read by generate_client.uc */
 function sync_rules(ep, proxy) {
-	const res = request('GET', ep.path + '/rules', { base: ep.base, timeout: 20, proxy });
+	const res = request('GET', ep.path + '/rules', { timeout: 20, proxy });
 	if (!res.ok) {
 		log(sprintf('Rules: fetch failed (HTTP %d), keeping the previous rules.', res.status || 0));
 		return { ok: false };
@@ -196,10 +196,9 @@ function sync_rules(ep, proxy) {
 }
 
 function main() {
-	const cfg = ppanelConfig();
 	const session = readSession();
 
-	if (isEmpty(cfg.api_base) || !session?.jwt) {
+	if (!session?.jwt) {
 		log('Not signed in, skipping.');
 		save_state({ ok: false, error: 'not_signed_in' });
 		return 1;
@@ -214,7 +213,7 @@ function main() {
 		features: singbox_features()
 	};
 
-	const tok = refreshSubscriptionToken();
+	const tok = refreshSubscriptionToken(proxy);
 	if (!tok.ok) {
 		log('Failed to get the subscription token:', tok.msg || tok.error);
 		save_state({ ok: false, error: tok.error || 'subscription_token', msg: tok.msg });
@@ -224,7 +223,7 @@ function main() {
 	const ep = subscribeEndpoint();
 
 	/* Countries */
-	const loc = request('GET', ep.path + '/location', { base: ep.base, auth: false, timeout: 20, proxy, query: { token } });
+	const loc = request('GET', ep.path + '/location', { auth: false, timeout: 20, proxy, query: { token } });
 	const countries = loc.ok ? parseLocations(loc.data) : [];
 	if (!loc.ok || !length(countries)) {
 		log(sprintf('Failed to list countries (HTTP %d).', loc.status || 0));

@@ -1,6 +1,15 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 
+# Migrate manual endpoints to automatic Hyper discovery. Do not forward a session
+# from a custom panel to Hyper; existing sessions on the built-in origins survive.
+legacy_api="$(uci -q get hyper.account.api_base)"
+case "${legacy_api%/}" in
+	''|https://api.cloudcdnhyper.com|https://api.hypervpn.app) ;;
+	*) rm -f /etc/hyper/session ;;
+esac
+uci -q delete hyper.account.api_base
+
 # Per-router secrets, generated once and kept across upgrades (/etc/config/hyper is a conffile)
 [ -n "$(uci -q get hyper.account.device_id)" ] || \
 	uci -q set hyper.account.device_id="$(cat /proc/sys/kernel/random/uuid)"

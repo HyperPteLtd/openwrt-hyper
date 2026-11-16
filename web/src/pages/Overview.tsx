@@ -114,7 +114,7 @@ export function Overview() {
           <dl class="grid-stats" style={{ margin: 0 }}>
             <div class="stat"><b>{s.running ? formatUptime(s.uptime) : "--"}</b><span>运行时长</span></div>
             <div class="stat"><b>{s.memory_kb ? `${Math.round(s.memory_kb / 1024)} MB` : "--"}</b><span>内存占用</span></div>
-            <div class="stat"><b>{s.singbox_version ? `sing-box ${s.singbox_version}` : "--"}</b><span>核心</span></div>
+            <div class="stat"><b>{s.version || "--"}</b><span>软件版本</span></div>
             <div class="stat"><b>{s.sync?.count ?? "--"}</b><span>节点 · {formatAgo(s.sync?.time)}同步</span></div>
           </dl>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>

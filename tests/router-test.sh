@@ -91,6 +91,23 @@ if [ -e "$BIN/hyper-crypt" ]; then
 	if "$BIN/hyper-crypt" keygen | grep -q '"private_key"'; then echo "ok   bundled hyper-crypt runs"; else echo "FAIL bundled hyper-crypt does not run"; rc=1; fi
 fi
 
+echo "== automatic API migration"
+for base in 'https://api.cloudcdnhyper.com/' 'https://api.hypervpn.app' 'https://custom.example'; do
+	uci set "hyper.account.api_base=$base"
+	uci commit hyper
+	printf '%s\n' '{"jwt":"migration-test"}' > /etc/hyper/session
+	sh /src/luci-app-hyper/root/etc/uci-defaults/luci-hyper
+	if uci -q get hyper.account.api_base >/dev/null; then
+		echo "FAIL legacy API address remains configured"; rc=1
+	fi
+	case "$base" in
+		*custom.example) if [ -e /etc/hyper/session ]; then echo "FAIL custom panel session retained"; rc=1; fi ;;
+		*) if [ ! -e /etc/hyper/session ]; then echo "FAIL Hyper session lost"; rc=1; fi ;;
+	esac
+done
+rm -f /etc/hyper/session
+echo "ok   manual addresses removed; Hyper sessions kept and custom panel sessions cleared"
+
 cd /src
 PATH="$BIN:$PATH" UCODE=/usr/bin/ucode UCODE_LIB=/usr/lib/ucode sh tests/run.sh || rc=1
 
@@ -107,6 +124,14 @@ if ubus -t 10 wait_for luci.hyper && ubus -v list luci.hyper | grep -q '"checkin
 	echo "ok   rpcd serves luci.hyper ($(ubus -v list luci.hyper | grep -c '^[[:space:]]*"') methods)"
 	if res="$(ubus call luci.hyper checkin_status)"; then echo "ok   ubus call luci.hyper checkin_status: $(echo $res | head -c 120)"
 	else echo "FAIL ubus call luci.hyper checkin_status"; rc=1; fi
+
+	# Fresh installs have a usable default without accepting a manual API address.
+	base="$(ubus call luci.hyper get_config | jsonfilter -e '@.api_base')"
+	if [ "$base" = 'https://api.cloudcdnhyper.com' ] && ! ubus -v list luci.hyper | grep -q '"set_api_base"'; then
+		echo "ok   API address is selected automatically"
+	else
+		echo "FAIL automatic API address: $base"; rc=1
+	fi
 
 	# The UI polls status every few seconds: it must start sing-box for the core
 	# version only once, and again only after the binary changes

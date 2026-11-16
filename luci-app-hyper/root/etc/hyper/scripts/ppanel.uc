@@ -12,7 +12,8 @@
  */
 
 import { cursor } from 'uci';
-import { httpRequest, isEmpty, matchWhole, readSession, writeSession } from 'hyper';
+import { isEmpty, matchWhole, readSession, writeSession } from 'hyper';
+import { currentApiBase, requestApi } from 'api_endpoints';
 
 const UCI_CONFIG = 'hyper';
 const USER_AGENT = 'luci-app-hyper (OpenWrt)';
@@ -40,7 +41,7 @@ export function config() {
 	uci.load(UCI_CONFIG);
 
 	return {
-		api_base: replace(trim(uci.get(UCI_CONFIG, 'account', 'api_base') || ''), /\/+$/, ''),
+		api_base: currentApiBase(),
 		device_id: uci.get(UCI_CONFIG, 'account', 'device_id') || ''
 	};
 };
@@ -71,18 +72,12 @@ function encodeQuery(query) {
 
 /*
  * Call PPanel. opts: { query, body, auth (default true), timeout,
- *   base (absolute origin, default api_base), raw (return the body unparsed), proxy,
+ *   raw (return the body unparsed), proxy,
  *   idempotency_key (payment-v2 writes) }.
  * Returns { ok, status, code, msg, data, error } or, with raw, { ok, status, body, error }.
  */
 export function request(method, path, opts) {
 	opts = opts || {};
-	const cfg = config();
-	const base = opts.base || cfg.api_base;
-
-	if (isEmpty(base))
-		return { ok: false, error: 'api_base_not_set' };
-
 	const headers = {
 		'Accept': 'application/json',
 		'Content-Type': (opts.body != null) ? 'application/json' : null,
@@ -97,9 +92,12 @@ export function request(method, path, opts) {
 		if (session?.jwt)
 			headers['Authorization'] = 'Bearer ' + session.jwt;
 	}
-	const res = httpRequest(method, base + path + encodeQuery(opts.query), headers, opts.body, opts.timeout, opts.proxy);
-	if (res.error && !res.status)
-		return { ok: false, status: 0, error: res.error };
+	/* Only reads and payment-v2 writes carrying an idempotency key may be replayed. */
+	const replayable = method === 'GET' || method === 'HEAD'
+		|| (method === 'POST' && index(path, '/v2/orders/') === 0 && isValidIdempotencyKey(opts.idempotency_key));
+	const res = requestApi(method, path + encodeQuery(opts.query), headers, opts.body, opts.timeout, opts.proxy, replayable);
+	if (res.error)
+		return { ok: false, status: res.status || 0, error: res.error };
 
 	if (opts.raw)
 		return { ok: res.status >= 200 && res.status < 300, status: res.status, body: res.body };
@@ -177,8 +175,8 @@ export function register(email, password, code, invite, cf_token) {
  * Pick the subscription the router should use and remember its delivery token.
  * Only device sessions receive `token`, which is why login uses Login-Type: device.
  */
-export function refreshSubscriptionToken() {
-	const res = request('GET', '/v1/public/user/subscribe');
+export function refreshSubscriptionToken(proxy) {
+	const res = request('GET', '/v1/public/user/subscribe', { proxy });
 	if (!res.ok)
 		return { ok: false, code: res.code, msg: res.msg, error: res.error || 'subscribe_list_failed' };
 
@@ -214,5 +212,5 @@ export const EMAIL_CODE_TYPE_AUTH = 2;
 export const SUBSCRIBE_PATH = '/api/subscribe';
 
 export function subscribeEndpoint() {
-	return { base: config().api_base, path: SUBSCRIBE_PATH };
+	return { path: SUBSCRIBE_PATH };
 };

@@ -36,7 +36,7 @@ export function Login() {
           if (cooldown.value <= 0) clearInterval(id);
         }, 1000);
       } else {
-        message.value = r.msg || (r.error === "api_base_not_set" ? "还没有设置服务地址，请先到“设置”里填写。" : r.error) || "验证码发送失败";
+        message.value = r.msg || (r.error === "api_unavailable" ? "暂时无法连接服务，请检查网络后重试。" : r.error) || "验证码发送失败";
       }
     } catch (e) {
       message.value = (e as Error).message;
@@ -57,7 +57,7 @@ export function Login() {
         code.value = "";
         app.tick++;
       } else {
-        message.value = r.msg || r.error || "登录失败";
+        message.value = r.msg || (r.error === "api_unavailable" ? "暂时无法连接服务，请检查网络后重试。" : r.error) || "登录失败";
       }
     } catch (e) {
       message.value = (e as Error).message;
@@ -122,7 +122,7 @@ export function Login() {
         )}
 
         <p class="muted small" style={{ margin: 0 }}>
-          服务地址：{app.status?.api_base || "未设置"} · 登录凭证只保存在这台路由器上，不会留在浏览器里。
+          自动连接 Hyper 服务。登录凭证只保存在这台路由器上，不会留在浏览器里。
         </p>
       </form>
     </main>

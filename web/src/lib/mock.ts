@@ -33,7 +33,7 @@ const state: Status = {
   mode: "smart",
   signed_in: true,
   email: "astra345@gmail.com",
-  api_base: "https://api.example.com",
+  api_base: "https://api.cloudcdnhyper.com",
   sync: {
     ok: true, time: now() - 120, count: nodes.length, added: 1, removed: 0,
     ...({ traffic_used: "42.6 GB", traffic_total: "不限", countries: ["JPN", "HKG", "SGP", "KOR", "USA", "DEU", "GBR"] } as object),
@@ -297,10 +297,6 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
       return { config: { ...config }, api_base: state.api_base };
     case "set_config":
       Object.assign(config, args.values as Record<string, string>);
-      return { result: true };
-    case "set_api_base":
-      if (args.api_base && !/^https?:\/\//.test(String(args.api_base))) return { result: false, error: "illegal url" };
-      state.api_base = String(args.api_base);
       return { result: true };
     case "check_update": {
       await delay(500);

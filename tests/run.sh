@@ -26,7 +26,7 @@ for f in "$SCRIPTS"/*.uc "$ROOT"/luci-app-hyper/root/usr/share/rpcd/ucode/luci.h
 	# Modules are checked by importing them: `-c module` exists only in newer ucode,
 	# and the firmware's ucode (23.05 - 25.12) must accept the source too.
 	case "$f" in
-		*hyper.uc|*ppanel.uc|*snapshot.uc|*rules.uc|*checkin.uc|*md5.uc)
+		*hyper.uc|*ppanel.uc|*api_endpoints.uc|*snapshot.uc|*rules.uc|*checkin.uc|*md5.uc)
 			mv "$tmp" "$tmp.uc"; tmp="$tmp.uc"
 			check() { run -e "import * as m from '$tmp';"; } ;;
 		*) check() { run -c -o /dev/null "$tmp"; } ;;
@@ -60,6 +60,7 @@ rm -f "$tmp"
 echo "== unit tests"
 run "$HERE/snapshot_test.uc" || fail=1
 run "$HERE/ppanel_test.uc" || fail=1
+run "$HERE/api_endpoints_test.uc" || fail=1
 run "$HERE/rules_test.uc" || fail=1
 run "$HERE/checkin_test.uc" || fail=1
 run "$HERE/md5_test.uc" || fail=1

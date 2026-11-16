@@ -20,6 +20,7 @@ const (
 )
 
 const usage = `usage: hyper-crypt keygen
+       hyper-crypt open-txt < base64-record
        HYPER_CRYPT_PRIVATE_KEY=<b64> hyper-crypt open <spk> <salt> <nonce> <info> < data
 `
 
@@ -29,6 +30,22 @@ func main() {
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch {
+	case len(args) == 1 && args[0] == "open-txt":
+		input, err := io.ReadAll(io.LimitReader(stdin, 16385))
+		if err != nil || len(input) > 16384 {
+			fmt.Fprintln(stderr, errDecode)
+			return exitDecode
+		}
+		plain, err := openTXT(string(input))
+		if err != nil {
+			fmt.Fprintln(stderr, "invalid TXT record")
+			return exitCrypto
+		}
+		_, err = stdout.Write(plain)
+		if err != nil {
+			return exitCrypto
+		}
+		return 0
 	case len(args) == 1 && args[0] == "keygen":
 		priv, pub, err := keygen(rand.Reader)
 		if err != nil {

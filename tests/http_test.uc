@@ -36,6 +36,12 @@ res = httpRequest('GET', base + '/status/401');
 eq('401 status', res.status, 401);
 eq('401 error', res.error, null);
 
+/* API requests must not replay a POST or forward credentials via a redirect. */
+res = httpRequest('POST', base + '/redirect', { Authorization: 'Bearer test' }, { code: '123456' }, 3, null, false);
+eq('API redirect not followed', res.status, 307);
+res = httpRequest('GET', base + '/redirect');
+eq('non-API downloads still follow redirects', json(res.body).path, '/redirect-target');
+
 /* connection refused -> error, status 0 */
 res = httpRequest('GET', 'http://127.0.0.1:1/', null, null, 3);
 eq('refused status', res.status, 0);

@@ -21,8 +21,7 @@ config hyper 'infra'
 	option tun_mark '102'
 
 config hyper 'account'
-	# PPanel API base, e.g. https://api.example.com (empty = ask on first run)
-	option api_base ''
+	# API endpoints are discovered automatically from Hyper's encrypted DNS TXT records.
 	# Generated on first boot by /etc/uci-defaults/luci-hyper; sent as the device identifier
 	option device_id ''
 

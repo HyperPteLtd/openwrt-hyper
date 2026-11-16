@@ -335,9 +335,10 @@ function curlQuote(s) {
  * HTTP via curl. URL, headers (JWT / token) and body go through a curl config
  * file and stdin on unlinked temp files, so secrets never show up in argv.
  * `proxy` (optional) is a curl proxy URL such as socks5h://127.0.0.1:5330.
- * Returns { status, body, error }.
+ * Set followRedirects=false for API calls: credentials and writes must stay on
+ * the selected origin. Returns { status, body, error }.
  */
-export function httpRequest(method, url, headers, body, timeout, proxy) {
+export function httpRequest(method, url, headers, body, timeout, proxy, followRedirects) {
 	/* one curl config line per value: a line break would start a new directive */
 	const parts = [ url, method || 'GET', proxy || '' ];
 	for (let k in headers)
@@ -355,11 +356,12 @@ export function httpRequest(method, url, headers, body, timeout, proxy) {
 		`request = ${curlQuote(method || 'GET')}`,
 		'silent',
 		'show-error',
-		'location',
 		`max-time = ${int(timeout) || 15}`,
 		`output = "/dev/fd/${output.fileno()}"`,
 		'write-out = "%{http_code}"'
 	];
+	if (followRedirects !== false)
+		push(lines, 'location');
 	if (proxy)
 		push(lines, `proxy = ${curlQuote(proxy)}`);
 	for (let k in headers)

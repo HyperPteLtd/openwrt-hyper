@@ -11,6 +11,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 class Echo(BaseHTTPRequestHandler):
     def _reply(self):
+        if self.path == "/redirect":
+            self.send_response(307)
+            self.send_header("Location", "/redirect-target")
+            self.end_headers()
+            return
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length).decode("utf-8") if length else None
         status = 200

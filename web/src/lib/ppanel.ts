@@ -25,7 +25,7 @@ export async function api<T>(
 }
 
 export function apiError(r: ApiResult<unknown>, fallback = "请求失败"): string {
-  if (r.error === "api_base_not_set") return "还没有设置服务地址。";
+  if (r.error === "api_unavailable") return "暂时无法连接服务，请检查网络后重试。";
   if (r.error === "path not allowed") return "这个操作在路由器上不可用。";
   return r.msg || r.error || fallback;
 }

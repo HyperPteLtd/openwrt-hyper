@@ -182,6 +182,38 @@ textarea {
   color: #8e8e93;
 }
 
+select.input {
+  appearance: none;
+  min-height: 44px;
+  padding: 10px 42px 10px 14px;
+  border: 1px solid #424246;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23d8d8dc' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 16px;
+  cursor: pointer;
+}
+select.input:hover:not(:disabled) {
+  border-color: #6a6a70;
+}
+select.input:focus-visible {
+  border-color: var(--accent);
+}
+select.input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+select.input option {
+  background: var(--control);
+  color: var(--text);
+}
+select.settings-select {
+  width: 240px;
+  max-width: 100%;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
 .switch {
   all: unset;
   box-sizing: border-box;
@@ -283,6 +315,10 @@ textarea {
 }
 
 @media (max-width: 640px) {
+  select.settings-select {
+    width: 100%;
+    font-size: 16px;
+  }
   .page {
     padding: 16px 16px 32px;
   }

@@ -621,23 +621,6 @@ const methods = {
 		}
 	},
 
-	set_api_base: {
-		args: { api_base: 'api_base' },
-		call: function(req) {
-			const base = trim(req.args?.api_base || '');
-			if (base !== '' && !matchWhole(base, /^https?:\/\/[A-Za-z0-9.:\[\]-]+(\/[A-Za-z0-9._~\/-]*)?$/))
-				return { result: false, error: 'illegal url' };
-
-			const uci = uciCursor();
-			if (base !== (uci.get(CONF, 'account', 'api_base') || '')) {
-				uci.set(CONF, 'account', 'api_base', base);
-				uci.commit(CONF);
-				clearSession();
-			}
-			return { result: true };
-		}
-	},
-
 	/* LAN devices and access control */
 	lan_clients: {
 		call: function() {

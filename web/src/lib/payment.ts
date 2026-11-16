@@ -63,7 +63,7 @@ export const ORDER_ALREADY_PAID = 62035;
 export const SESSION_RECOVERING = 62030;
 
 export function paymentError(r: ApiResult<unknown>, fallback: string): string {
-  if (r.error === "api_base_not_set") return "还没有设置服务地址。";
+  if (r.error === "api_unavailable") return "暂时无法连接服务，请稍后查看订单状态。";
   if (r.error === "path not allowed") return "这个操作在路由器上不可用。";
   const known = r.code != null ? ERRORS[String(r.code)] : undefined;
   if (known) return known;
