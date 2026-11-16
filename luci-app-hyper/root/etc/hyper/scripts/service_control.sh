@@ -23,9 +23,12 @@ write_state() {
 }
 
 terminate_init() {
-  kill -TERM -- "-$init_pid" 2>/dev/null || true
+  # Stop may arrive before the launcher has created its session. In that case
+  # cancel the launcher itself so it cannot start the obsolete operation later.
+  kill -TERM -- "-$init_pid" 2>/dev/null || kill -TERM "$init_pid" 2>/dev/null || true
   sleep 1
   kill -KILL -- "-$init_pid" 2>/dev/null || true
+  kill -KILL "$init_pid" 2>/dev/null || true
   wait "$init_pid" 2>/dev/null || true
 }
 

@@ -15,10 +15,15 @@ mkdirSync(join(root, 'bin'));
 mkdirSync(join(root, 'control'));
 const commands = {
   init: `#!/bin/sh
-mkdir "$HYPER_TEST_ROOT/active" || { echo overlap >> "$HYPER_TEST_ROOT/calls"; exit 1; }
-trap 'rmdir "$HYPER_TEST_ROOT/active" 2>/dev/null || true' EXIT
+# A directory can survive SIGKILL (or TERM before traps are ready). Only the
+# kernel lock proves overlap; it is released even when the init is killed.
+exec 8>"$HYPER_TEST_ROOT/init.lock"
+flock -n 8 || { echo overlap >> "$HYPER_TEST_ROOT/calls"; exit 1; }
+trap 'rm -f "$HYPER_TEST_ROOT/active"' EXIT
 trap 'exit 143' TERM
 echo "$1" >> "$HYPER_TEST_ROOT/calls"
+printf '%s %s\\n' "$$" "$1" > "$HYPER_TEST_ROOT/active.tmp"
+mv "$HYPER_TEST_ROOT/active.tmp" "$HYPER_TEST_ROOT/active"
 if [ "$1" = stop ]; then
   rm -f "$HYPER_TEST_ROOT/dns-redirect"
   if [ -e "$HYPER_TEST_ROOT/block-cleanup" ]; then
@@ -47,9 +52,16 @@ function request(id, action, overrides = {}) {
 }
 function state() { return JSON.parse(readFileSync(join(root, 'control/state.json'), 'utf8')); }
 function calls() { return readFileSync(join(root, 'calls'), 'utf8').trim().split('\n'); }
+function ready(action) {
+  try {
+    const [pid, current] = readFileSync(join(root, 'active'), 'utf8').trim().split(' ');
+    process.kill(Number(pid), 0);
+    return current === action;
+  } catch { return false; }
+}
 try {
   request(1, 'start');
-  await until(() => existsSync(join(root, 'active')), 'worker did not start', 5000, 10);
+  await until(() => ready('start'), 'worker did not start', 5000, 10);
   request(2, 'stop');
   workers.push(launch('sh', [worker], { env }));
   for (const child of workers) assert.equal((await wait(child)).code, 0);
@@ -70,7 +82,7 @@ try {
   console.log('ok   service worker reports init/readiness failures and allows retry');
   writeFileSync(join(root, 'block-start'), '');
   request(6, 'start');
-  await until(() => existsSync(join(root, 'active')), 'blocking start did not begin');
+  await until(() => ready('start'), 'blocking start did not begin');
   const stoppedAt = performance.now();
   await wait(request(7, 'stop'));
   assert(performance.now() - stoppedAt < 6000, 'Stop waited for the obsolete 30-second Start');
@@ -100,7 +112,7 @@ try {
   writeFileSync(join(root, 'block-cleanup'), '');
   const before = calls().length;
   request(11, 'start');
-  await until(() => existsSync(join(root, 'active')), 'last blocking Start did not begin');
+  await until(() => ready('start'), 'last blocking Start did not begin');
   request(12, 'stop');
   await until(() => existsSync(join(root, 'cleaning')), 'cancellation cleanup did not begin');
   rmSync(join(root, 'block-start'));
@@ -112,6 +124,33 @@ try {
   assert.equal(existsSync(join(root, 'dns-redirect')), true);
   assert(!calls().includes('overlap'));
   console.log('ok   a new Start during cancellation cleanup survives and runs after Stop completes');
+
+  // Hold the launcher before setsid, when its process group does not exist yet.
+  // The real launcher still runs after the delay; no session implementation is mocked.
+  writeFileSync(join(root, 'bin/setsid'), `#!/bin/sh
+if [ "$2" = start ]; then
+  touch "$HYPER_TEST_ROOT/launching"
+  sleep 3
+fi
+PATH="$HYPER_TEST_BASE_PATH" exec sh "$HYPER_TEST_SESSION_SCRIPT" "$@"
+`);
+  chmodSync(join(root, 'bin/setsid'), 0o755);
+  writeFileSync(join(root, 'block-start'), '');
+  const launchEnv = { HYPER_TEST_BASE_PATH: process.env.PATH,
+    HYPER_TEST_SESSION_SCRIPT: fileURLToPath(new URL('../luci-app-hyper/root/etc/hyper/scripts/run-session.sh', import.meta.url)) };
+  const beforeLaunch = calls().length;
+  request(14, 'start', launchEnv);
+  await until(() => existsSync(join(root, 'launching')), 'delayed session launcher did not begin');
+  const cancelledAt = performance.now();
+  await wait(request(15, 'stop', launchEnv), 6000);
+  assert(performance.now() - cancelledAt < 6000, 'Stop waited for session creation and obsolete Start');
+  assert.equal(state().id, 15); assert.equal(state().state, 'done');
+  assert.deepEqual(calls().slice(beforeLaunch), ['stop'], 'cancelled launcher ran the obsolete Start');
+  rmSync(join(root, 'bin/setsid'));
+  rmSync(join(root, 'block-start'));
+  await wait(request(16, 'start'));
+  assert.equal(state().id, 16); assert.equal(state().state, 'done');
+  console.log('ok   Stop cancels a launcher before session creation and allows a fresh Start');
 } finally {
   await Promise.all(workers.map(stop));
   rmSync(root, { recursive: true, force: true });
