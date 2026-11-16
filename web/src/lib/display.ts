@@ -33,7 +33,7 @@ export function serviceText(text: string): string {
     .replace(/subscription_token/g, tr("节点访问凭证"))
     .replace(/subscriptions?/gi, tr("节点配置"))
     .replace(/同步订阅/g, tr("更新节点"))
-    .replace(/\b(?:anytls|vless|vmess|trojan|shadowsocks|hysteria2?|tuic|wireguard|reality)\b/gi, tr("连接"));
+    .replace(/\b(?:anytls|vless|vmess|trojan|shadowsocks|snell|hysteria2?|tuic|wireguard|reality)\b/gi, tr("连接"));
 }
 
 /** Hyper service uses null/zero (and old Go zero dates) for unlimited validity. */

@@ -32,6 +32,7 @@ test("diagnostics keep useful details with product terminology", () => {
   assert.equal(serviceText("ERROR sing-box-c: subscription token failed"), "ERROR 代理服务: 节点配置 token failed");
   assert.equal(serviceText("no_subscription"), "尚未开通套餐");
   assert.equal(serviceText("同步订阅失败"), "更新节点失败");
+  assert.equal(serviceText("outbound/snell[test-node]: connection failed"), "outbound/连接[test-node]: connection failed");
 });
 
 test("upstream branding stays out of localized labels, notices and log output", () => {
