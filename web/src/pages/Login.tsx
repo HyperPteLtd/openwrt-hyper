@@ -1,3 +1,4 @@
+import { t as tr } from "../lib/i18n";
 import { useSignal } from "@preact/signals";
 import { Logo } from "../components/TopBar";
 import { Notice } from "../components/ui";
@@ -22,7 +23,7 @@ export function Login() {
   const sendCode = async () => {
     message.value = "";
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value.trim())) {
-      message.value = "请输入正确的邮箱地址。";
+      message.value = tr("请输入正确的邮箱地址");
       return;
     }
     busy.value = true;
@@ -36,7 +37,7 @@ export function Login() {
           if (cooldown.value <= 0) clearInterval(id);
         }, 1000);
       } else {
-        message.value = r.msg || (r.error === "api_unavailable" ? "暂时无法连接服务，请检查网络后重试。" : r.error) || "验证码发送失败";
+        message.value = r.msg || (r.error === "api_unavailable" ? tr("暂时无法连接服务，请检查网络后重试") : r.error) || tr("验证码发送失败");
       }
     } catch (e) {
       message.value = (e as Error).message;
@@ -47,7 +48,7 @@ export function Login() {
   const login = async () => {
     message.value = "";
     if (!/^\d{4,8}$/.test(code.value.trim())) {
-      message.value = "请输入邮件里的验证码。";
+      message.value = tr("请输入邮件里的验证码");
       return;
     }
     busy.value = true;
@@ -57,7 +58,7 @@ export function Login() {
         code.value = "";
         app.tick++;
       } else {
-        message.value = r.msg || (r.error === "api_unavailable" ? "暂时无法连接服务，请检查网络后重试。" : r.error) || "登录失败";
+        message.value = r.msg || (r.error === "api_unavailable" ? tr("暂时无法连接服务，请检查网络后重试") : r.error) || tr("登录失败");
       }
     } catch (e) {
       message.value = (e as Error).message;
@@ -78,34 +79,26 @@ export function Login() {
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <Logo size={44} />
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <h2 style={{ fontSize: "24px" }}>登录 Hyper</h2>
-            <span class="muted">使用邮箱登录或注册</span>
+            <h2 style={{ fontSize: "24px" }}>{tr("登录 Hyper")}</h2>
+            <span class="muted">{tr("使用邮箱登录或注册")}</span>
           </div>
         </div>
 
         {step.value === "email" ? (
           <>
-            <label class="field">
-              邮箱
-              <input class="input" type="email" autocomplete="email" required value={email.value} onInput={(e) => (email.value = e.currentTarget.value)} placeholder="输入邮箱地址" />
+            <label class="field">{tr("邮箱")} <input class="input" type="email" autocomplete="email" required value={email.value} onInput={(e) => (email.value = e.currentTarget.value)} placeholder={tr("输入邮箱地址")} />
             </label>
-            <label class="field">
-              邀请码（选填）
-              <input class="input" value={invite.value} onInput={(e) => (invite.value = e.currentTarget.value)} placeholder="输入邀请码" />
+            <label class="field">{tr("邀请码（选填）")} <input class="input" value={invite.value} onInput={(e) => (invite.value = e.currentTarget.value)} placeholder={tr("输入邀请码")} />
             </label>
           </>
         ) : (
           <>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "48px", padding: "0 14px", borderRadius: "12px", background: "var(--card-2)" }}>
               <span style={{ flexGrow: 1 }}>{email.value}</span>
-              <button type="button" class="btn ghost" style={{ minHeight: "40px", padding: "0 8px", color: "var(--accent)" }} onClick={() => { step.value = "email"; message.value = ""; }}>
-                更换
-              </button>
+              <button type="button" class="btn ghost" style={{ minHeight: "40px", padding: "0 8px", color: "var(--accent)" }} onClick={() => { step.value = "email"; message.value = ""; }}>{tr("更换")} </button>
             </div>
-            <label class="field">
-              验证码
-              <input class="input" inputMode="numeric" autocomplete="one-time-code" required value={code.value} onInput={(e) => (code.value = e.currentTarget.value)} placeholder="邮件里的验证码" />
-              <span class="muted small">验证码已发送到你的邮箱。没有账号会自动注册。</span>
+            <label class="field">{tr("验证码")} <input class="input" inputMode="numeric" autocomplete="one-time-code" required value={code.value} onInput={(e) => (code.value = e.currentTarget.value)} placeholder={tr("邮件里的验证码")} />
+              <span class="muted small">{tr("验证码已发送到你的邮箱。没有账号会自动注册")}</span>
             </label>
           </>
         )}
@@ -113,17 +106,15 @@ export function Login() {
         <Notice text={message.value} />
 
         <button type="submit" class="btn primary big" disabled={busy.value}>
-          {busy.value ? "请稍候…" : step.value === "email" ? "下一步" : "登录"}
+          {busy.value ? tr("请稍候…") : step.value === "email" ? tr("下一步") : tr("登录")}
         </button>
         {step.value === "code" && (
           <button type="button" class="btn ghost" disabled={busy.value || cooldown.value > 0} onClick={() => sendCode()}>
-            {cooldown.value > 0 ? `${cooldown.value} 秒后可重新发送` : "重新发送验证码"}
+            {cooldown.value > 0 ? tr("{0} 秒后可重新发送", [cooldown.value]) : tr("重新发送验证码")}
           </button>
         )}
 
-        <p class="muted small" style={{ margin: 0 }}>
-          自动连接 Hyper 服务。登录凭证只保存在这台路由器上，不会留在浏览器里。
-        </p>
+        <p class="muted small" style={{ margin: 0 }}>{tr("自动连接 Hyper 服务。登录凭证只保存在这台路由器上，不会留在浏览器里")} </p>
       </form>
     </main>
   );

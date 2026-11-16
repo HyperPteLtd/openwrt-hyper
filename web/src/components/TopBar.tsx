@@ -1,3 +1,4 @@
+import { t as tr } from "../lib/i18n";
 import { app, ROUTES, tabOf } from "../lib/app";
 
 export const Logo = ({ size = 28 }: { size?: number }) => (
@@ -12,7 +13,7 @@ export function TopBar() {
   const s = app.status;
   const tone = !s ? "var(--muted)" : s.health?.state === "failopen" ? "var(--warn)" : s.running ? "var(--accent)" : s.enabled ? "var(--danger-text)" : "var(--muted)";
   const tab = tabOf(app.route);
-  const label = !s ? "加载中" : s.health?.state === "failopen" ? "已临时直连" : s.running ? "运行中" : s.enabled ? "连接失败" : "已停止";
+  const label = !s ? tr("加载中") : s.health?.state === "failopen" ? tr("已临时直连") : s.running ? tr("运行中") : s.enabled ? tr("连接失败") : tr("已停止");
 
   return (
     <header class="topbar">
@@ -24,8 +25,7 @@ export function TopBar() {
           {label}
         </span>
         {s?.update?.available && (
-          <a href="#/settings" class="pill" style={{ color: "var(--accent)" }}>
-            有新版本 {s.update.latest}
+          <a href="#/settings" class="pill" style={{ color: "var(--accent)" }}>{tr("有新版本")} {s.update.latest}
           </a>
         )}
         <span style={{ flexGrow: 1 }} />
@@ -35,7 +35,7 @@ export function TopBar() {
           </a>
         )}
       </div>
-      <nav aria-label="Hyper 页面" style={{ display: "flex", gap: "4px", overflowX: "auto", borderBottom: "1px solid var(--control)" }}>
+      <nav aria-label={tr("Hyper 页面")} style={{ display: "flex", gap: "4px", overflowX: "auto", borderBottom: "1px solid var(--control)" }}>
         {ROUTES.map((r) => (
           <a
             key={r.id}

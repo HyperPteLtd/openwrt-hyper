@@ -1,4 +1,5 @@
 import type { ComponentChildren } from "preact";
+import { serviceText } from "../lib/display";
 
 /** Accessible on/off switch (role="switch") */
 export function Switch({ checked, label, disabled, onToggle }: { checked: boolean; label: string; disabled?: boolean; onToggle: (next: boolean) => void }) {
@@ -62,7 +63,7 @@ export function Notice({ text, tone = "error" }: { text: string; tone?: "error" 
       role={tone === "error" ? "alert" : "status"}
       style={tone === "ok" ? { background: "#141a0a", borderColor: "#3e5214", color: "#dde8c8" } : undefined}
     >
-      {text}
+      {serviceText(text)}
     </div>
   );
 }

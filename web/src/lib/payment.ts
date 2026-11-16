@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 /**
  * payment-v2, the way the Hyper app pays (hyper-tunnel packages/app-client/src/payment-v2):
  *   POST /v2/orders/purchase                      -> payment session
@@ -46,25 +47,25 @@ export interface PaymentSession {
 }
 
 const ERRORS: Record<string, string> = {
-  "62025": "支付汇率暂不可用，请稍后重试",
-  "62026": "当前支付渠道不可用",
-  "62036": "当前支付渠道不可用",
-  "62027": "支付订单已失效",
-  "62029": "当前支付订单仍可继续，请勿重复下单",
-  "62030": "支付订单正在恢复，请稍后刷新",
-  "62032": "支付请求无法安全恢复，请重新操作",
-  "62033": "支付请求无法安全恢复，请重新操作",
-  "62034": "当前币种或网络不可用",
-  "62037": "当前币种或网络不可用",
-  "62035": "订单已支付，正在同步权益",
+  "62025": tr("支付汇率暂不可用，请稍后重试"),
+  "62026": tr("当前支付渠道不可用"),
+  "62036": tr("当前支付渠道不可用"),
+  "62027": tr("支付订单已失效"),
+  "62029": tr("当前支付订单仍可继续，请勿重复下单"),
+  "62030": tr("支付订单正在恢复，请稍后刷新"),
+  "62032": tr("支付请求无法安全恢复，请重新操作"),
+  "62033": tr("支付请求无法安全恢复，请重新操作"),
+  "62034": tr("当前币种或网络不可用"),
+  "62037": tr("当前币种或网络不可用"),
+  "62035": tr("订单已支付，正在同步权益"),
 };
 
 export const ORDER_ALREADY_PAID = 62035;
 export const SESSION_RECOVERING = 62030;
 
 export function paymentError(r: ApiResult<unknown>, fallback: string): string {
-  if (r.error === "api_unavailable") return "暂时无法连接服务，请稍后查看订单状态。";
-  if (r.error === "path not allowed") return "这个操作在路由器上不可用。";
+  if (r.error === "api_unavailable") return tr("暂时无法连接服务，请稍后查看订单状态");
+  if (r.error === "path not allowed") return tr("这个操作在路由器上不可用");
   const known = r.code != null ? ERRORS[String(r.code)] : undefined;
   if (known) return known;
   /* server text only when it is short and carries nothing sensitive */

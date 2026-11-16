@@ -1,3 +1,4 @@
+import { t as tr } from "../lib/i18n";
 import { encode } from "uqr";
 
 /** Scannable QR code as one SVG path (dark modules on a white quiet zone). */
@@ -20,7 +21,7 @@ export function QrCode({ value, size = 220, label }: { value: string; size?: num
     modules = 0;
   }
 
-  if (!modules) return <span class="muted small">内容太长，无法生成二维码。</span>;
+  if (!modules) return <span class="muted small">{tr("内容太长，无法生成二维码")}</span>;
 
   const pad = 4;
   return (

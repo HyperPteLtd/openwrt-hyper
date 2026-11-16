@@ -1,15 +1,16 @@
+import { t as tr } from "../lib/i18n";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { Notice } from "../components/ui";
 import { checkIn, checkinError, checkinStatus, dateKey, monthRange, monthView, streak, type DayCell } from "../lib/checkin";
 
-const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const WEEKDAYS = [tr("周一"), tr("周二"), tr("周三"), tr("周四"), tr("周五"), tr("周六"), tr("周日")];
 
 const STATE_LABEL: Record<DayCell["state"], string> = {
-  checked: "已签到",
-  "today-checked": "今天，已签到",
-  today: "今天，未签到",
-  missed: "未签到",
+  checked: tr("已签到"),
+  "today-checked": tr("今天，已签到"),
+  today: tr("今天，未签到"),
+  missed: tr("未签到"),
   future: "",
 };
 
@@ -56,7 +57,7 @@ export function CheckIn() {
   const notice = msg.value;
   const total = dates.value.length;
   const buttonDisabled = !isLoaded || doneToday || isBusy;
-  const buttonLabel = doneToday ? "今日已签到" : isBusy ? "签到中…" : "立即签到";
+  const buttonLabel = doneToday ? tr("今日已签到") : isBusy ? tr("签到中…") : tr("立即签到");
 
   const go = (delta: number) => {
     const [y, m] = view.value;
@@ -74,7 +75,7 @@ export function CheckIn() {
         dates.value = r.dates ?? [...dates.value, dateKey(d)];
         view.value = [d.getFullYear(), d.getMonth()];
         const n = streak(new Set(dates.value), dateKey(d));
-        msg.value = { text: n > 1 ? `签到成功，已连续签到 ${n} 天。` : "签到成功。", tone: "ok" };
+        msg.value = { text: n > 1 ? tr("签到成功，已连续签到 {0} 天", [n]) : tr("签到成功"), tone: "ok" };
       } else msg.value = { text: checkinError(r), tone: "error" };
     } catch (e) {
       msg.value = { text: (e as Error).message, tone: "error" };
@@ -86,8 +87,8 @@ export function CheckIn() {
     <div style={{ display: "flex", flexDirection: "column", gap: "20px", width: "100%", maxWidth: "760px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
         <div style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
-          <h2 style={{ margin: 0, fontSize: "26px", fontWeight: 600 }}>每日签到</h2>
-          <p class="muted" style={{ margin: 0 }}>每天来看看，记录连续签到的天数。</p>
+          <h2 style={{ margin: 0, fontSize: "26px", fontWeight: 600 }}>{tr("每日签到")}</h2>
+          <p class="muted" style={{ margin: 0 }}>{tr("每天来看看，记录连续签到的天数")}</p>
         </div>
         <span
           aria-hidden="true"
@@ -105,17 +106,16 @@ export function CheckIn() {
       <section class="card" aria-busy={!isLoaded} style={{ gap: "18px" }}>
         <div class="card-head" style={{ flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            <button type="button" class="btn ghost" style={{ minHeight: "36px", width: "36px", padding: 0 }} aria-label="上个月" disabled={atFirst} onClick={() => go(-1)}>
+            <button type="button" class="btn ghost" style={{ minHeight: "36px", width: "36px", padding: 0 }} aria-label={tr("上个月")} disabled={atFirst} onClick={() => go(-1)}>
               ‹
             </button>
             <h3 aria-live="polite" style={{ margin: 0, fontSize: "16px", fontWeight: 600, minWidth: "104px", textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
-              {month.year} 年 {month.month + 1} 月
-            </h3>
-            <button type="button" class="btn ghost" style={{ minHeight: "36px", width: "36px", padding: 0 }} aria-label="下个月" disabled={atLast} onClick={() => go(1)}>
+              {tr("{0} 年 {1} 月", [month.year, month.month + 1])}</h3>
+            <button type="button" class="btn ghost" style={{ minHeight: "36px", width: "36px", padding: 0 }} aria-label={tr("下个月")} disabled={atLast} onClick={() => go(1)}>
               ›
             </button>
           </div>
-          <span class="muted small">本月已签到 {month.count} 天</span>
+          <span class="muted small">{tr("本月已签到 {0} 天", [month.count])}</span>
         </div>
 
         <div aria-hidden="true" style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "6px" }}>
@@ -126,14 +126,14 @@ export function CheckIn() {
           ))}
         </div>
 
-        <ol aria-label={`${month.year} 年 ${month.month + 1} 月签到记录`} style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "6px" }}>
+        <ol aria-label={tr("{0} 年 {1} 月签到记录", [month.year, month.month + 1])} style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "6px" }}>
           {month.days.map((d, i) => {
             const isToday = d.state === "today" || d.state === "today-checked";
             const isChecked = d.state === "checked" || d.state === "today-checked";
             return (
               <li
                 key={d.key}
-                aria-label={`${month.month + 1} 月 ${d.day} 日${STATE_LABEL[d.state] ? "，" + STATE_LABEL[d.state] : ""}`}
+                aria-label={tr("{0} 月 {1} 日{2}", [month.month + 1, d.day, STATE_LABEL[d.state] ? "，" + STATE_LABEL[d.state] : ""])}
                 aria-current={isToday ? "date" : undefined}
                 style={{
                   gridColumnStart: i === 0 ? month.offset + 1 : undefined,
@@ -158,9 +158,9 @@ export function CheckIn() {
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: "16px", paddingTop: "4px" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
             <b style={{ fontSize: "30px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-              {total} <span style={{ fontSize: "22px" }}>天</span>
+              {total} <span style={{ fontSize: "22px" }}>{tr("天")}</span>
             </b>
-            <span class="muted small">已累计签到{run > 0 ? ` · 连续 ${run} 天` : ""}</span>
+            <span class="muted small">{tr("已累计签到")}{run > 0 ? tr(" · 连续 {0} 天", [run]) : ""}</span>
           </div>
           <button type="button" class="btn primary big" style={{ minWidth: "128px" }} disabled={buttonDisabled} onClick={() => submit()}>
             {buttonLabel}
@@ -168,9 +168,7 @@ export function CheckIn() {
         </div>
       </section>
 
-      <p class="muted small" style={{ margin: 0, lineHeight: 1.6 }}>
-        签到暂不发放会员时长。记录按账户保存在这台路由器上：退出登录不会清除，重置或更换路由器后不会保留。
-      </p>
+      <p class="muted small" style={{ margin: 0, lineHeight: 1.6 }}>{tr("签到暂不发放会员时长。记录按账户保存在这台路由器上：退出登录不会清除，重置或更换路由器后不会保留")} </p>
     </div>
   );
 }

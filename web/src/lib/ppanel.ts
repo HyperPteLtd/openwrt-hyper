@@ -1,5 +1,8 @@
+import { t as tr } from "./i18n";
 /** PPanel calls through luci.hyper `api` (allowlisted paths, token added on the router). */
 import { call } from "./rpc";
+import type { ReadOptions } from "./cache";
+import { locale } from "./i18n";
 
 export interface ApiResult<T> {
   ok: boolean;
@@ -13,20 +16,20 @@ export interface ApiResult<T> {
 export async function api<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
-  opts: { query?: Record<string, unknown>; body?: unknown; idempotencyKey?: string } = {},
+  opts: { query?: Record<string, unknown>; body?: unknown; idempotencyKey?: string } & ReadOptions<ApiResult<T>> = {},
 ): Promise<ApiResult<T>> {
   return call<ApiResult<T>>("api", {
     method,
     path,
-    query: opts.query ?? {},
+    query: { language: locale, ...opts.query },
     body: opts.body ?? {},
     ...(opts.idempotencyKey ? { idempotency_key: opts.idempotencyKey } : {}),
-  });
+  }, opts);
 }
 
-export function apiError(r: ApiResult<unknown>, fallback = "请求失败"): string {
-  if (r.error === "api_unavailable") return "暂时无法连接服务，请检查网络后重试。";
-  if (r.error === "path not allowed") return "这个操作在路由器上不可用。";
+export function apiError(r: ApiResult<unknown>, fallback = tr("请求失败")): string {
+  if (r.error === "api_unavailable") return tr("暂时无法连接服务，请检查网络后重试");
+  if (r.error === "path not allowed") return tr("这个操作在路由器上不可用");
   return r.msg || r.error || fallback;
 }
 
@@ -54,11 +57,11 @@ export function money(amount: number | null | undefined, symbol = "¥", scale = 
 }
 
 export const UNIT_LABEL: Record<string, string> = {
-  Year: "年",
-  Month: "个月",
-  Week: "周",
-  Day: "天",
-  Hour: "小时",
+  Year: tr("年"),
+  Month: tr("个月"),
+  Week: tr("周"),
+  Day: tr("天"),
+  Hour: tr("小时"),
   NoLimit: "",
 };
 

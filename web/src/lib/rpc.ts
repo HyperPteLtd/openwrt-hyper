@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 /**
  * ubus client for the `luci.hyper` object.
  *
@@ -6,6 +7,7 @@
  * it falls back to the mock backend in ./mock.ts.
  */
 import { mockCall } from "./mock";
+import { invalidatedReads, ReadCache, readPolicy, type ReadOptions } from "./cache";
 
 type LuciEnv = { sessionid?: string; ubuspath?: string };
 
@@ -31,9 +33,28 @@ export class RpcError extends Error {
 }
 
 let seq = 0;
+let storage: Storage | undefined;
+try { storage = sessionStorage; } catch { /* storage disabled */ }
+const reads = new ReadCache(storage);
+let identity: string | undefined;
+
+export function setCacheIdentity(account: string): void {
+  if (identity !== account) reads.invalidate();
+  identity = account;
+}
+
+/** Cache only named read methods; live status, diagnostics and payments bypass it. */
+export async function call<T = Record<string, unknown>>(method: string, args: Record<string, unknown> = {}, opts: ReadOptions<T> = {}): Promise<T> {
+  const prefixes = invalidatedReads(method, args);
+  const invalidate = () => reads.invalidate((key) => prefixes.some((prefix) => key.startsWith(prefix)));
+  const policy = readPolicy(method, args);
+  if (policy) return reads.read(`${method}:${JSON.stringify(args)}`, () => send<T>(method, args), policy, opts);
+  invalidate();
+  try { return await send<T>(method, args); } finally { invalidate(); }
+}
 
 /** Call luci.hyper.<method>. Rejects on transport / ubus errors; method-level errors stay in the result. */
-export async function call<T = Record<string, unknown>>(method: string, args: Record<string, unknown> = {}): Promise<T> {
+async function send<T>(method: string, args: Record<string, unknown>): Promise<T> {
   const env = luciEnv();
   if (!env) return mockCall(method, args) as Promise<T>;
 
@@ -54,7 +75,7 @@ export async function call<T = Record<string, unknown>>(method: string, args: Re
 
   /* ubus replies [status, data]; status 0 = OK, 6 = permission denied */
   const [status, data] = msg.result as [number, T];
-  if (status !== 0) throw new RpcError(status === 6 ? "没有权限，请重新登录 LuCI" : `ubus status ${status}`, status);
+  if (status !== 0) throw new RpcError(status === 6 ? tr("没有权限，请重新登录 LuCI") : `ubus status ${status}`, status);
   return data;
 }
 

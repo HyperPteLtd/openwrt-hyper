@@ -1,16 +1,16 @@
+import { t as tr } from "./i18n";
 import { createStore } from "./store";
 import type { Status } from "./types";
 
-export type Route = "overview" | "nodes" | "routing" | "devices" | "account" | "plans" | "logs" | "settings";
+export type Route = "overview" | "routing" | "devices" | "account" | "plans" | "logs" | "settings";
 
 export const ROUTES: { id: Route; label: string }[] = [
-  { id: "overview", label: "概览" },
-  { id: "nodes", label: "节点" },
-  { id: "routing", label: "分流与 DNS" },
-  { id: "devices", label: "接入设备" },
-  { id: "account", label: "账户与订阅" },
-  { id: "logs", label: "日志与诊断" },
-  { id: "settings", label: "设置" },
+  { id: "overview", label: tr("概览") },
+  { id: "routing", label: tr("分流与 DNS") },
+  { id: "devices", label: tr("接入设备") },
+  { id: "account", label: tr("账户与订阅") },
+  { id: "logs", label: tr("日志与诊断") },
+  { id: "settings", label: tr("设置") },
 ];
 
 export interface AppState {

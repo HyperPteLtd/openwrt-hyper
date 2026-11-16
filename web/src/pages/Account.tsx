@@ -1,8 +1,10 @@
+import { t as tr } from "../lib/i18n";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { Notice, Segmented } from "../components/ui";
 import { app } from "../lib/app";
-import { api, apiError, daysLeft, formatDate, money } from "../lib/ppanel";
+import { api, apiError, formatDate, money, type ApiResult } from "../lib/ppanel";
+import { expiryText, localizedText } from "../lib/display";
 import { call } from "../lib/rpc";
 import { CheckIn } from "./CheckIn";
 
@@ -17,9 +19,9 @@ interface UserInfo {
 interface UserSubscribe {
   id: number;
   status: number;
-  expire_time: number;
+  expire_time: number | string | null;
   start_time: number;
-  subscribe?: { name?: string; device_limit?: number; traffic?: number } | null;
+  subscribe?: { name?: string | Record<string, string>; device_limit?: number; traffic?: number } | null;
 }
 interface UserDevice {
   id: number;
@@ -55,33 +57,39 @@ export function Account() {
 
   const tick = app.tick;
   useEffect(() => {
+    let live = true;
+    const user = (r: ApiResult<UserInfo>) => { if (live) { if (r.ok) info.value = r.data ?? null; else msg.value = apiError(r); } };
+    const membership = (r: ApiResult<{ list: UserSubscribe[] }>) => { if (live && r.ok) subs.value = r.data?.list ?? []; };
+    const deviceList = (r: ApiResult<{ list: UserDevice[] }>) => { if (live && r.ok) devices.value = r.data?.list ?? []; };
     (async () => {
       try {
-        const [u, s, d] = await Promise.all([
-          api<UserInfo>("GET", "/v1/public/user/info"),
-          api<{ list: UserSubscribe[] }>("GET", "/v1/public/user/subscribe"),
-          api<{ list: UserDevice[] }>("GET", "/v1/public/user/devices"),
+        await Promise.all([
+          api<UserInfo>("GET", "/v1/public/user/info", { onUpdate: user }).then(user),
+          api<{ list: UserSubscribe[] }>("GET", "/v1/public/user/subscribe", { onUpdate: membership }).then(membership),
+          api<{ list: UserDevice[] }>("GET", "/v1/public/user/devices", { onUpdate: deviceList }).then(deviceList),
         ]);
-        if (u.ok) info.value = u.data ?? null;
-        else msg.value = apiError(u);
-        if (s.ok) subs.value = s.data?.list ?? [];
-        if (d.ok) devices.value = d.data?.list ?? [];
       } catch (e) {
-        msg.value = (e as Error).message;
+        if (live) msg.value = (e as Error).message;
       }
     })();
+    return () => { live = false; };
   }, [tick]);
 
   const t = tab.value;
   useEffect(() => {
+    let live = true;
     (async () => {
       try {
         if (t === "invite" && !affiliate.value) {
-          const r = await api<{ registers: number; total_commission: number }>("GET", "/v1/public/user/affiliate/count");
+          const r = await api<{ registers: number; total_commission: number }>("GET", "/v1/public/user/affiliate/count", {
+            onUpdate: (r) => { if (live && r.ok) affiliate.value = r.data ?? {}; },
+          });
+          if (!live) return;
           affiliate.value = r.ok ? r.data ?? {} : {};
         }
         if (t === "messages" && !notices.value.length) {
-          const r = await api<{ announcements: Announcement[] }>("GET", "/v1/public/announcement/list", { query: { page: 1, size: 30 } });
+          const r = await api<{ announcements: Announcement[] }>("GET", "/v1/public/announcement/list", { query: { page: 1, size: 30 }, onUpdate: (r) => { if (live && r.ok) notices.value = r.data?.announcements ?? []; } });
+          if (!live) return;
           notices.value = r.ok ? r.data?.announcements ?? [] : [];
           if (notices.value.length) openNotice.value = notices.value[0].id;
         }
@@ -89,18 +97,19 @@ export function Account() {
         msg.value = (e as Error).message;
       }
     })();
+    return () => { live = false; };
   }, [t]);
 
   const kick = async (id: number) => {
     busy.value = `kick-${id}`;
     const r = await api("PUT", "/v1/public/user/device/kick_offline", { body: { id } });
-    if (!r.ok) msg.value = apiError(r, "下线失败");
+    if (!r.ok) msg.value = apiError(r, tr("下线失败"));
     busy.value = "";
     app.tick++;
   };
 
   const logout = async () => {
-    if (!confirm("在这台路由器上退出登录？代理会停止，局域网恢复直连。")) return;
+    if (!confirm(tr("在这台路由器上退出登录？代理会停止，局域网恢复直连"))) return;
     busy.value = "logout";
     await call("logout");
     busy.value = "";
@@ -125,9 +134,9 @@ export function Account() {
   return (
     <main class="page">
       <Segmented
-        label="账户"
+        label={tr("账户")}
         value={tab.value}
-        options={[{ id: "profile", label: "资料与订阅" }, { id: "checkin", label: "每日签到" }, { id: "invite", label: "邀请好友" }, { id: "messages", label: "消息" }]}
+        options={[{ id: "profile", label: tr("资料与套餐") }, { id: "checkin", label: tr("每日签到") }, { id: "invite", label: tr("邀请好友") }, { id: "messages", label: tr("消息") }]}
         onChange={(id) => (tab.value = id as Tab)}
       />
       <Notice text={msg.value} />
@@ -145,59 +154,54 @@ export function Account() {
               </span>
             </div>
             <dl class="grid-stats" style={{ margin: 0 }}>
-              <div class="stat"><b>{money(info.value?.balance)}</b><span>余额</span></div>
-              <div class="stat"><b>{money(info.value?.commission)}</b><span>佣金</span></div>
+              <div class="stat"><b>{money(info.value?.balance)}</b><span>{tr("余额")}</span></div>
+              <div class="stat"><b>{money(info.value?.commission)}</b><span>{tr("佣金")}</span></div>
             </dl>
-            <button type="button" class="btn" style={{ color: "var(--danger-text)" }} disabled={busy.value === "logout"} onClick={() => logout()}>
-              在这台路由器上退出登录
-            </button>
+            <button type="button" class="btn" style={{ color: "var(--danger-text)" }} disabled={busy.value === "logout"} onClick={() => logout()}>{tr("在这台路由器上退出登录")} </button>
           </section>
 
           <div style={{ flex: "2 1 460px", display: "flex", flexDirection: "column", gap: "20px", minWidth: 0 }}>
             <section class="card">
               <span class="small" style={{ color: "var(--accent)", fontWeight: 600, letterSpacing: "0.4px" }}>HYPER VIP</span>
-              <b style={{ fontSize: "24px" }}>{active?.subscribe?.name || (hasSubs ? "订阅" : "还没有订阅")}</b>
+              <b style={{ fontSize: "24px" }}>{localizedText(active?.subscribe?.name, hasSubs ? tr("套餐") : tr("还没有套餐"))}</b>
               {active ? (
                 <span class="muted">
-                  到期 {formatDate(active.expire_time)} · 剩余 {daysLeft(active.expire_time) ?? "--"} 天
-                  {active.status !== 1 ? " · 已失效" : ""}
+                  {expiryText(active.expire_time, active.status)}
                 </span>
               ) : (
-                <span class="muted">购买套餐后，这台路由器就能连接。</span>
+                <span class="muted">{tr("购买套餐后，这台路由器就能连接")}</span>
               )}
               {sync?.traffic_total && (
                 <dl class="grid-stats" style={{ margin: 0 }}>
-                  <div class="stat"><b>{sync.traffic_used}</b><span>已用流量</span></div>
-                  <div class="stat"><b>{sync.traffic_total}</b><span>总流量</span></div>
-                  <div class="stat"><b>{active?.subscribe?.device_limit || "--"}</b><span>设备上限</span></div>
+                  <div class="stat"><b>{sync.traffic_used}</b><span>{tr("已用流量")}</span></div>
+                  <div class="stat"><b>{sync.traffic_total}</b><span>{tr("总流量")}</span></div>
+                  <div class="stat"><b>{active?.subscribe?.device_limit || "--"}</b><span>{tr("设备上限")}</span></div>
                 </dl>
               )}
               <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-                <a href="#/plans" class="btn primary">{active ? "续费 / 升级" : "购买套餐"}</a>
+                <a href="#/plans" class="btn primary">{active ? tr("续费 / 升级") : tr("购买套餐")}</a>
               </div>
             </section>
 
             <section class="card">
-              <h2>已登录的设备</h2>
+              <h2>{tr("已登录的设备")}</h2>
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
                 {devices.value.map((d) => (
                   <li key={d.id} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", minHeight: "60px", borderTop: "1px solid var(--line)" }}>
                     <span style={{ flex: "1 1 200px", display: "flex", flexDirection: "column", gap: "3px", minWidth: 0 }}>
-                      <span>{d.current ? "本路由器" : d.platform || d.user_agent || "设备"}</span>
+                      <span>{d.current ? tr("本路由器") : d.platform || d.user_agent || tr("设备")}</span>
                       <span class="muted small">
-                        {[d.ip, d.online ? "在线" : "离线", d.last_login_at ? `登录于 ${formatDate(d.last_login_at)}` : ""].filter(Boolean).join(" · ")}
+                        {[d.ip, d.online ? tr("在线") : tr("离线"), d.last_login_at ? tr("登录于 {0}", [formatDate(d.last_login_at)]) : ""].filter(Boolean).join(" · ")}
                       </span>
                     </span>
                     {d.current ? (
-                      <span class="small" style={{ color: "var(--accent)" }}>当前</span>
+                      <span class="small" style={{ color: "var(--accent)" }}>{tr("当前")}</span>
                     ) : (
-                      <button type="button" class="btn" style={{ minHeight: "36px" }} disabled={busy.value === `kick-${d.id}`} onClick={() => kick(d.id)}>
-                        下线
-                      </button>
+                      <button type="button" class="btn" style={{ minHeight: "36px" }} disabled={busy.value === `kick-${d.id}`} onClick={() => kick(d.id)}>{tr("下线")} </button>
                     )}
                   </li>
                 ))}
-                {!devices.value.length && <li class="muted" style={{ padding: "12px 0" }}>没有设备记录。</li>}
+                {!devices.value.length && <li class="muted" style={{ padding: "12px 0" }}>{tr("没有设备记录")}</li>}
               </ul>
             </section>
           </div>
@@ -209,23 +213,23 @@ export function Account() {
       {tab.value === "invite" && (
         <div class="row" style={{ alignItems: "flex-start" }}>
           <section class="card" style={{ flex: "1 1 360px" }}>
-            <h2 style={{ fontSize: "22px" }}>邀请好友</h2>
-            <p class="muted" style={{ margin: 0 }}>好友注册时填写你的邀请码，购买后你会获得返佣。</p>
+            <h2 style={{ fontSize: "22px" }}>{tr("邀请好友")}</h2>
+            <p class="muted" style={{ margin: 0 }}>{tr("好友注册时填写你的邀请码，购买后你会获得返佣")}</p>
             {info.value?.refer_code ? (
               <div style={{ display: "flex", alignItems: "center", gap: "10px", minHeight: "52px", padding: "0 8px 0 16px", borderRadius: "14px", background: "var(--control)" }}>
                 <span class="mono" style={{ flexGrow: 1, fontSize: "20px", fontWeight: 600, letterSpacing: "2px" }}>{info.value.refer_code}</span>
                 <button type="button" class="btn primary" style={{ minHeight: "40px" }} onClick={() => copyCode(info.value!.refer_code!)}>
-                  {copied.value ? "已复制" : "复制"}
+                  {copied.value ? tr("已复制") : tr("复制")}
                 </button>
               </div>
             ) : (
-              <span class="muted">没有邀请码。</span>
+              <span class="muted">{tr("没有邀请码")}</span>
             )}
           </section>
           <section class="card" style={{ flex: "1 1 360px" }}>
             <dl class="grid-stats" style={{ margin: 0 }}>
-              <div class="stat"><b style={{ fontSize: "26px" }}>{affiliate.value?.registers ?? "--"}</b><span>已邀请</span></div>
-              <div class="stat"><b style={{ fontSize: "26px" }}>{money(affiliate.value?.total_commission)}</b><span>累计返佣</span></div>
+              <div class="stat"><b style={{ fontSize: "26px" }}>{affiliate.value?.registers ?? "--"}</b><span>{tr("已邀请")}</span></div>
+              <div class="stat"><b style={{ fontSize: "26px" }}>{money(affiliate.value?.total_commission)}</b><span>{tr("累计返佣")}</span></div>
             </dl>
           </section>
         </div>
@@ -244,7 +248,7 @@ export function Account() {
                     style={{ width: "100%", flexDirection: "column", alignItems: "flex-start", border: 0, background: openNotice.value === n.id ? "var(--control)" : "transparent" }}
                     onClick={() => (openNotice.value = n.id)}
                   >
-                    <b>{n.pinned ? "置顶 · " : ""}{n.title}</b>
+                    <b>{n.pinned ? tr("置顶 · ") : ""}{n.title}</b>
                     <span class="muted small">{formatDate(n.created_at)}</span>
                   </button>
                 </li>
@@ -264,8 +268,8 @@ export function Account() {
           </div>
         ) : (
           <section class="card empty">
-            <b style={{ fontSize: "18px" }}>暂时没有消息</b>
-            <span class="muted">服务公告会出现在这里。</span>
+            <b style={{ fontSize: "18px" }}>{tr("暂时没有消息")}</b>
+            <span class="muted">{tr("服务公告会出现在这里")}</span>
           </section>
         ))}
     </main>

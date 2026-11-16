@@ -9,14 +9,14 @@ const now = () => Math.floor(Date.now() / 1000);
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const nodes: NodeInfo[] = [
-  { name: "pp_jp1", label: "日本 · 东京 01", type: "anytls", country: "JPN" },
+  { name: "pp_jp1", label: "THA 01", type: "anytls", country: "THA" },
   { name: "pp_jp2", label: "日本 · 大阪", type: "anytls", country: "JPN" },
-  { name: "pp_hk1", label: "中国香港 01", type: "hysteria2", country: "HKG" },
-  { name: "pp_sg1", label: "新加坡 01", type: "anytls", country: "SGP" },
+  { name: "pp_hk1", label: "HKG 01", type: "hysteria2", country: "HKG" },
+  { name: "pp_sg1", label: "SGP 01", type: "anytls", country: "SGP" },
   { name: "pp_sg2", label: "新加坡 02", type: "vless", reality: true, country: "SGP" },
   { name: "pp_kr1", label: "韩国 · 首尔", type: "anytls", country: "KOR" },
-  { name: "pp_us1", label: "美国 · 洛杉矶", type: "trojan", transport: "ws", country: "USA" },
-  { name: "pp_de1", label: "德国 · 法兰克福", type: "anytls", country: "DEU" },
+  { name: "pp_us1", label: "USA 01", type: "trojan", transport: "ws", country: "USA" },
+  { name: "pp_de1", label: "DEU 01", type: "anytls", country: "DEU" },
   { name: "pp_gb1", label: "英国 · 伦敦", type: "anytls", country: "GBR" },
 ];
 const latency: Record<string, number | null> = {
@@ -29,7 +29,7 @@ const state: Status = {
   memory_kb: 38120,
   uptime: 2 * 86400 + 4 * 3600 + 12 * 60,
   main_node: "pp_jp1",
-  main_node_label: "日本 · 东京 01",
+  main_node_label: "THA 01",
   mode: "smart",
   signed_in: true,
   email: "astra345@gmail.com",
@@ -155,7 +155,7 @@ const ppanel = (path: string, body: Record<string, unknown>, query: Record<strin
     case "/v1/public/user/info":
       return ok({ id: 1, nickname: "Astra345", balance: 3600, commission: 3600, refer_code: "HYPR8K2Q" });
     case "/v1/public/user/subscribe":
-      return ok({ list: [{ id: 7, status: 1, start_time: Date.now() - 86400e3 * 30, expire_time: Date.now() + 86400e3 * 366, subscribe: { name: "年度会员", device_limit: 5 } }], total: 1 });
+      return ok({ list: [{ id: 7, status: 1, start_time: Date.now() - 86400e3 * 30, expire_time: 0, subscribe: { name: '{"en-US":"Basic","zh-CN":"Basic"}', device_limit: 5 } }], total: 1 });
     case "/v1/public/user/devices":
       return ok({ list: [
         { id: 1, current: true, platform: "Linux", ip: "203.0.113.20", online: true, last_login_at: Date.now() - 3600e3 },
@@ -175,7 +175,7 @@ const ppanel = (path: string, body: Record<string, unknown>, query: Record<strin
       return ok({
         units: { amount_scale: 100, currency_symbol: "¥" },
         list: [{
-          id: 1, name: "Hyper 会员", unit_time: "Month", device_limit: 5,
+          id: 1, name: '{"en-US":"Basic","zh-CN":"Basic"}', unit_time: "Month", device_limit: 5,
           discount: [
             { quantity: 12, sell_price: 29760, original_price: 35880, recommend: true },
             { quantity: 3, sell_price: 8280, original_price: 8970 },
@@ -216,6 +216,8 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
     case "set_enabled":
       state.enabled = !!args.enabled;
       state.running = state.enabled;
+      state.memory_kb = state.running ? 38120 : null;
+      state.uptime = state.running ? 1 : null;
       return { result: true, running: state.running };
     case "set_mode":
       state.mode = args.mode as Status["mode"];

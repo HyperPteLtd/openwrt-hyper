@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 export function formatBytes(n: number | null | undefined): string {
   if (n == null || !isFinite(n)) return "--";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -19,16 +20,16 @@ export function formatUptime(seconds: number | null | undefined): string {
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const hm = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  return d > 0 ? `${d} 天 ${hm}` : hm;
+  return d > 0 ? tr("{0} 天 {1}", [d, hm]) : hm;
 }
 
 export function formatAgo(epoch: number | null | undefined): string {
-  if (!epoch) return "从未";
+  if (!epoch) return tr("从未");
   const s = Math.max(0, Math.floor(Date.now() / 1000) - epoch);
-  if (s < 60) return "刚刚";
-  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
-  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
-  return `${Math.floor(s / 86400)} 天前`;
+  if (s < 60) return tr("刚刚");
+  if (s < 3600) return tr("{0} 分钟前", [Math.floor(s / 60)]);
+  if (s < 86400) return tr("{0} 小时前", [Math.floor(s / 3600)]);
+  return tr("{0} 天前", [Math.floor(s / 86400)]);
 }
 
 /** Latency colour classes from the design: <=100 ms good, slower warn, none = timeout */

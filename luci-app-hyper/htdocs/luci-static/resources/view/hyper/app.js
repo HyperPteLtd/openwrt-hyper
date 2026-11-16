@@ -15,7 +15,7 @@ return view.extend({
 	render: function() {
 		const frame = E('iframe', {
 			/* index.html is not content-hashed (its assets are): never let an old copy survive an update */
-			src: L.resource('../hyper/index.html') + '?_=' + Date.now(),
+			src: L.resource('../hyper/index.html') + '?lang=' + encodeURIComponent(document.documentElement.lang || 'en') + '&_=' + Date.now(),
 			title: 'Hyper',
 			style: 'display:block;width:100%;min-height:calc(100vh - 120px);border:0;border-radius:12px;background:#000'
 		});
