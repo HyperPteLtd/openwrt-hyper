@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: GPL-2.0-only
  *
- * Parse the decrypted PPanel subscription body into homeproxy-style UCI `node`
+ * Parse the decrypted Hyper service subscription body into homeproxy-style UCI `node`
  * options (generate_client.uc turns those into sing-box outbounds / endpoints).
  *
  * Body format (hyper-tunnel packages/app-client/src/subscribe/client.ts):
@@ -10,12 +10,12 @@
  *   - STATUS=Traffic: <used> / <total> | Expires: <date>
  *   - one share link per line
  *
- * Every protocol sing-box can dial is accepted (ported from homeproxy's
- * update_subscriptions.uc parse_uri, without its router dependencies):
+ * Supported share-link formats (ported from homeproxy's update_subscriptions.uc
+ * parse_uri, without its router dependencies, with current core additions):
  *   anytls, http(s), socks(4/4a/5), shadowsocks (SIP002 / base64 / SIP008),
  *   vmess (v2rayN JSON), vless (tls / reality / vision), trojan, hysteria,
- *   hysteria2 (hy2), tuic, wireguard (wg)
- * with tcp / ws / grpc / http (h2) / httpupgrade / quic transports.
+ *   hysteria2 (hy2), tuic, wireguard (wg), snell (v4 / v6)
+ * V2Ray-style links support tcp / ws / grpc / http (h2) / httpupgrade / quic.
  *
  * A link sing-box could not start with is dropped here rather than written to
  * UCI: one bad outbound makes the whole sing-box config fail.
@@ -53,7 +53,7 @@ const SCHEMES = {
 	socks: 'socks', socks4: 'socks', socks4a: 'socks', socks5: 'socks', socks5h: 'socks',
 	ss: 'shadowsocks', vmess: 'vmess', vless: 'vless', trojan: 'trojan',
 	hysteria: 'hysteria', hysteria2: 'hysteria2', hy2: 'hysteria2',
-	tuic: 'tuic', wireguard: 'wireguard', wg: 'wireguard'
+	tuic: 'tuic', wireguard: 'wireguard', wg: 'wireguard', snell: 'snell'
 };
 
 /* Percent-decoding as decodeURIComponent does it ('+' stays '+') */
@@ -521,6 +521,38 @@ function parseVmess(rest, opts) {
 	return node;
 }
 
+/* snell://<percent-encoded PSK>@host:port?version=6&mode=default */
+function parseSnell(l) {
+	const p = l.params, version = p.version ?? '4';
+	if (!(version in [ '4', '6' ]))
+		return unsupported('snell version');
+	const password = (l.userinfo != null) ? pctdecode(l.userinfo) : p.psk;
+	if (!nonEmpty(password))
+		return null;
+	const userkey = p.userkey ?? p.user_key;
+	if (length(userkey || '') > 255)
+		return null;
+	const node = {
+		label: l.name, type: 'snell', address: l.host, port: l.port,
+		password, snell_version: version, snell_user_key: userkey,
+		snell_reuse: paramBool(p, [ 'reuse' ], false) ? '1' : null
+	};
+	const obfs = p.obfs ?? p.obfs_mode ?? p['obfs-mode'];
+	const host = p.obfs_host ?? p['obfs-host'];
+	if (version === '6') {
+		const mode = p.mode || 'default';
+		if (!(mode in [ 'default', 'unshaped', 'unsafe-raw' ]) || obfs || host)
+			return unsupported('snell v6 options');
+		node.snell_mode = mode;
+	} else {
+		if (!((obfs || 'none') in [ 'none', 'http', 'tls' ]) || p.mode)
+			return unsupported('snell v4 options');
+		node.snell_obfs_mode = obfs || 'none';
+		node.snell_obfs_host = host;
+	}
+	return node;
+}
+
 function parseVless(l, opts) {
 	const p = l.params;
 	const uuid = nonEmpty(pctdecode(l.userinfo));
@@ -792,6 +824,7 @@ export function parseNode(line, opts) {
 	switch (SCHEMES[scheme]) {
 	case 'http': node = parseHttp(scheme, l); break;
 	case 'socks': node = parseSocks(scheme, l); break;
+	case 'snell': node = parseSnell(l); break;
 	case 'vless': node = parseVless(l, opts); break;
 	case 'trojan': node = parseTrojan(l, opts); break;
 	case 'hysteria': node = parseHysteria(l, opts); break;

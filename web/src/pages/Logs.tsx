@@ -40,6 +40,8 @@ export function Logs() {
   const clearing = useSignal(false);
   const active = useRef(true);
   const logRequest = useRef(0);
+  const healthRequest = useRef(0);
+  const diagRequest = useRef(0);
 
   const loadLog = async () => {
     const request = ++logRequest.current;
@@ -59,39 +61,41 @@ export function Logs() {
   useEffect(() => {
     active.current = true;
     void loadLog();
-    return () => { active.current = false; logRequest.current++; };
+    return () => { active.current = false; logRequest.current++; healthRequest.current++; diagRequest.current++; };
   }, []);
 
   const runHealth = async () => {
-    if (checking.value) return;
+    const request = ++healthRequest.current;
     checking.value = true;
     msg.value = "";
     try {
       const result = await call<Health>("health_check");
-      if (active.current) health.value = result;
+      if (active.current && request === healthRequest.current) health.value = result;
     } catch (e) {
-      if (active.current) msg.value = (e as Error).message;
+      if (active.current && request === healthRequest.current) msg.value = (e as Error).message;
     } finally {
-      if (active.current) { checking.value = false; void loadLog(); }
+      if (active.current && request === healthRequest.current) { checking.value = false; void loadLog(); }
     }
   };
 
   const runDiag = async () => {
-    if (running.value || !target.value.trim()) return;
+    if (!target.value.trim()) return;
+    const request = ++diagRequest.current;
     running.value = true;
     output.value = "";
     try {
       const r = await call<{ result: boolean; output?: string; error?: string }>("diag", { type: kind.value, target: target.value.trim(), via: via.value });
-      if (active.current) output.value = r.error === "illegal target" ? tr("目标只能是域名或 IP 地址") : r.output || r.error || "";
+      if (active.current && request === diagRequest.current) output.value = r.error === "illegal target" ? tr("目标只能是域名或 IP 地址") : r.output || r.error || "";
     } catch (e) {
-      if (active.current) output.value = (e as Error).message;
+      if (active.current && request === diagRequest.current) output.value = (e as Error).message;
     } finally {
-      if (active.current) { running.value = false; void loadLog(); }
+      if (active.current && request === diagRequest.current) { running.value = false; void loadLog(); }
     }
   };
 
   const clean = async () => {
-    if (clearing.value || loadingLogs.value) return;
+    if (clearing.value) return;
+    logRequest.current++;
     clearing.value = true;
     msg.value = "";
     try {
@@ -114,7 +118,7 @@ export function Logs() {
     { label: tr("境外网站经代理"), ok: h?.proxy?.ok, detail: h ? (h.proxy?.ok ? `www.google.com · ${h.proxy.ms} ms` : tr("无法访问")) : "" },
   ];
   const records = parseLogs(serviceText(content.value)).filter((record) => level.value === "all" || record.level === level.value);
-  const logBusy = loadingLogs.value || clearing.value;
+  const editDiagnostic = () => { diagRequest.current++; running.value = false; output.value = ""; };
 
   return (
     <main class="page diagnostics-page">
@@ -123,7 +127,7 @@ export function Logs() {
         <div class="diagnostics-tools">
           <section class="card">
             <CardHeader title={tr("一键体检")}>
-              <button type="button" class="btn primary" disabled={checking.value} onClick={() => runHealth()}>{checking.value ? tr("检查中…") : h ? tr("重新检查") : tr("开始体检")}</button>
+              <button type="button" class="btn primary" aria-busy={checking.value} onClick={() => runHealth()}>{checking.value ? tr("检查中…") : h ? tr("重新检查") : tr("开始体检")}</button>
             </CardHeader>
             <ul class="health-checks" aria-busy={checking.value}>
               {checks.map((c) => (
@@ -137,12 +141,12 @@ export function Logs() {
           <section class="card">
             <CardHeader title={tr("手动诊断")} />
             <div class="diagnostic-types" role="group" aria-label={tr("诊断类型")}>
-              {DIAG_TYPES.map((t) => <button key={t.id} type="button" class="option" aria-pressed={kind.value === t.id} disabled={running.value} onClick={() => (kind.value = t.id)}>{t.label}</button>)}
+              {DIAG_TYPES.map((t) => <button key={t.id} type="button" class="option" aria-pressed={kind.value === t.id} onClick={() => { editDiagnostic(); kind.value = t.id; }}>{t.label}</button>)}
             </div>
             <form class="diagnostic-form" onSubmit={(e) => { e.preventDefault(); void runDiag(); }}>
-              {kind.value === "http" && <label class="field diagnostic-via">{tr("出口")}<select class="input" value={via.value} disabled={running.value} onChange={(e) => (via.value = e.currentTarget.value)}><option value="proxy">{tr("经代理")}</option><option value="direct">{tr("直连")}</option></select></label>}
-              <label class="field">{tr("目标")}<input class="input" value={target.value} disabled={running.value} onInput={(e) => (target.value = e.currentTarget.value)} placeholder={tr("域名或 IP")} /></label>
-              <button type="submit" class="btn primary" disabled={running.value || !target.value.trim()}>{running.value ? tr("运行中…") : tr("开始")}</button>
+              {kind.value === "http" && <label class="field diagnostic-via">{tr("出口")}<select class="input" value={via.value} onChange={(e) => { editDiagnostic(); via.value = e.currentTarget.value; }}><option value="proxy">{tr("经代理")}</option><option value="direct">{tr("直连")}</option></select></label>}
+              <label class="field">{tr("目标")}<input class="input" value={target.value} onInput={(e) => { editDiagnostic(); target.value = e.currentTarget.value; }} placeholder={tr("域名或 IP")} /></label>
+              <button type="submit" class="btn primary" aria-busy={running.value} disabled={!target.value.trim()}>{running.value ? tr("运行中…") : tr("开始")}</button>
             </form>
             <pre class="diagnostic-output" aria-live="polite" aria-busy={running.value}>{serviceText(output.value) || tr("选择类型、填写目标后点“开始”。命令在路由器上执行，结果显示在这里")}</pre>
           </section>
@@ -150,8 +154,8 @@ export function Logs() {
         <section class="card logs-card" aria-labelledby="combined-logs-title">
           <CardHeader title={tr("运行日志")} id="combined-logs-title">
             <div class="log-actions">
-              <button type="button" class="btn" disabled={logBusy} onClick={() => { msg.value = ""; void loadLog(); }}>{tr("刷新")}</button>
-              <button type="button" class="btn" disabled={logBusy} onClick={() => clean()}>{tr("清空")}</button>
+              <button type="button" class="btn" disabled={clearing.value} aria-busy={loadingLogs.value} onClick={() => { msg.value = ""; void loadLog(); }}>{tr("刷新")}</button>
+              <button type="button" class="btn" disabled={clearing.value} onClick={() => clean()}>{tr("清空")}</button>
             </div>
           </CardHeader>
           <div class="segmented log-levels" role="tablist" aria-label={tr("日志级别")}>

@@ -4,7 +4,8 @@ import { useEffect, useRef } from "preact/hooks";
 import { app } from "../lib/app";
 import { formatAgo, latencyTone } from "../lib/format";
 import { serviceText } from "../lib/display";
-import { operationPending } from "../lib/service";
+import { acknowledgeNode, nodeSelection, selectNode } from "../lib/node-selection";
+import { NodeProbe, type ProbeProgress, type ProbeReply } from "../lib/node-probe";
 import { nodeLabel, nodeRegion, regionFlag, regionName } from "../lib/regions";
 import { beginNodeMeasurement, call, readNodeLatency } from "../lib/rpc";
 import type { NodeMeasurements } from "../lib/node-latency";
@@ -17,24 +18,30 @@ export function NodeList() {
   const nodes = useSignal<NodeInfo[]>([]);
   const latency = useSignal<NodeMeasurements>({});
   const query = useSignal("");
-  const busy = useSignal("");
+  const syncing = useSignal(false);
+  const probing = useSignal<ProbeProgress>({ running: false, completed: 0, total: 0 });
   const message = useSignal("");
   const loadId = useRef(0);
   const mounted = useRef(true);
+  const probe = useRef<NodeProbe>();
+  if (!probe.current) probe.current = new NodeProbe((method, args) => call<ProbeReply>(method, args), value => {
+    if (mounted.current) probing.value = value;
+  });
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => { mounted.current = false; probe.current!.cancel(); };
   }, []);
 
-  const load = async () => {
+  const load = async (fresh = false) => {
     const id = ++loadId.current;
     const apply = (r: NodesResult) => {
       if (id !== loadId.current) return;
       nodes.value = r.nodes || [];
+      acknowledgeNode(r.main_node);
       latency.value = readNodeLatency(nodes.value);
     };
     try {
-      apply(await call<NodesResult>("nodes", {}, { onUpdate: apply }));
+      apply(await call<NodesResult>("nodes", {}, { fresh, onUpdate: apply }));
     } catch (e) {
       if (id === loadId.current) message.value = (e as Error).message;
     }
@@ -43,79 +50,85 @@ export function NodeList() {
   const tick = app.tick;
   const identity = app.status?.signed_in ? app.status.email || "signed-in" : "signed-out";
   const loadedIdentity = useRef(identity);
+  const syncTime = app.status?.sync?.time;
+  const loadedSyncTime = useRef(syncTime);
   useEffect(() => {
     if (loadedIdentity.current !== identity) {
+      probe.current!.cancel();
       loadedIdentity.current = identity;
       nodes.value = [];
       latency.value = {};
       message.value = "";
     }
-    load();
+    const fresh = loadedSyncTime.current !== syncTime;
+    loadedSyncTime.current = syncTime;
+    load(fresh);
     return () => { loadId.current++; };
-  }, [tick, identity]);
+  }, [tick, identity, syncTime]);
+
+  const intentRevision = app.intentRevision;
+  useEffect(() => { probe.current!.cancel(); }, [intentRevision]);
 
   const measure = async () => {
-    busy.value = "latency";
     message.value = "";
     const remember = beginNodeMeasurement();
     try {
-      const r = await call<Result & { latency?: Record<string, number | null> }>("latency");
-      if (r.result && r.latency) {
-        const snapshot = remember(r.latency);
-        if (snapshot && mounted.current) {
-          latency.value = snapshot;
-          return r.latency;
-        }
-      } else if (mounted.current) message.value = r.error === "not running" ? tr("Hyper 运行时才能测速") : r.error || tr("测速失败");
-    } catch (e) {
-      if (mounted.current) message.value = (e as Error).message;
-    } finally {
-      if (mounted.current) busy.value = "";
+      const result = await probe.current!.run(nodes.value.map(node => node.name), values => {
+        const snapshot = remember(values);
+        if (snapshot && mounted.current) latency.value = snapshot;
+        else if (!snapshot) probe.current!.cancel();
+      });
+      return remember({}) ? result : undefined;
+    } catch (error) {
+      if (mounted.current) message.value = tr("测速失败");
     }
   };
 
   const sync = async () => {
-    busy.value = "sync";
+    app.intentRevision++;
+    probe.current!.cancel();
+    syncing.value = true;
     message.value = "";
     try {
-      const r = await call<{ result: boolean; state: SyncState | null }>("sync_subscription");
+      type SyncReply = { result: boolean; pending?: boolean; state: SyncState | null };
+      let r = await call<SyncReply>("sync_subscription");
+      while (r.pending && mounted.current) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (!mounted.current) return;
+        r = await call<SyncReply>("sync_status");
+      }
       if (!r.result) message.value = tr("更新失败：{0}", [r.state?.msg || r.state?.error || tr("未知原因")]);
-      await load();
+      await load(true);
     } catch (e) {
       message.value = (e as Error).message;
     }
-    busy.value = "";
+    syncing.value = false;
     app.tick++;
   };
 
-  const select = async (name: string) => {
-    busy.value = name;
-    try {
-      const r = await call<Result>("select_node", { node: name });
-      if (!r.result) message.value = r.error || tr("切换失败");
-    } catch (e) {
-      message.value = (e as Error).message;
-    }
-    busy.value = "";
-    app.tick++;
+  const select = (name: string) => {
+    probe.current!.cancel();
+    message.value = "";
+    selectNode(name);
   };
 
   const autoPick = async () => {
+    const intent = app.intentRevision;
     const measured = await measure();
-    if (!measured) return;
+    if (!measured || intent !== app.intentRevision || !mounted.current) return;
     const names = new Set(nodes.value.map((node) => node.name));
     const best = Object.entries(measured)
       .filter(([name, ms]) => names.has(name) && ms != null && ms > 0)
       .sort((a, b) => (a[1] as number) - (b[1] as number))[0];
-    if (best) await select(best[0]);
+    if (best) select(best[0]);
   };
 
   const q = query.value.trim().toLowerCase();
   const list = nodes.value.filter(
     (n) => !q || [n.label, nodeLabel(n.label), regionName(nodeRegion(n)), n.country, n.city].some((text) => text?.toLowerCase().includes(q)),
   );
-  const current = app.status?.main_node;
-  const isBusy = !app.liveStatus || !!busy.value || !!app.controlAction || operationPending(app.status?.operation);
+  const current = nodeSelection.value.desired || app.status?.main_node;
+  const disabled = !app.liveStatus;
 
   return (
     <Card id="overview-nodes" className="node-section" label={tr("节点")}>
@@ -135,13 +148,14 @@ export function NodeList() {
               style={{ all: "unset", flexGrow: 1, fontSize: "var(--control-font-size)" }}
             />
           </label>
-          <button type="button" class="btn" disabled={isBusy} onClick={() => measure()}>{busy.value === "latency" ? tr("测速中…") : tr("刷新延迟")}</button>
-          <button type="button" class="btn" disabled={isBusy} onClick={() => sync()}>{busy.value === "sync" ? tr("更新中…") : tr("更新节点")}</button>
-          <button type="button" class="btn primary" disabled={isBusy || !app.status?.running} onClick={() => autoPick()}>{tr("自动选择")}</button>
+          <button type="button" class="btn" disabled={disabled || !nodes.value.length} onClick={() => probing.value.running ? probe.current!.cancel() : measure()}>{probing.value.running ? tr("取消测速") : tr("刷新延迟")}</button>
+          <button type="button" class="btn" disabled={disabled || syncing.value} onClick={() => sync()}>{syncing.value ? tr("更新中…") : tr("更新节点")}</button>
+          <button type="button" class="btn primary" disabled={disabled || !nodes.value.length} onClick={() => autoPick()}>{tr("自动选择")}</button>
         </div>
       </div>
 
-      {message.value && <div class="banner">{serviceText(message.value)}</div>}
+      {probing.value.running && <p class="muted small" role="status">{tr("测速中 {0}/{1}", [probing.value.completed, probing.value.total])}</p>}
+      {(message.value || nodeSelection.value.error) && <div class="banner">{serviceText(message.value || nodeSelection.value.error)}</div>}
 
       <div class="node-list">
         {list.length ? (
@@ -158,7 +172,7 @@ export function NodeList() {
                     type="button"
                     class="option node-option"
                     aria-pressed={on}
-                    disabled={isBusy}
+                    disabled={disabled}
                     onClick={() => select(n.name)}
                   >
                     <span aria-hidden="true" class="node-flag">{regionFlag(region)}</span>

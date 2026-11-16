@@ -7,7 +7,7 @@ import { t as tr } from "./i18n";
  *   POST /v2/orders/{no}/cancel
  * Writes carry an Idempotency-Key, so a repeated click or a retry never creates a second order.
  */
-import { api, type ApiResult } from "./ppanel";
+import { api, type ApiResult } from "./api";
 
 export type OrderStatus = "pending" | "paid" | "cancelled" | "expired" | "failed" | "fulfilled";
 export type ActionState = "preparing" | "ready" | "paid" | "cancelled" | "expired" | "failed";

@@ -1,15 +1,15 @@
 import { t as tr } from "../lib/i18n";
 import "./Settings.css";
 import { useSignal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { useStore } from "../lib/store";
 import { Card, CardHeader, Notice, Row, Switch } from "../components/ui";
 import { useAutosave } from "../components/AutosaveStatus";
-import { configWrites, flushPreferences } from "../lib/preferences";
+import { configWrites, flushPreferences, pendingLanguagePreference, requestLanguage } from "../lib/preferences";
 import { app } from "../lib/app";
-import { formatAgo } from "../lib/format";
+import { formatAgo, formatVersion } from "../lib/format";
 import { serviceText } from "../lib/display";
-import { languagePreference, saveLanguage, type LanguagePreference } from "../lib/i18n";
+import { languagePreference, type LanguagePreference } from "../lib/i18n";
 import { call } from "../lib/rpc";
 import type { Result, SoftwareUpdateState, Status } from "../lib/types";
 
@@ -28,12 +28,6 @@ interface UpdateInfo extends Result {
   update_state?: SoftwareUpdateState | null;
 }
 
-const PROXY_MODES = [
-  { id: "redirect_tproxy", label: tr("TProxy（推荐）") },
-  { id: "redirect", label: tr("Redirect（仅 TCP）") },
-  { id: "redirect_tun", label: "Redirect + TUN" },
-  { id: "tun", label: "TUN" },
-];
 const LOG_LEVELS = [
   { id: "error", label: tr("错误") },
   { id: "warn", label: tr("警告") },
@@ -42,9 +36,10 @@ const LOG_LEVELS = [
 ];
 
 export function Settings() {
-  const language = useSignal<LanguagePreference>(languagePreference);
+  const language = useSignal<LanguagePreference>(pendingLanguagePreference ?? languagePreference);
   const loaded = useSignal(false);
-  const switchingLanguage = useSignal(false);
+  const updateRequest = useRef(0);
+  const active = useRef(true);
   useAutosave(configWrites);
   const draft = useStore<{ v: Config }>({ v: {} });
   const msg = useStore({ text: "", tone: "error" as "error" | "warn" | "ok" });
@@ -52,15 +47,18 @@ export function Settings() {
   const update = useSignal<UpdateInfo | null>(null);
 
   useEffect(() => {
+    active.current = true;
     const revision = configWrites.revision;
     const pendingAtRead = configWrites.value;
     const apply = (r: { config: Config }) => {
+      if (!active.current) return;
       if (revision === configWrites.revision) draft.v = { ...r.config, ...pendingAtRead, ...configWrites.value };
       loaded.value = true;
     };
     call<{ config: Config }>("get_config", {}, { onUpdate: apply })
       .then(apply)
-      .catch((e: Error) => (msg.text = e.message));
+      .catch((e: Error) => { if (active.current) msg.text = e.message; });
+    return () => { active.current = false; updateRequest.current++; };
   }, []);
 
   const set = (key: string, value: string) => {
@@ -68,34 +66,35 @@ export function Settings() {
     configWrites.enqueue({ [key]: value });
   };
   const flag = (key: string) => draft.v[key] === "1";
-  const disabled = !loaded.value || !app.liveStatus || switchingLanguage.value || busy.value === "install";
+  const disabled = !loaded.value || !app.liveStatus;
 
   const changeLanguage = async (value: LanguagePreference) => {
     language.value = value;
-    switchingLanguage.value = true;
     try {
-      await flushPreferences();
-      saveLanguage(value);
-      location.reload();
+      await requestLanguage(value);
     } catch (e) {
+      if (!active.current) return;
       language.value = languagePreference;
       msg.text = (e as Error).message;
       msg.tone = "error";
-      switchingLanguage.value = false;
     }
   };
 
   const checkUpdate = async (fresh = true) => {
+    const request = ++updateRequest.current;
     busy.value = "check";
     try {
-      update.value = await call<UpdateInfo>("check_update", {}, { fresh });
+      const result = await call<UpdateInfo>("check_update", {}, { fresh });
+      if (active.current && request === updateRequest.current) update.value = result;
     } catch (e) {
-      update.value = { result: false, error: (e as Error).message };
+      if (active.current && request === updateRequest.current) update.value = { result: false, error: (e as Error).message };
     }
-    busy.value = "";
+    if (active.current && request === updateRequest.current) busy.value = "";
   };
 
   const installUpdate = async () => {
+    if (busy.value === "install") return;
+    updateRequest.current++;
     busy.value = "install";
     msg.text = "";
     try {
@@ -112,8 +111,9 @@ export function Settings() {
         update_state: { state: "installing", version: r.version || update.value?.latest || "", time: Math.floor(Date.now() / 1000) },
       };
       /* the package replaces the backend; poll until it reports done/failed */
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 60 && active.current; i++) {
         await new Promise((res) => setTimeout(res, 3000));
+        if (!active.current) break;
         try {
           const status = await call<Status>("status");
           const state = status.update?.state;
@@ -151,12 +151,12 @@ export function Settings() {
   const installing = busy.value === "install" || updateState?.state === "installing";
   const updateFailed = updateState?.state === "failed" || !!(u && !u.result);
   const updateMessage = updateState?.state === "installing"
-    ? tr("正在安装 {0}…", [updateState.version])
+    ? tr("正在安装 {0}…", [formatVersion(updateState.version)])
     : updateState?.state === "done"
-      ? tr("已更新到 {0}，刷新页面后生效", [updateState.version])
+      ? tr("已更新到 {0}，刷新页面后生效", [formatVersion(updateState.version)])
       : updateState?.state === "failed"
         ? tr("安装失败，请查看日志")
-        : !u ? "" : !u.result ? tr("检查更新失败") : hasNew ? tr("发现新版本 {0}", [u.latest]) : tr("已是最新版本");
+        : !u ? "" : !u.result ? tr("检查更新失败") : hasNew ? tr("发现新版本 {0}", [formatVersion(u.latest)]) : tr("已是最新版本");
   const updateDetail = updateFailed
     ? serviceText(updateState?.error || u?.error || "")
     : u?.published_at ? tr("发布于 {0}", [u.published_at.slice(0, 10)]) : "";
@@ -173,11 +173,6 @@ export function Settings() {
                 <option value="auto">{tr("跟随路由器")}</option>
                 <option value="zh-CN">{tr("简体中文")}</option>
                 <option value="en-US">English</option>
-              </select>
-            </Row>
-            <Row title={tr("透明代理方式")} desc={tr("TProxy 同时代理 TCP 和 UDP")}>
-              <select aria-label={tr("透明代理方式")} class="input settings-select" value={draft.v["config.proxy_mode"] || "redirect_tproxy"} disabled={disabled} onChange={(e) => set("config.proxy_mode", e.currentTarget.value)}>
-                {PROXY_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
               </select>
             </Row>
             <Row title="IPv6" desc={tr("同时代理 IPv6 流量")}>
@@ -206,17 +201,14 @@ export function Settings() {
                   {Array.from({ length: 24 }, (_, h) => <option key={h} value={String(h)}>{`${String(h).padStart(2, "0")}:00`}</option>)}
                 </select>
               </Row>
-              <Row title={tr("经代理同步")} desc={tr("服务地址在本地网络直连不通时打开")}>
-                <Switch disabled={disabled} label={tr("经代理同步")} checked={flag("subscription.update_via_proxy")} onToggle={(on) => set("subscription.update_via_proxy", on ? "1" : "0")} />
-              </Row>
             </div>
           </Card>
 
           <Card className="settings-software">
-            <CardHeader title={tr("软件更新")} desc={`${tr("版本")} ${u?.current || s?.version || "--"}`}>
+            <CardHeader title={tr("软件更新")} desc={`${tr("版本")} ${formatVersion(u?.current || s?.version)}`}>
               {hasNew && u?.installable ?
-                <button type="button" class="btn primary settings-update-button" disabled={!!busy.value || installing || !app.liveStatus} onClick={() => installUpdate()}>{installing ? tr("安装中…") : tr("下载并安装")}</button> :
-                <button type="button" class="btn settings-update-button" disabled={!!busy.value || installing} onClick={() => checkUpdate()}>{installing ? tr("安装中…") : busy.value === "check" ? tr("检查中…") : tr("检查更新")}</button>}
+                <button type="button" class="btn primary settings-update-button" disabled={installing || !app.liveStatus} onClick={() => installUpdate()}>{installing ? tr("安装中…") : tr("下载并安装")}</button> :
+                <button type="button" class="btn settings-update-button" aria-busy={busy.value === "check"} disabled={installing} onClick={() => checkUpdate()}>{installing ? tr("安装中…") : busy.value === "check" ? tr("检查中…") : tr("检查更新")}</button>}
             </CardHeader>
             {updateMessage && <div class="settings-update-state" data-state={updateFailed ? "error" : updateState?.state || (hasNew ? "available" : "current")} role={updateFailed ? "alert" : "status"}>
               <strong>{updateMessage}</strong>

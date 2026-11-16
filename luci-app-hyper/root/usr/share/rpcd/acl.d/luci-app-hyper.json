@@ -34,7 +34,10 @@
 					"check_update",
 					"acllist_read",
 					"rules_list",
-					"checkin_status"
+					"checkin_status",
+					"latency_status",
+					"sync_status",
+					"task_status"
 				]
 			},
 			"uci": [
@@ -62,7 +65,8 @@
 					"acllist_write",
 					"send_code",
 					"set_rule_enabled",
-					"checkin"
+					"checkin",
+					"latency_cancel"
 				]
 			},
 			"uci": [

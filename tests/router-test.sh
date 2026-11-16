@@ -11,7 +11,7 @@
 #   package   a built .ipk / .apk, installed with opkg / apk (dependencies included)
 #
 #   e.g. tests/router-test.sh openwrt/rootfs:aarch64_generic-24.10.8 /tmp/core linux/aarch64_generic
-#        tests/router-test.sh openwrt-rootfs:23.05.6 dist/23.05-24.10_luci-app-hyper_0.1.0-r1_x86_64.ipk
+#        tests/router-test.sh openwrt-rootfs:23.05.6 dist/23.05-24.10_luci-app-hyper_0.1.0_x86_64.ipk
 #
 # Then checks the installed layout: the scripts find their modules from the real
 # paths (no -L), the bundled programs run, and rpcd serves luci.hyper.
@@ -36,9 +36,15 @@ case "$SRC" in
 	*) cp "$SRC"/* "$stage/src/bin/" ;;
 esac
 
+node_platform="${PLATFORM:-$(docker image inspect "$IMAGE" --format '{{.Architecture}}')}"
+sh "$ROOT/tests/stage-node-runtime.sh" "$stage" "$node_platform"
+
 cat > "$stage/src/run-inner.sh" <<'INNER'
 set -eu
 mkdir -p /var/lock /var/run/ubus /tmp/lock /tmp/run
+export PATH="/opt/hyper-test-node/bin:$PATH"
+export HYPER_TEST_NODE=/opt/hyper-test-node/bin/node
+node --version
 if command -v apk >/dev/null 2>&1; then
 	pm_update() { apk update >/dev/null; }
 	pm_add() { apk add "$@" >/dev/null; }
@@ -51,8 +57,8 @@ else
 	pm_file() { opkg install "$1"; }
 fi
 pm_update
-# python3 (echo server, JSON edits), coreutils-timeout (watchdog test)
-pm_add python3 curl coreutils-timeout
+# Node comes from the isolated pinned test runtime; timeout serves watchdog tests
+pm_add curl coreutils-timeout
 . /etc/openwrt_release
 echo "== $DISTRIB_DESCRIPTION ($DISTRIB_ARCH)"
 rc=0
@@ -109,6 +115,7 @@ rm -f /etc/hyper/session
 echo "ok   manual addresses removed; Hyper sessions kept and custom panel sessions cleared"
 if id sing-box >/dev/null 2>&1; then echo "ok   bundled core service identity exists"
 else echo "FAIL bundled core service identity missing"; rc=1; fi
+node /src/tests/rule_permissions_test.mjs || rc=1
 
 if [ "$(grep -c '#hyper_software_update$' /etc/crontabs/root)" = 1 ]; then echo "ok   software update schedule is idempotent"
 else echo "FAIL software update schedule duplicated or missing"; rc=1; fi
@@ -157,13 +164,28 @@ if ubus -t 10 wait_for luci.hyper && ubus -v list luci.hyper | grep -q '"checkin
 	mv "$BIN/sing-box.real" "$BIN/sing-box"
 	if [ "$runs1" = 1 ] && [ "$runs2" = 2 ]; then echo "ok   status starts sing-box once for its version (cached until the binary changes)"
 	else echo "FAIL status started sing-box $runs1 time(s) for 3 calls, $runs2 after the binary changed (want 1, 2)"; rc=1; fi
-	python3 /src/tests/control_rpc_test.py || rc=1
-	HYPER_TEST_CONTAINER=1 python3 /src/tests/software_update_worker_test.py || rc=1
+	HYPER_TEST_CONTAINER=1 node /src/tests/node_probe_test.mjs || rc=1
+	HYPER_TEST_CONTAINER=1 node /src/tests/sync_worker_test.mjs || rc=1
+	node /src/tests/control_rpc_test.mjs || rc=1
+	HYPER_TEST_CONTAINER=1 node /src/tests/rpc_task_rpc_test.mjs || rc=1
+	HYPER_TEST_CONTAINER=1 node /src/tests/software_update_worker_test.mjs || rc=1
 
 	# check_update records when it ran, also on a fresh install (no /var/run/hyper yet)
 	# and when GitHub is unreachable, so the daily check does not repeat on every page load
 	rm -rf /var/run/hyper
-	ubus -t 60 call luci.hyper check_update >/dev/null 2>&1 || true
+	task="$(ubus -t 5 call luci.hyper check_update | jsonfilter -e '@._hyper_task' || true)"
+	if [ -z "$task" ]; then echo "FAIL check_update did not enqueue a task"; rc=1; fi
+	polls=0
+	while [ -n "$task" ] && [ "$polls" -lt 185 ]; do
+		state="$(ubus -t 5 call luci.hyper task_status "{\"id\":\"$task\"}" | jsonfilter -e '@.state' || true)"
+		case "$state" in
+			done|failed) break ;;
+			running) ;;
+			*) echo "FAIL check_update task status is unavailable"; rc=1; break ;;
+		esac
+		sleep 1
+		polls=$((polls + 1))
+	done
 	checked="$(ubus call luci.hyper status | jsonfilter -e '@.update.checked' || true)"
 	if [ -n "$checked" ]; then echo "ok   check_update records when it ran"
 	else echo "FAIL check_update did not record the check"; rc=1; fi
@@ -188,6 +210,7 @@ fi
 exit $rc
 INNER
 
+# Reap orphaned test children as the router's procd would.
 # shellcheck disable=SC2086
-tar -C "$stage" -cf - src | docker run --rm -i --cap-add NET_ADMIN ${PLATFORM:+--platform "$PLATFORM"} "$IMAGE" \
+tar -C "$stage" -cf - src opt | docker run --rm --init -i --cap-add NET_ADMIN ${PLATFORM:+--platform "$PLATFORM"} "$IMAGE" \
 	sh -c 'tar -C / -xf - && sh /src/run-inner.sh'

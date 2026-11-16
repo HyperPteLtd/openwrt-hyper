@@ -1,5 +1,6 @@
 # ---- Local project notes ----
-/docs/
+/docs/*
+!/docs/development.md
 
 # ---- Build outputs (CI builds them; never commit) ----
 # Frontend build: npm --prefix web run build writes it into the package
@@ -44,6 +45,9 @@ npm-debug.log*
 !.env.example
 session
 *.pem
+# Public localhost-only certificate/key for isolated HTTPS probe tests.
+!tests/fixtures/probe-cert.pem
+!tests/fixtures/probe-key.pem
 
 # ---- Local tooling ----
 .claude/

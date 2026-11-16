@@ -1,9 +1,14 @@
+import { accountEpoch, onAccountChange } from "./account-epoch.ts";
+
 /** Serialized writes that keep the latest edit while a request is in flight.
  * Queues live outside pages so navigation never abandons pending writes.
  */
 export class AutosaveQueue<T> {
   private pending: T | null = null;
   private active: T | null = null;
+  private draining = false;
+  private generation = 0;
+  private pendingEpoch = accountEpoch();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private listeners = new Set<() => void>();
   private write: (value: T) => Promise<void>;
@@ -15,6 +20,7 @@ export class AutosaveQueue<T> {
   constructor(write: (value: T) => Promise<void>, merge: (older: T, newer: T) => T = (_, newer) => newer) {
     this.write = write;
     this.merge = merge;
+    onAccountChange(() => this.cancel());
   }
 
   get busy(): boolean { return this.pending !== null || this.active !== null; }
@@ -30,6 +36,7 @@ export class AutosaveQueue<T> {
   private emit(): void { for (const listener of this.listeners) listener(); }
 
   enqueue(value: T, delay = 0): void {
+    this.pendingEpoch = accountEpoch();
     this.pending = this.pending === null ? value : this.merge(this.pending, value);
     this.error = null;
     this.revision++;
@@ -38,6 +45,19 @@ export class AutosaveQueue<T> {
     if (delay > 0) this.timer = setTimeout(() => { this.timer = undefined; void this.drain(); }, delay);
     this.emit();
     if (!this.timer) void this.drain();
+  }
+
+  /** Discard account-owned drafts immediately; an old request may only settle. */
+  cancel(): void {
+    this.generation++;
+    this.revision++;
+    this.pending = null;
+    this.active = null;
+    this.error = null;
+    this.savedRevision = 0;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.emit();
   }
 
   /** Stop an earlier, still-debounced valid input from saving after it becomes invalid. */
@@ -54,23 +74,34 @@ export class AutosaveQueue<T> {
   }
 
   private async drain(): Promise<void> {
-    if (this.active !== null || this.timer || this.error) return;
+    if (this.draining || this.timer || this.error) return;
+    this.draining = true;
     while (this.pending !== null && !this.timer && !this.error) {
       const value = this.pending;
+      const epoch = this.pendingEpoch;
+      const generation = this.generation;
       this.pending = null;
+      if (epoch !== accountEpoch()) continue;
       this.active = value;
       this.emit();
       try {
         await this.write(value);
-        this.savedRevision++;
+        if (generation === this.generation && epoch === accountEpoch()) this.savedRevision++;
       } catch (error) {
-        // Preserve unsaved edits, including newer input, for an explicit retry.
+        if (generation !== this.generation || epoch !== accountEpoch()) continue;
+        // A newer edit is already a new attempt: do not let an obsolete failure
+        // block it. Preserve failed, unrelated fields in that latest write.
+        const hasNewer = this.pending !== null;
         this.pending = this.pending === null ? value : this.merge(value, this.pending);
-        this.error = error instanceof Error ? error : new Error(String(error));
+        if (!hasNewer) this.error = error instanceof Error ? error : new Error(String(error));
+      } finally {
+        if (generation === this.generation) {
+          this.active = null;
+          this.emit();
+        }
       }
-      this.active = null;
-      this.emit();
     }
+    this.draining = false;
   }
 
   flush(): Promise<void> {

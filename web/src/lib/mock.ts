@@ -1,7 +1,7 @@
 /**
  * In-memory stand-in for luci.hyper, used when the app is opened outside LuCI
  * (vite dev / preview). Sample data follows the design canvas; shapes follow
- * the rpcd methods and the PPanel API.
+ * the rpcd methods and the Hyper service API.
  */
 import type { NodeInfo, Status } from "./types";
 
@@ -23,6 +23,16 @@ const latency: Record<string, number | null> = {
   pp_jp1: 46, pp_jp2: 58, pp_hk1: 36, pp_sg1: 52, pp_sg2: 61, pp_kr1: 62, pp_us1: 128, pp_de1: 156, pp_gb1: null,
 };
 
+let probeSequence = 0;
+let probe: { id: string; time: number; names: string[]; cancelled: boolean } | undefined;
+let syncStarted = 0;
+function probeReply(id?: string) {
+  if (!probe || probe.id !== id || probe.cancelled) return { result: true, id, state: 'cancelled', latency: {}, completed: 0, total: 0 };
+  const completed = Math.min(probe.names.length, Math.floor((Date.now() - probe.time) / 150));
+  return { result: true, id, state: completed === probe.names.length ? 'done' : 'running',
+    latency: Object.fromEntries(probe.names.slice(0, completed).map(name => [name, latency[name] ?? null])), completed, total: probe.names.length };
+}
+
 const state: Status = {
   enabled: true,
   running: true,
@@ -40,7 +50,7 @@ const state: Status = {
   },
   health: { state: "ok", failures: 0, time: now() },
   singbox_version: "1.15.0-alpha.13",
-  version: "0.1.0-r1",
+  version: "0.1.0",
 };
 let startedAt = Date.now() - (state.uptime || 0) * 1000;
 let operationId = 0;
@@ -67,7 +77,6 @@ const config: Record<string, string> = {
   "config.china_dns_server": "223.5.5.5",
   "subscription.auto_update": "1",
   "subscription.auto_update_time": "4",
-  "subscription.update_via_proxy": "0",
   "update.auto_check": "1",
   "update.auto_update": "0",
 };
@@ -134,7 +143,7 @@ function paymentSession() {
     receive_address: mockOrder.network === "tron" ? "TQ5yWDLRKGfT6vBvXc9yS9HnB8u2QcLmVq" : "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed" } };
 }
 
-const ppanel = (path: string, body: Record<string, unknown>, query: Record<string, unknown>, key = "") => {
+const accountApi = (path: string, body: Record<string, unknown>, query: Record<string, unknown>, key = "") => {
   const ok = (data: unknown) => ({ ok: true, status: 200, code: 200, msg: "success", data });
   const v2 = path.match(/^\/v2\/orders\/([^/]+)\/(payment|payment\/selection|cancel)$/);
   if (path === "/v2/orders/purchase") {
@@ -160,7 +169,7 @@ const ppanel = (path: string, body: Record<string, unknown>, query: Record<strin
     case "/v1/public/user/info":
       return ok({ id: 1, nickname: "Astra345", balance: 3600, commission: 3600, refer_code: "HYPR8K2Q" });
     case "/v1/public/user/subscribe":
-      return ok({ list: [{ id: 7, status: 1, start_time: Date.now() - 86400e3 * 30, expire_time: 0, subscribe: { name: '{"en-US":"Basic","zh-CN":"Basic"}', device_limit: 5 } }], total: 1 });
+      return ok({ list: [{ id: 7, status: 1, start_time: Date.now() - 86400e3 * 30, expire_time: 0, traffic: 100 * 1024 ** 3, upload: 512 * 1024 ** 2, download: 12 * 1024 ** 3, subscribe: { name: '{"en-US":"Basic","zh-CN":"Basic"}', device_limit: 5 } }], total: 1 });
     case "/v1/public/user/devices":
       return ok({ list: [
         { id: 1, current: true, platform: "Linux", ip: "203.0.113.20", online: true, last_login_at: Date.now() - 3600e3 },
@@ -241,19 +250,29 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
     case "nodes":
       return { nodes, main_node: state.main_node };
     case "select_node": {
+      if (probe) probe.cancelled = true;
       const n = nodes.find((x) => x.name === args.node);
       if (!n) return { result: false, error: "unknown node" };
       state.main_node = n.name;
       state.main_node_label = n.label;
       return { result: true };
     }
-    case "latency":
-      await delay(600);
-      return state.running ? { result: true, latency } : { result: false, error: "not running" };
+    case "latency": {
+      const requested = Array.isArray(args.nodes) && args.nodes.length ? args.nodes as string[] : nodes.map(node => node.name);
+      probe = { id: String(++probeSequence), time: Date.now(), names: requested.slice(0, 64), cancelled: false };
+      return probeReply(probe.id);
+    }
+    case "latency_status": return probeReply(args.id as string);
+    case "latency_cancel":
+      if (probe && probe.id === args.id) probe.cancelled = true;
+      return { result: true };
     case "sync_subscription":
-      await delay(800);
+      syncStarted = Date.now();
+      return { result: true, pending: true, state: state.sync };
+    case "sync_status":
+      if (Date.now() - syncStarted < 800) return { result: true, pending: true, state: state.sync };
       state.sync = { ...(state.sync as object), ok: true, time: now() } as Status["sync"];
-      return { result: true, state: state.sync };
+      return { result: true, pending: false, state: state.sync };
     case "traffic":
       if (!state.running) return { running: false };
       up += 900_000 + Math.random() * 600_000;
@@ -283,7 +302,7 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
       /* rpcd refuses payment-v2 writes without an Idempotency-Key */
       if (args.method === "POST" && String(args.path).startsWith("/v2/orders/") && !/^[A-Za-z0-9._:-]{8,128}$/.test(String(args.idempotency_key ?? "")))
         return { ok: false, error: "idempotency key required" };
-      return ppanel(String(args.path), (args.body as Record<string, unknown>) || {}, (args.query as Record<string, unknown>) || {}, String(args.idempotency_key ?? ""));
+      return accountApi(String(args.path), (args.body as Record<string, unknown>) || {}, (args.query as Record<string, unknown>) || {}, String(args.idempotency_key ?? ""));
     case "checkin_status":
       return state.signed_in ? { result: true, dates: [...checkins].sort() } : { result: false, error: "not signed in" };
     case "checkin": {
@@ -330,7 +349,7 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
       updateState = { state: "installing", version: "0.2.0", time: now() };
       setTimeout(() => {
         updateState = { state: "done", version: "0.2.0", time: now() };
-        state.version = "0.2.0-r1";
+        state.version = "0.2.0";
       }, 4000);
       return { result: true, started: true, version: "0.2.0" };
     case "logs":

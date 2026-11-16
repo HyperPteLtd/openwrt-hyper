@@ -21,7 +21,7 @@ const Tick = () => (
   </svg>
 );
 
-/** Daily check-in (Figma M21). Kept on the router per account; PPanel has no check-in API. */
+/** Daily check-in (Figma M21). Kept on the router per account; Hyper service has no check-in API. */
 export function CheckIn({ embedded = false }: { embedded?: boolean }) {
   const dates = useSignal<string[]>([]);
   const loaded = useSignal(false);

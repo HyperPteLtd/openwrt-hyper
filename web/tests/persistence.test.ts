@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { AccountReadCache, CacheInvalidatedError, readPolicy } from "../src/lib/cache.ts";
 import { DISPLAY_RETENTION, DisplayPersistence, displayProjection, storedKeys, writeStored } from "../src/lib/persistence.ts";
 import type { Status } from "../src/lib/types.ts";
+import { membershipCounters, type MembershipCounters } from "../src/lib/membership.ts";
 
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 function memoryStorage() {
@@ -220,4 +221,30 @@ test("restoring older user-info caches removes unused balance and unapproved fie
   assert.deepEqual(result, { ok: true, data: { id: 1, commission: 3600 } });
   const saved = JSON.stringify([...storage.values]);
   assert(!saved.includes("balance") && !saved.includes("secret"));
+});
+
+test("membership totals restore before refresh and usage-only changes update the display without persisting credentials", async () => {
+  const storage = memoryStorage(), scope = "router:https://membership.test";
+  const cache = new AccountReadCache(storage, scope);
+  cache.rememberStatus(status());
+  const policy = readPolicy("api", { method: "GET", path: "/v1/public/user/subscribe" })!;
+  const member = { id: 7, status: 1, expire_time: 0, traffic: 100 * 1024 ** 3, upload: 0, download: 1024, token: "private-token", subscribe_url: "private-url", subscribe: { name: "Basic", device_limit: 5 } };
+  await cache.read("api:membership", async () => ({ ok: true, data: { list: [member] } }), policy);
+  const restored = new AccountReadCache(storage, scope);
+  let resolve!: (value: { ok: boolean; data: { list: typeof member[] } }) => void;
+  const updates: MembershipCounters[] = [];
+  const shown = await restored.read("api:membership", () => new Promise<{ ok: boolean; data: { list: typeof member[] } }>((done) => { resolve = done; }), policy, { onUpdate: (value) => { updates.push(value.data.list[0]); } });
+  assert.deepEqual(membershipCounters(shown.data.list[0]), { used: 1024, total: 100 * 1024 ** 3, devices: 5 });
+  assert.equal(updates.length, 0, "cached data returns without waiting for the network");
+  assert(!JSON.stringify(shown).includes("private-"));
+  resolve({ ok: true, data: { list: [{ ...member, download: 2048 }] } });
+  await tick();
+  assert.equal(updates.length, 1, "a counter-only change must trigger onUpdate");
+  assert.equal(membershipCounters(updates[0]).used, 2048);
+  const offline = new AccountReadCache(storage, scope);
+  const retained = await offline.read<typeof shown>("api:membership", async () => { throw Error("offline"); }, policy);
+  assert.equal(membershipCounters(retained.data.list[0]).used, 2048);
+  assert(!JSON.stringify([...storage.values]).includes("private-"));
+  offline.clear();
+  assert.equal(storedKeys(storage, new DisplayPersistence(storage, scope).readsPrefix).length, 0);
 });

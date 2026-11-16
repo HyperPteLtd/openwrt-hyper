@@ -9,6 +9,8 @@ import { t as tr } from "./i18n";
 import { mockCall } from "./mock";
 import { AccountReadCache, CacheInvalidatedError, invalidatedReads, readPolicy, type ReadOptions } from "./cache";
 import type { Status } from "./types";
+import { waitForRpcTask, type RpcTaskState } from "./rpc-task";
+import { invalidateAccountWork } from "./account-epoch";
 
 type LuciEnv = { sessionid?: string; ubuspath?: string };
 
@@ -40,12 +42,18 @@ const scope = `${isMock() ? "demo" : "router"}:${window.location.origin}`;
 const reads = new AccountReadCache(storage, scope);
 
 export function setCacheIdentity(account: string): void {
+  const generation = reads.generation;
   reads.setIdentity(account);
+  if (generation !== reads.generation) invalidateAccountWork();
 }
 
 /** Display-only bootstrap data. Service controls still wait for a live status. */
 export function readCachedStatus(): Status | null { return reads.readStatus(); }
-export function rememberStatus(status: Status): void { reads.rememberStatus(status); }
+export function rememberStatus(status: Status): void {
+  const generation = reads.generation;
+  reads.rememberStatus(status);
+  if (generation !== reads.generation) invalidateAccountWork();
+}
 export function readNodeLatency(nodes: readonly { name: string }[]) { return reads.readNodeLatency(nodes); }
 export function beginNodeMeasurement() { return reads.beginNodeMeasurement(); }
 
@@ -53,7 +61,11 @@ export function beginNodeMeasurement() { return reads.beginNodeMeasurement(); }
 export async function call<T = Record<string, unknown>>(method: string, args: Record<string, unknown> = {}, opts: ReadOptions<T> = {}): Promise<T> {
   if (["login", "register", "logout"].includes(method)) {
     reads.clear();
-    try { return await send<T>(method, args); } finally { reads.clear(); }
+    invalidateAccountWork();
+    try { return await send<T>(method, args); } finally {
+      reads.clear();
+      invalidateAccountWork();
+    }
   }
   const generation = reads.generation;
   const prefixes = invalidatedReads(method, args);
@@ -72,6 +84,20 @@ export async function call<T = Record<string, unknown>>(method: string, args: Re
 
 /** Call luci.hyper.<method>. Rejects on transport / ubus errors; method-level errors stay in the result. */
 async function send<T>(method: string, args: Record<string, unknown>): Promise<T> {
+  const generation = reads.generation;
+  const result = await sendOnce<T & { _hyper_task?: string; _hyper_timeout?: number }>(method, args);
+  if (!result?._hyper_task) return result;
+  try {
+    return await waitForRpcTask(result._hyper_timeout,
+      () => sendOnce<RpcTaskState<T>>("task_status", { id: result._hyper_task }),
+      () => { if (generation !== reads.generation) throw new CacheInvalidatedError(); });
+  } catch (error) {
+    if (error instanceof CacheInvalidatedError || error instanceof RpcError) throw error;
+    throw new RpcError((error as Error).message);
+  }
+}
+
+async function sendOnce<T>(method: string, args: Record<string, unknown>): Promise<T> {
   const env = luciEnv();
   if (!env) return mockCall(method, args) as Promise<T>;
 

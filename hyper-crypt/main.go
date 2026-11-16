@@ -30,6 +30,8 @@ func main() {
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch {
+	case len(args) > 1 && args[0] == "run-session":
+		return cmdRunSession(args[1:], stderr)
 	case len(args) == 1 && args[0] == "open-txt":
 		input, err := io.ReadAll(io.LimitReader(stdin, 16385))
 		if err != nil || len(input) > 16384 {

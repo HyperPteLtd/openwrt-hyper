@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: GPL-2.0-only
  *
- * PPanel API client for luci-app-hyper.
+ * Hyper service API client for luci-app-hyper.
  *
  * The router signs in as a *device* (Login-Type: device + a stable identifier),
  * so it takes one device slot on the account and is allowed to receive the
@@ -71,7 +71,7 @@ function encodeQuery(query) {
 }
 
 /*
- * Call PPanel. opts: { query, body, auth (default true), timeout,
+ * Call Hyper service. opts: { query, body, auth (default true), timeout,
  *   raw (return the body unparsed), proxy,
  *   idempotency_key (payment-v2 writes) }.
  * Returns { ok, status, code, msg, data, error } or, with raw, { ok, status, body, error }.
@@ -176,9 +176,12 @@ export function register(email, password, code, invite, cf_token) {
  * Only device sessions receive `token`, which is why login uses Login-Type: device.
  */
 export function refreshSubscriptionToken(proxy) {
+	const identity = readSession()?.jwt;
 	const res = request('GET', '/v1/public/user/subscribe', { proxy });
 	if (!res.ok)
-		return { ok: false, code: res.code, msg: res.msg, error: res.error || 'subscribe_list_failed' };
+		return { ok: false, status: res.status, code: res.code, msg: res.msg, error: res.error || 'subscribe_list_failed' };
+	if (!identity || readSession()?.jwt !== identity)
+		return { ok: false, status: 409, error: 'session_changed' };
 
 	const list = res.data?.list || [];
 	let picked = null;
@@ -194,9 +197,11 @@ export function refreshSubscriptionToken(proxy) {
 	}
 
 	if (!picked)
-		return { ok: false, error: 'no_subscription' };
+		return { ok: false, status: 200, error: 'no_subscription' };
 
 	const session = readSession() || {};
+	if (session.jwt !== identity)
+		return { ok: false, status: 409, error: 'session_changed' };
 	session.sub_token = picked.token;
 	session.user_subscribe_id = picked.id;
 	session.expire_time = picked.expire_time;

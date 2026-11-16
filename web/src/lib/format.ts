@@ -1,4 +1,10 @@
 import { t as tr } from "./i18n.ts";
+
+/** Also normalize status snapshots saved before the backend hid package revisions. */
+export function formatVersion(value: string | null | undefined): string {
+  return value?.trim().replace(/^v/, "").replace(/-r\d+$/, "") || "--";
+}
+
 export function formatBytes(n: number | null | undefined): string {
   if (n == null || !isFinite(n)) return "--";
   const units = ["B", "KB", "MB", "GB", "TB"];

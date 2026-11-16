@@ -1,12 +1,14 @@
 import { t as tr } from "./lib/i18n";
 import type { VNode } from "preact";
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import { TopBar } from "./components/TopBar";
 import { app, type Route, routeFromHash } from "./lib/app";
 import { usePoll } from "./lib/poll";
 import { call, isMock, reportHeight, readCachedStatus, rememberStatus } from "./lib/rpc";
 import type { Status } from "./lib/types";
 import { operationPending } from "./lib/service";
+import { reconcileControls } from "./lib/controls";
+import { accountEpoch } from "./lib/account-epoch";
 import { Account } from "./pages/Account";
 import { Login } from "./pages/Login";
 import { Logs } from "./pages/Logs";
@@ -20,6 +22,8 @@ const cachedStatus = readCachedStatus();
 if (cachedStatus) app.status = cachedStatus;
 
 export function Root() {
+  const statusRequest = useRef(0);
+  const appliedStatus = useRef(0);
   /* Hash routing and iframe height reporting */
   useEffect(() => {
     const onHash = () => {
@@ -42,21 +46,32 @@ export function Root() {
    * their own data on app.tick, not on this poll.
    */
   const loadStatus = () => {
+    const request = ++statusRequest.current;
+    const epoch = accountEpoch();
+    const intentAtRequest = app.intentRevision;
+    const tickAtRequest = app.tick;
     const operationAtRequest = app.status?.operation?.id;
     return call<Status>("status")
       .then((s) => {
         // A response started before the control acknowledgment must not erase it.
-        if (app.status?.operation?.id !== operationAtRequest) return;
+        if (epoch !== accountEpoch() || request < appliedStatus.current || intentAtRequest !== app.intentRevision || tickAtRequest !== app.tick || app.status?.operation?.id !== operationAtRequest) return;
+        appliedStatus.current = request;
         rememberStatus(s);
         app.liveStatus = true;
         app.status = s;
         app.statusAt = performance.now();
+        reconcileControls(s);
         app.error = "";
+        app.loading = false;
       })
-      .catch((e: Error) => (app.error = e.message))
-      .finally(() => (app.loading = false));
+      .catch((e: Error) => {
+        if (epoch === accountEpoch() && request >= appliedStatus.current && intentAtRequest === app.intentRevision && tickAtRequest === app.tick) {
+          app.error = e.message;
+          app.loading = false;
+        }
+      });
   };
-  usePoll(loadStatus, operationPending(app.status?.operation) ? 1000 : 5000);
+  usePoll(loadStatus, app.controlAction || app.modeDesired || operationPending(app.status?.operation) ? 1000 : 5000);
   const tick = app.tick;
   useEffect(() => {
     if (tick) loadStatus();

@@ -36,7 +36,7 @@ if [ ! -d "$dir/sdk" ]; then
 	rmdir "$dir/unpack"
 fi
 
-# fresh copy of the two packages as a local feed
+# fresh copy of the prebuilt app as a local feed
 rm -rf "$dir/feed" && mkdir -p "$dir/feed"
 cp -a /work/src/luci-app-hyper "$dir/feed/"
 
@@ -49,14 +49,15 @@ echo "   feeds"
 
 # Minifiers are off for this package anyway (LUCI_MINIFY_*); skip building csstidy
 cat >> .config <<EOF
+CONFIG_PACKAGE_luci-app-hyper=m
 # CONFIG_LUCI_CSSTIDY is not set
 # CONFIG_LUCI_JSMIN is not set
+# CONFIG_LUCI_SRCDIET is not set
 EOF
 make defconfig >> "$log" 2>&1
 
-echo "   compile (log: $log)"
+echo "   package prebuilt app (log: $log)"
 rm -rf bin/packages/*/hyper
-make package/luci-app-hyper/clean >> "$log" 2>&1
-make -j"$(nproc)" package/luci-app-hyper/compile V=s >> "$log" 2>&1
+sh /work/src/scripts/sdk-package.sh "$dir/sdk" >> "$log" 2>&1
 
 ls -1 bin/packages/*/hyper/

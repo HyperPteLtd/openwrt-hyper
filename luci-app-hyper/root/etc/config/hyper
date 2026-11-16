@@ -76,7 +76,6 @@ config hyper 'dns'
 config hyper 'subscription'
 	option auto_update '1'
 	option auto_update_time '4'
-	option update_via_proxy '0'
 	# Links without an explicit insecure flag skip certificate checks, like the Hyper app (AnyTLS nodes)
 	option allow_insecure '1'
 	option packet_encoding 'xudp'

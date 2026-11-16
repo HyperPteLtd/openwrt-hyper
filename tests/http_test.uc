@@ -1,4 +1,4 @@
-/* Needs tests/echo_server.py listening on $ECHO_PORT (run.sh starts it). */
+/* Needs tests/echo_server.mjs listening on $ECHO_PORT (run.sh starts it). */
 import { eq, ok, done } from 'lib';
 import { httpRequest } from 'hyper';
 

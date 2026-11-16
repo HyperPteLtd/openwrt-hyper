@@ -57,6 +57,11 @@ start_service() {
 	[ -e "$RUN_DIR/cache.db" ] || touch "$RUN_DIR/cache.db"
 
 	if [ "$outbound_node" != "nil" ]; then
+		# Repair rules before validation and before the core drops privileges.
+		if ! sh "$HP_DIR/scripts/rules-storage.sh" prepare 2>>"$LOG_PATH"; then
+			log "Error: failed to prepare rule permissions."
+			return 1
+		fi
 		# Generate/Validate client config
 		ucode -S "$HP_DIR/scripts/generate_client.uc" 2>>"$LOG_PATH"
 
@@ -65,6 +70,13 @@ start_service() {
 			return 1
 		elif ! "$PROG" check --config "$RUN_DIR/sing-box-c.json" 2>>"$LOG_PATH"; then
 			log "Error: wrong client configuration detected."
+			return 1
+		fi
+
+		# Release another proxy's ownership before changing DNS or firewall.
+		# UI requests execute this in service_control's background worker.
+		if ! sh "$HP_DIR/scripts/proxy-conflicts.sh" 2>>"$LOG_PATH"; then
+			log "Error: proxy handover failed or start was cancelled."
 			return 1
 		fi
 

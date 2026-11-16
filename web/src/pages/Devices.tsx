@@ -31,12 +31,22 @@ export function Devices({ embedded = false }: { embedded?: boolean }) {
   const loaded = useSignal(false);
   const traffic = useSignal<Traffic["per_source"]>({});
   const msg = useSignal("");
+  const active = useRef(true);
+  const requestSequence = useRef(0);
   useAutosave(deviceWrites);
 
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; requestSequence.current++; };
+  }, []);
+
   const load = async () => {
+    const request = ++requestSequence.current;
+    const current = () => active.current && request === requestSequence.current;
     const revision = deviceWrites.revision;
     const pendingAtRead = deviceWrites.value;
     const apply = (r: LanClients) => {
+      if (!current()) return;
       clients.value = [...(r.clients || [])].sort((a, b) => (a.ip || "").localeCompare(b.ip || "", undefined, { numeric: true }));
       // A background refresh can update clients, but must not undo a local edit.
       if (revision === deviceWrites.revision) {
@@ -50,10 +60,11 @@ export function Devices({ embedded = false }: { embedded?: boolean }) {
     try {
       const r = await call<LanClients>("lan_clients", {}, { onUpdate: apply });
       apply(r);
+      if (!current()) return;
       const t = await call<Traffic>("traffic");
-      traffic.value = t.per_source || {};
+      if (current()) traffic.value = t.per_source || {};
     } catch (e) {
-      msg.value = (e as Error).message;
+      if (current()) msg.value = (e as Error).message;
     }
   };
   /* devices come and go and their traffic grows: refresh every 10 s while visible, and after saving */

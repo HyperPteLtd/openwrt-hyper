@@ -1,5 +1,5 @@
 # Router core sources and toolchain. Update the version, full commit and source
-# checksum together, then run stage_binaries_test.py and the core startup tests.
+# checksum together, then run the Node staging tests and core startup tests.
 # Only this package uses these tags; libbox's general CLI profile is unchanged.
 LIBBOX_REPO=HyperPteLtd/libbox
 LIBBOX_VERSION=0.1.3

@@ -1,7 +1,19 @@
-import type { ServiceOperation } from "./types";
+import type { ServiceOperation, Status } from "./types";
 
 export function operationPending(operation?: ServiceOperation | null): boolean {
   return operation?.state === "queued" || operation?.state === "running";
+}
+
+/** A later restart can supersede Start; its completed state also settles the intent. */
+export function controlOutcome(status: Pick<Status, "running" | "operation">, desired: boolean, acknowledged: number | null | undefined): "pending" | "done" | "failed" {
+  if (acknowledged === undefined) return "pending";
+  const operation = status.operation;
+  if (operation) {
+    if (acknowledged !== null && operation.id < acknowledged) return "pending";
+    if (operationPending(operation)) return "pending";
+    if (operation.state === "failed" || status.running !== desired) return "failed";
+  }
+  return status.running === desired ? "done" : "pending";
 }
 
 /** Interpolate between authoritative samples; stop advancing after a lost poll. */

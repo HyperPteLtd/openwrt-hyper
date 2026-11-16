@@ -10,7 +10,7 @@ import {
   loadPending, newIdempotencyKey, nextPollDelay, ORDER_ALREADY_PAID, paymentError, purchase, remainingSeconds, savePending, selectAsset,
   SESSION_RECOVERING, walletTarget, type PaymentSession,
 } from "../lib/payment";
-import { api, apiError, money, UNIT_LABEL, type ApiResult } from "../lib/ppanel";
+import { api, apiError, money, UNIT_LABEL, type ApiResult } from "../lib/api";
 import { localizedText } from "../lib/display";
 import { call } from "../lib/rpc";
 import { amountScale, resolveCurrency, type AmountUnits } from "../lib/currency";

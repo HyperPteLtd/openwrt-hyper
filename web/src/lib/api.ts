@@ -1,5 +1,5 @@
 import { t as tr } from "./i18n";
-/** PPanel calls through luci.hyper `api` (allowlisted paths, token added on the router). */
+/** Hyper service calls through luci.hyper `api` (allowlisted paths, token added on the router). */
 import { call } from "./rpc";
 import type { ReadOptions } from "./cache";
 import { locale } from "./i18n";
@@ -34,7 +34,7 @@ export function apiError(r: ApiResult<unknown>, fallback = tr("请求失败")): 
   return r.msg || r.error || fallback;
 }
 
-/** PPanel timestamps are milliseconds in newer builds and seconds in older ones */
+/** Hyper service timestamps are milliseconds in newer builds and seconds in older ones */
 export function toDate(ts: number | null | undefined): Date | null {
   if (!ts || ts <= 0) return null;
   return new Date(ts > 1e12 ? ts : ts * 1000);

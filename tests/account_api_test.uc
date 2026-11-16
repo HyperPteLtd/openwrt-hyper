@@ -1,5 +1,5 @@
 import { ok, done } from 'lib';
-import { isAllowedPath, isValidIdempotencyKey, SUBSCRIBE_PATH } from 'ppanel';
+import { isAllowedPath, isValidIdempotencyKey, SUBSCRIBE_PATH } from 'account_api';
 import { matchWhole } from 'hyper';
 
 /* allowed: auth, public user/order/subscribe pages */
@@ -49,4 +49,4 @@ ok('matchWhole not a string', !matchWhole(12, /^[0-9]+$/));
 
 ok('subscribe path is fixed', SUBSCRIBE_PATH === '/api/subscribe');
 
-done('ppanel');
+done('account_api');

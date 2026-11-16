@@ -2,7 +2,7 @@
 /*
  * SPDX-License-Identifier: GPL-2.0-only
  *
- * Sync nodes and routing rules from the logged-in PPanel account. Same flow as
+ * Sync nodes and routing rules from the logged-in Hyper account. Same flow as
  * the Hyper app (hyper-tunnel packages/app-client/src/subscribe/client.ts):
  *
  *   1. GET /v1/public/user/subscribe         -> subscription token (device session only)
@@ -10,7 +10,7 @@
  *   3. per country: hyper-crypt keygen, then
  *      GET <api>/api/subscribe?token=&country=&client_public_key=  -> { spk, salt, nonce, data }
  *      hyper-crypt open ... info=subscribe-v1         -> "REMARKS=/STATUS=/<share links>" lines
- *      (every protocol sing-box supports, see snapshot.uc)
+ *      (supported share-link formats are listed in snapshot.uc)
  *   4. GET <api>/api/subscribe/rules (JWT)   -> rule catalog -> /etc/hyper/rules/*.json
  *   5. write UCI `node` sections, restart if anything changed
  *
@@ -22,14 +22,14 @@
 'use strict';
 
 import { md5 } from 'md5';	/* plain-ucode MD5: 23.05 has no ucode-mod-digest */
-import { open, readfile, writefile } from 'fs';
+import { mkstemp, open, readfile, writefile } from 'fs';
 import { cursor } from 'uci';
 
 import {
 	executeCommand, getTime, isEmpty, shellQuote, httpRequest,
 	readSession, CRYPT_BIN, HP_DIR, RUN_DIR, SINGBOX_BIN, SYNC_STATE_FILE
 } from 'hyper';
-import { request, refreshSubscriptionToken, subscribeEndpoint } from 'ppanel';
+import { request, refreshSubscriptionToken, subscribeEndpoint } from 'account_api';
 import { parseFeatures, parseLocations, parseStatus, parseSubscription } from 'snapshot';
 import { normalizeCatalog, parseRuleList, toRuleSetSources } from 'rules';
 
@@ -37,6 +37,7 @@ const uciconfig = 'hyper';
 const ucimain = 'config', ucinode = 'node', ucisubscription = 'subscription';
 const GROUP = 'ppanel';
 const RULES_DIR = `${HP_DIR}/rules`;
+const RULE_STORAGE = `${HP_DIR}/scripts/rules-storage.sh`;
 const SUBSCRIBE_INFO = 'subscribe-v1';
 const MAX_COUNTRIES = 64;
 
@@ -48,6 +49,8 @@ function log(...args) {
 }
 
 function save_state(state) {
+	/* Background responses must not update state after logout or account changes. */
+	if (!same_session()) return;
 	writefile(SYNC_STATE_FILE, sprintf('%J\n', { time: time(), ...state }));
 }
 
@@ -96,12 +99,36 @@ function decrypt_body(body, keypair) {
 }
 
 function proxy_url(uci) {
-	/* fetch through sing-box when asked to, and only while it runs */
-	if (uci.get(uciconfig, ucisubscription, 'update_via_proxy') !== '1')
-		return null;
+	/* Background reads choose their own usable connection; no separate UI flag. */
 	if (system('/etc/init.d/hyper running >/dev/null 2>&1') !== 0)
 		return null;
 	return 'socks5h://127.0.0.1:' + int(uci.get(uciconfig, 'infra', 'mixed_port') || '5330');
+}
+
+let available_proxy = null, selected_proxy = null, sync_session = null;
+function same_session() {
+	return !!sync_session && readSession()?.jwt === sync_session;
+}
+function read_auto(fn) {
+	if (!same_session())
+		return { ok: false, status: 0, error: 'session_changed' };
+	let res = fn(selected_proxy);
+	if (!same_session())
+		return { ok: false, status: 409, error: 'session_changed' };
+	/* Only retry connection/server failures, never authentication or invalid data. */
+	if (available_proxy && (!res.status || res.status === 408 || res.status >= 500)
+		&& !res.ok && same_session()) {
+		const alternate = selected_proxy ? null : available_proxy;
+		res = fn(alternate);
+		if (!same_session())
+			return { ok: false, status: 409, error: 'session_changed' };
+		if (res.ok || (res.status >= 200 && res.status < 300))
+			selected_proxy = alternate;
+	}
+	return res;
+}
+function sync_request(method, path, opts) {
+	return read_auto((proxy) => request(method, path, { ...opts, proxy }));
 }
 
 /* Build tags of the installed sing-box (with_quic, with_wireguard, ...), null if unknown */
@@ -115,7 +142,7 @@ function fetch_country(ep, token, country, opts, proxy) {
 	if (!keypair?.public_key)
 		return { error: 'crypt_unavailable' };
 
-	const res = request('GET', ep.path, {
+	const res = sync_request('GET', ep.path, {
 		auth: false, raw: true, timeout: 30, proxy,
 		query: { token, country, client_public_key: keypair.public_key }
 	});
@@ -129,9 +156,24 @@ function fetch_country(ep, token, country, opts, proxy) {
 	return parseSubscription(body, { ...opts, country, group: GROUP });
 }
 
+/* Ownership and mode are set on the temporary file before atomic publication. */
+function publish_rule(name, content) {
+	const input = mkstemp();
+	if (!input)
+		return false;
+	if (input.write(content) !== length(content)) {
+		input.close();
+		return false;
+	}
+	input.seek(0);
+	const result = system(`sh ${shellQuote(RULE_STORAGE)} publish ${shellQuote(name)} < /dev/fd/${input.fileno()}`);
+	input.close();
+	return result === 0;
+}
+
 /* Rule catalog -> rule-set source files + index.json read by generate_client.uc */
 function sync_rules(ep, proxy) {
-	const res = request('GET', ep.path + '/rules', { timeout: 20, proxy });
+	const res = sync_request('GET', ep.path + '/rules', { timeout: 20 });
 	if (!res.ok) {
 		log(sprintf('Rules: fetch failed (HTTP %d), keeping the previous rules.', res.status || 0));
 		return { ok: false };
@@ -149,11 +191,14 @@ function sync_rules(ep, proxy) {
 	} catch (e) {
 		previous = [];
 	}
-	system(`mkdir -p ${RULES_DIR}`);
+	if (system(`sh ${shellQuote(RULE_STORAGE)} prepare`) !== 0) {
+		log('Rules: cannot prepare the rule directory, keeping the previous index.');
+		return { ok: false };
+	}
 	for (let e in cat.entries) {
 		let text = e.inline;
 		if (e.url) {
-			const r = httpRequest('GET', e.url, { 'User-Agent': 'luci-app-hyper' }, null, 30, proxy);
+			const r = read_auto((proxy) => httpRequest('GET', e.url, { 'User-Agent': 'luci-app-hyper' }, null, 30, proxy));
 			if (r.status !== 200) {
 				/* keep the previous copy of this list if there is one */
 				const prev = filter(previous, (p) => p.key === e.key)[0];
@@ -165,11 +210,14 @@ function sync_rules(ep, proxy) {
 			text = r.body;
 		}
 
+		if (!same_session()) return { ok: false };
 		const parsed = parseRuleList(text);
 		const sources = toRuleSetSources(parsed);
 		for (let kind in [ 'domain', 'ip' ])
-			if (sources[kind])
-				writefile(`${RULES_DIR}/${e.key}.${kind}.json`, sprintf('%J\n', sources[kind]));
+			if (sources[kind] && !publish_rule(`${e.key}.${kind}.json`, sprintf('%J\n', sources[kind]))) {
+				log('Rules: cannot publish a rule file, keeping the previous index.');
+				return { ok: false };
+			}
 		push(index, {
 			key: e.key, policy: e.policy, enabled: e.enabled, sort: e.sort,
 			has_domain: !!sources.domain, has_ip: !!sources.ip,
@@ -178,7 +226,14 @@ function sync_rules(ep, proxy) {
 		});
 	}
 
-	/* drop files of rules that are gone */
+	const before = readfile(`${RULES_DIR}/index.json`) || '';
+	const after = sprintf('%J\n', index);
+	if (!same_session() || !publish_rule('index.json', after)) {
+		log('Rules: cannot publish the rule index, keeping the previous index.');
+		return { ok: false };
+	}
+
+	/* Only remove old files after the new index is safely published. */
 	const keep = {};
 	for (let e in index) {
 		keep[`${e.key}.domain.json`] = true;
@@ -188,15 +243,13 @@ function sync_rules(ep, proxy) {
 		if (f !== '' && f !== 'index.json' && !keep[f] && match(f, /^[A-Za-z0-9_.-]+$/))
 			system(`rm -f ${shellQuote(RULES_DIR + '/' + f)}`);
 
-	const before = readfile(`${RULES_DIR}/index.json`) || '';
-	const after = sprintf('%J\n', index);
-	writefile(`${RULES_DIR}/index.json`, after);
 	log(sprintf('Rules: %d lists.', length(index)));
 	return { ok: true, count: length(index), changed: before !== after };
 }
 
 function main() {
 	const session = readSession();
+	sync_session = session?.jwt;
 
 	if (!session?.jwt) {
 		log('Not signed in, skipping.');
@@ -206,24 +259,26 @@ function main() {
 
 	const uci = cursor();
 	uci.load(uciconfig);
-	const proxy = proxy_url(uci);
+	available_proxy = proxy_url(uci);
+	const proxy = null;
 	const parse_opts = {
 		/* AnyTLS links without an insecure flag skip certificate checks, like the app */
 		insecure_default: (uci.get(uciconfig, ucisubscription, 'allow_insecure') ?? '1') === '1',
 		features: singbox_features()
 	};
 
-	const tok = refreshSubscriptionToken(proxy);
+	const tok = read_auto((proxy) => refreshSubscriptionToken(proxy));
 	if (!tok.ok) {
 		log('Failed to get the subscription token:', tok.msg || tok.error);
 		save_state({ ok: false, error: tok.error || 'subscription_token', msg: tok.msg });
 		return 1;
 	}
-	const token = readSession().sub_token;
+	if (!same_session()) return 1;
+	const token = readSession()?.sub_token;
 	const ep = subscribeEndpoint();
 
 	/* Countries */
-	const loc = request('GET', ep.path + '/location', { auth: false, timeout: 20, proxy, query: { token } });
+	const loc = sync_request('GET', ep.path + '/location', { auth: false, timeout: 20, query: { token } });
 	const countries = loc.ok ? parseLocations(loc.data) : [];
 	if (!loc.ok || !length(countries)) {
 		log(sprintf('Failed to list countries (HTTP %d).', loc.status || 0));
@@ -264,6 +319,10 @@ function main() {
 		return 1;
 	}
 
+	/* Discard a stale account response and reload the latest user selections. */
+	if (!same_session()) return 1;
+	uci.unload(uciconfig);
+	uci.load(uciconfig);
 	/* Compare with what UCI has now */
 	const before = {};
 	uci.foreach(uciconfig, ucinode, (s) => {
@@ -310,7 +369,7 @@ function main() {
 
 	/* Keep main_node pointing at a node that still exists (first node of the top country otherwise) */
 	const main_node = uci.get(uciconfig, ucimain, 'main_node') || 'nil';
-	if (main_node !== 'urltest' && !fresh[main_node] && !before[main_node]?.country) {
+	if (main_node !== 'urltest' && uci.get(uciconfig, main_node) !== ucinode) {
 		let first = null;
 		for (let name in fresh)
 			if (!first || int(fresh[name].country_sort) > int(fresh[first].country_sort))
@@ -320,9 +379,12 @@ function main() {
 		log(first ? `Main node is gone, switching to ${fresh[first].label}.` : 'No node available.');
 	}
 
+	if (!same_session()) return 1;
 	uci.commit(uciconfig);
 
+	if (!same_session()) return 1;
 	const rules = sync_rules(ep, proxy);
+	if (!same_session()) return 1;
 
 	const count = length(keys(fresh));
 	log(sprintf('%d nodes from %d countries (%d added, %d removed, %d invalid links).',
@@ -337,9 +399,11 @@ function main() {
 		rules: rules.ok ? rules.count : null
 	});
 
-	if ((changed || rules.changed) && uci.get(uciconfig, ucimain, 'enabled') === '1') {
+	const latest = cursor();
+	latest.load(uciconfig);
+	if (same_session() && (changed || rules.changed) && latest.get(uciconfig, ucimain, 'enabled') === '1') {
 		log('Restarting service...');
-		system('/etc/init.d/hyper restart >/dev/null 2>&1');
+		system("ubus call luci.hyper restart '{}' >/dev/null 2>&1");
 	}
 
 	return 0;

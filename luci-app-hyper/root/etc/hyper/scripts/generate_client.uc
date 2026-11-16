@@ -115,8 +115,9 @@ if (routing_mode === 'custom')
 else
 	udp_timeout = uci.get(uciconfig, 'infra', 'udp_timeout');
 
-if (match(proxy_mode, /redirect/)) {
+if (proxy_mode !== 'none')
 	self_mark = uci.get(uciconfig, 'infra', 'self_mark') || '100';
+if (match(proxy_mode, /redirect/)) {
 	redirect_port = uci.get(uciconfig, 'infra', 'redirect_port') || '5331';
 }
 if (match(proxy_mode, /tproxy/))
@@ -217,6 +218,7 @@ function generate_endpoint(node) {
 	const endpoint = {
 		type: node.type,
 		tag: 'cfg-' + node['.name'] + '-out',
+		routing_mark: strToInt(self_mark),
 		address: node.wireguard_local_address,
 		mtu: strToInt(node.wireguard_mtu),
 		private_key: node.wireguard_private_key,
@@ -259,7 +261,7 @@ function generate_outbound(node) {
 
 		username: (node.type !== 'ssh') ? node.username : null,
 		user: (node.type === 'ssh') ? node.username : null,
-		password: node.password,
+		password: (node.type !== 'snell') ? node.password : null,
 
 		/* Direct */
 		override_address: node.override_address,
@@ -370,6 +372,31 @@ function generate_outbound(node) {
 		udp_fragment: strToBool(node.udp_fragment)
 	};
 
+	if (node.type === 'snell') {
+		const version = node.snell_version ?? '4';
+		if (!(version in [ '4', '6' ]))
+			die('Snell outbound requires version 4 or 6');
+		if (type(node.password) !== 'string' || !length(node.password))
+			die('Snell outbound requires a PSK');
+		if (length(node.snell_user_key || '') > 255)
+			die('Snell outbound user key is too long');
+		outbound.version = int(version);
+		outbound.psk = node.password;
+		outbound.userkey = node.snell_user_key;
+		outbound.reuse = strToBool(node.snell_reuse);
+		if (version === '6') {
+			const mode = node.snell_mode || 'default';
+			if (!(mode in [ 'default', 'unshaped', 'unsafe-raw' ]) || node.snell_obfs_mode || node.snell_obfs_host)
+				die('Snell v6 outbound requires a valid mode and no legacy obfs options');
+			outbound.mode = mode;
+		} else {
+			const obfs = node.snell_obfs_mode || 'none';
+			if (!(obfs in [ 'none', 'http', 'tls' ]) || node.snell_mode)
+				die('Snell v4 outbound requires valid obfs options and no v6 mode');
+			outbound.obfs_mode = obfs;
+			outbound.obfs_host = node.snell_obfs_host;
+		}
+	}
 	return outbound;
 }
 
@@ -425,6 +452,35 @@ function get_ruleset(cfg) {
 	return rules;
 }
 /* Config helper end */
+
+/* Latency uses the same protocol mapper, isolated from LAN listeners and state. */
+if (getenv('HYPER_PROBE_REQUEST')) {
+	const request = json(readfile(getenv('HYPER_PROBE_REQUEST')) || '{}');
+	const port = int(getenv('HYPER_PROBE_PORT'));
+	if (port < 1024 || port > 65535 || !getenv('HYPER_PROBE_CONFIG'))
+		die('Invalid probe configuration');
+	const mark = int(uci.get(uciconfig, 'infra', 'self_mark') || '100');
+	const probe = {
+		log: { level: 'error', timestamp: false },
+		dns: { servers: [{ type: 'udp', tag: 'probe-dns', server: wan_dns, detour: 'direct-out' }], final: 'probe-dns', strategy: 'ipv4_only' },
+		outbounds: [{ type: 'direct', tag: 'direct-out', routing_mark: mark }],
+		endpoints: [],
+		route: { default_domain_resolver: 'probe-dns', final: 'direct-out' },
+		experimental: { clash_api: { external_controller: '127.0.0.1:' + port, secret: getenv('HYPER_PROBE_SECRET') } }
+	};
+	for (let name in request.nodes || []) {
+		const node = uci.get_all(uciconfig, name);
+		if (!node || node['.type'] !== 'node')
+			continue;
+		const outbound = node.type === 'wireguard' ? generate_endpoint(node) : generate_outbound(node);
+		outbound.routing_mark = mark;
+		push(node.type === 'wireguard' ? probe.endpoints : probe.outbounds, outbound);
+	}
+	if (!length(probe.endpoints)) delete probe.endpoints;
+	if (!writefile(getenv('HYPER_PROBE_CONFIG'), sprintf('%.J\n', removeBlankAttrs(probe))))
+		die('Unable to write probe configuration');
+	exit(0);
+}
 
 const config = {};
 

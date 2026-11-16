@@ -81,8 +81,9 @@ let self_mark, redirect_port,
     tproxy_port, tproxy_mark,
     tun_name, tun_mark;
 
-if (match(proxy_mode, /redirect/)) {
+if (proxy_mode !== 'none')
 	self_mark = uci.get(cfgname, 'infra', 'self_mark') || '100';
+if (match(proxy_mode, /redirect/)) {
 	redirect_port = uci.get(cfgname, 'infra', 'redirect_port') || '5331';
 }
 if (match(proxy_mode, /tproxy/))
@@ -613,6 +614,7 @@ chain hyper_mangle_tun_mark {
 }
 
 chain hyper_mangle_tun {
+	meta mark {{ self_mark }} counter return
 	iifname {{ tun_name }} counter return
 
 	ip daddr @hyper_wan_proxy_addr_v4 counter goto hyper_mangle_tun_mark

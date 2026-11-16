@@ -1,6 +1,6 @@
 import { t as tr } from "./i18n";
 /**
- * Daily check-in. PPanel has no API for it, so the calendar is kept on the router
+ * Daily check-in. Hyper service has no API for it, so the calendar is kept on the router
  * (rpcd checkin / checkin_status, per account), the same way the Hyper app keeps
  * its check-in calendar on the phone. Dates are the browser's local dates.
  */

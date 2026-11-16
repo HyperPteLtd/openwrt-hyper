@@ -126,6 +126,11 @@ function versionPart(x, y) {
 	return (x < y) ? -1 : (x > y) ? 1 : 0;
 }
 
+/* Public software version; package managers keep their original revision. */
+export function normalizeVersion(value) {
+	return replace(replace(trim(`${value ?? ''}`), /^v/, ''), /-r[0-9]+$/, '');
+};
+
 /*
  * Compare package versions: -1, 0 or 1. A leading "v" (release tags) and
  * OpenWrt's "-r<PKG_RELEASE>" suffix are ignored, so the installed "0.2.0-r1"
@@ -134,7 +139,7 @@ function versionPart(x, y) {
  */
 export function versionCompare(a, b) {
 	const parse = (v) => {
-		v = replace(replace(trim(`${v ?? ''}`), /^v/, ''), /-r[0-9]+$/, '');
+		v = normalizeVersion(v);
 		const dash = index(v, '-');
 		return {
 			main: (v === '') ? [] : split((dash >= 0) ? substr(v, 0, dash) : v, '.'),
@@ -305,7 +310,7 @@ export const BIN_DIR = '/usr/libexec/hyper/bin';
 export const SINGBOX_BIN = BIN_DIR + '/sing-box';	/* libbox core, pinned in scripts/core.lock */
 export const CRYPT_BIN = BIN_DIR + '/hyper-crypt';
 
-/* PPanel session: JWT and subscription token. Root-only (0600), never sent to the browser. */
+/* Hyper service session: JWT and subscription token. Root-only (0600), never sent to the browser. */
 export function readSession() {
 	try {
 		return json(readfile(SESSION_FILE) || 'null');

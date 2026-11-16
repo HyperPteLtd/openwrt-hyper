@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { invalidateAccountWork } from "../src/lib/account-epoch.ts";
 import { test } from "node:test";
 import { AutosaveQueue, invalidDomainLine, validDnsAddress } from "../src/lib/autosave.ts";
 
@@ -11,6 +12,50 @@ function deferred() {
 
 const turn = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const merge = (older: Record<string, string>, newer: Record<string, string>) => ({ ...older, ...newer });
+
+test("account changes discard debounced fields and release flush without saving them", async () => {
+  const writes: string[] = [];
+  const queue = new AutosaveQueue<string>(async value => { writes.push(value); });
+  queue.enqueue("old-account", 25);
+  invalidateAccountWork();
+  await queue.flush();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.deepEqual(writes, []);
+  assert.equal(queue.busy, false);
+  assert.equal(queue.value, null);
+  assert.equal(queue.error, null);
+  assert.equal(queue.savedRevision, 0);
+});
+
+test("old account failures do not restore drafts or block the next account's save", async () => {
+  const first = deferred();
+  const writes: Record<string, string>[] = [];
+  const queue = new AutosaveQueue<Record<string, string>>(value => {
+    writes.push(value); return writes.length === 1 ? first.promise : Promise.resolve();
+  }, merge);
+  queue.enqueue({ oldField: "sent" }); queue.enqueue({ oldPending: "discard" });
+  invalidateAccountWork();
+  assert.equal(queue.busy, false);
+  await queue.flush(); // does not wait for a request that belongs to another account
+  queue.enqueue({ newField: "keep" });
+  const completed = queue.flush();
+  first.reject(Error("old account failed"));
+  await completed;
+  assert.deepEqual(writes, [{ oldField: "sent" }, { newField: "keep" }]);
+  assert.equal(queue.error, null);
+  assert.equal(queue.savedRevision, 1);
+});
+
+test("old account successes cannot show saved after cancellation", async () => {
+  const first = deferred();
+  const queue = new AutosaveQueue<string>(() => first.promise);
+  queue.enqueue("old");
+  invalidateAccountWork();
+  first.resolve(); await turn();
+  assert.equal(queue.busy, false);
+  assert.equal(queue.savedRevision, 0);
+  assert.equal(queue.error, null);
+});
 
 test("rapid edits serialize and coalesce without an older completion overwriting the latest value", async () => {
   const requests: { values: Record<string, string>; request: ReturnType<typeof deferred> }[] = [];
@@ -51,7 +96,7 @@ test("leaving a page flushes pending text immediately and waits for its write", 
   assert.equal(queue.value, null);
 });
 
-test("failed writes remain unsaved and retry includes every edit made during the failed request", async () => {
+test("a newer edit proceeds after an obsolete failure and retains unrelated failed fields", async () => {
   const first = deferred();
   const writes: Record<string, string>[] = [];
   const queue = new AutosaveQueue<Record<string, string>>(async (value) => {
@@ -61,13 +106,26 @@ test("failed writes remain unsaved and retry includes every edit made during the
   queue.enqueue({ dns: "first.example", ipv6: "1" });
   queue.enqueue({ dns: "latest.example" });
   first.reject(new Error("router unreachable"));
-  await assert.rejects(queue.flush(), /router unreachable/);
-  assert.equal(writes.length, 1);
-  assert.equal(queue.busy, true);
-  assert.deepEqual(queue.value, { dns: "latest.example", ipv6: "1" });
-  await queue.retry();
+  await queue.flush();
+  assert.equal(writes.length, 2);
   assert.deepEqual(writes[1], { dns: "latest.example", ipv6: "1" });
   assert.equal(queue.busy, false);
+  assert.equal(queue.error, null);
+});
+
+test("a failure of the latest edit remains visible until explicit retry", async () => {
+  const first = deferred(), latest = deferred();
+  let calls = 0;
+  const queue = new AutosaveQueue<string>(() => ++calls === 1 ? first.promise : calls === 2 ? latest.promise : Promise.resolve());
+  queue.enqueue("old");
+  queue.enqueue("latest");
+  first.reject(Error("obsolete failure"));
+  await turn();
+  assert.equal(queue.error, null);
+  latest.reject(Error("latest failure"));
+  await assert.rejects(queue.flush(), /latest failure/);
+  assert.equal(queue.value, "latest");
+  await queue.retry();
   assert.equal(queue.error, null);
 });
 

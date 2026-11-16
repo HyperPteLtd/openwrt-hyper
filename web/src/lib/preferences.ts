@@ -1,19 +1,28 @@
 import { AutosaveQueue } from "./autosave";
 import { app } from "./app";
-import { t as tr } from "./i18n";
+import { saveLanguage, t as tr, type LanguagePreference } from "./i18n";
 import { call } from "./rpc";
 import type { Result } from "./types";
+import { accountEpoch, onAccountChange } from "./account-epoch";
+import { CacheInvalidatedError } from "./cache";
 
 let writing = Promise.resolve();
-function write(method: string, args: Record<string, unknown>): Promise<void> {
+export function writePreference<T extends Result = Result>(method: string, args: Record<string, unknown>, epoch = accountEpoch()): Promise<T> {
   const task = writing.then(async () => {
-    const result = await call<Result>(method, args);
-    if (!result.result) throw new Error(result.error || tr("保存失败"));
+    if (epoch !== accountEpoch()) throw new CacheInvalidatedError();
+    const result = await call<T>(method, args);
+    if (epoch !== accountEpoch()) throw new CacheInvalidatedError();
+    if (!result.result) throw new Error(result.error || result.msg || tr("保存失败"));
     app.tick++;
+    return result;
   });
   // All preferences share UCI files; serialize across pages as well as within a field.
-  writing = task.catch(() => {});
+  writing = task.then(() => {}, () => {});
   return task;
+}
+
+async function write(method: string, args: Record<string, unknown>, epoch = accountEpoch()): Promise<void> {
+  await writePreference(method, args, epoch);
 }
 
 export const configWrites = new AutosaveQueue<Record<string, string>>(
@@ -27,7 +36,8 @@ export const listWrites = {
 };
 
 export const ruleWrites = new AutosaveQueue<Record<string, boolean>>(async (values) => {
-  for (const [key, enabled] of Object.entries(values)) await write("set_rule_enabled", { key, enabled });
+  const epoch = accountEpoch();
+  for (const [key, enabled] of Object.entries(values)) await write("set_rule_enabled", { key, enabled }, epoch);
 }, (older, newer) => ({ ...older, ...newer }));
 
 export interface DevicePreferences { mode: "all" | "pick"; direct_macs: string[] }
@@ -36,8 +46,44 @@ export const deviceWrites = new AutosaveQueue<DevicePreferences>((value) => writ
   direct_macs: value.mode === "pick" ? value.direct_macs : [],
 }));
 
+for (const queue of [configWrites, ruleWrites, deviceWrites, ...Object.values(listWrites)]) {
+  let revision = queue.revision;
+  queue.subscribe(() => {
+    if (revision !== queue.revision) {
+      revision = queue.revision;
+      app.intentRevision++;
+    }
+  });
+}
+
 export async function flushPreferences(): Promise<void> {
-  const results = await Promise.allSettled([configWrites, ruleWrites, deviceWrites, ...Object.values(listWrites)].map((queue) => queue.flush()));
-  const failed = results.find((result) => result.status === "rejected");
-  if (failed?.status === "rejected") throw failed.reason;
+  const queues = [configWrites, ruleWrites, deviceWrites, ...Object.values(listWrites)];
+  do {
+    const results = await Promise.allSettled(queues.map((queue) => queue.flush()));
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+  } while (queues.some(queue => queue.busy));
+}
+
+let languageRevision = 0;
+export let pendingLanguagePreference: LanguagePreference | null = null;
+onAccountChange(() => {
+  languageRevision++;
+  pendingLanguagePreference = null;
+});
+export async function requestLanguage(preference: LanguagePreference): Promise<void> {
+  const revision = ++languageRevision;
+  pendingLanguagePreference = preference;
+  app.intentRevision++;
+  try {
+    await flushPreferences();
+    if (revision !== languageRevision) return;
+    saveLanguage(preference);
+    pendingLanguagePreference = null;
+    location.reload();
+  } catch (error) {
+    if (revision !== languageRevision) return;
+    pendingLanguagePreference = null;
+    throw error;
+  }
 }

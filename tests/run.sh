@@ -26,7 +26,7 @@ for f in "$SCRIPTS"/*.uc "$ROOT"/luci-app-hyper/root/usr/share/rpcd/ucode/luci.h
 	# Modules are checked by importing them: `-c module` exists only in newer ucode,
 	# and the firmware's ucode (23.05 - 25.12) must accept the source too.
 	case "$f" in
-		*hyper.uc|*ppanel.uc|*api_endpoints.uc|*snapshot.uc|*rules.uc|*checkin.uc|*md5.uc|*software_update.uc|*logs.uc)
+		*hyper.uc|*account_api.uc|*api_endpoints.uc|*snapshot.uc|*rules.uc|*checkin.uc|*md5.uc|*software_update.uc|*logs.uc)
 			mv "$tmp" "$tmp.uc"; tmp="$tmp.uc"
 			check() { run -e "import * as m from '$tmp';"; } ;;
 		*) check() { run -c -o /dev/null "$tmp"; } ;;
@@ -59,7 +59,7 @@ rm -f "$tmp"
 
 echo "== unit tests"
 run "$HERE/snapshot_test.uc" || fail=1
-run "$HERE/ppanel_test.uc" || fail=1
+run "$HERE/account_api_test.uc" || fail=1
 run "$HERE/api_endpoints_test.uc" || fail=1
 run "$HERE/rules_test.uc" || fail=1
 run "$HERE/checkin_test.uc" || fail=1
@@ -67,8 +67,9 @@ run "$HERE/md5_test.uc" || fail=1
 run "$HERE/version_test.uc" || fail=1
 run "$HERE/software_update_test.uc" || fail=1
 run "$HERE/logs_test.uc" || fail=1
+node "$HERE/sync_subscription_test.mjs" || fail=1
 
-python3 "$HERE/echo_server.py" "$ECHO_PORT" &
+node "$HERE/echo_server.mjs" "$ECHO_PORT" &
 echo_pid=$!
 sleep 1
 run "$HERE/http_test.uc" || fail=1
@@ -76,7 +77,10 @@ kill "$echo_pid" 2>/dev/null
 
 echo "== watchdog"
 sh "$HERE/watchdog_test.sh" || fail=1
-python3 "$HERE/service_control_test.py" || fail=1
+node "$HERE/run_session_test.mjs" || fail=1
+node "$HERE/service_control_test.mjs" || fail=1
+node "$HERE/proxy_conflicts.test.mjs" || fail=1
+node "$HERE/rpc_task_test.mjs" || fail=1
 
 echo "== render (sing-box config + firewall)"
 UCODE="$UCODE" UCODE_LIB="$UCODE_LIB" sh "$HERE/render_test.sh" || fail=1

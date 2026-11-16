@@ -2,7 +2,8 @@ import { t as tr } from "../lib/i18n";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { app } from "../lib/app";
-import { api, formatDate, type ApiResult } from "../lib/ppanel";
+import { api, formatDate, type ApiResult } from "../lib/api";
+import { productText } from "../lib/display";
 import "./Announcements.css";
 
 interface Announcement {
@@ -34,10 +35,10 @@ export function Announcements() {
         {notices.value.map((notice) => (
           <details class="announcement" key={notice.id}>
             <summary>
-              <span>{notice.pinned && <span class="announcement-pin">{tr("置顶 · ")}</span>}{notice.title}</span>
+              <span>{notice.pinned && <span class="announcement-pin">{tr("置顶 · ")}</span>}{productText(notice.title)}</span>
               <time class="muted small">{formatDate(notice.created_at)}</time>
             </summary>
-            <p>{notice.content}</p>
+            <p>{productText(notice.content)}</p>
           </details>
         ))}
       </div>

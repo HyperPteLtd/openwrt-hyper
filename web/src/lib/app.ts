@@ -1,6 +1,7 @@
 import { t as tr } from "./i18n";
 import { createStore } from "./store";
-import type { ServiceOperation, Status } from "./types";
+import type { Mode, ServiceOperation, Status } from "./types";
+import { onAccountChange } from "./account-epoch";
 
 export type Route = "overview" | "account" | "plans" | "diagnostics" | "settings";
 
@@ -18,6 +19,12 @@ export interface AppState {
   /** True after the router responds in this page session, never restored from cache. */
   liveStatus: boolean;
   controlAction: ServiceOperation["action"] | null;
+  controlDesired: boolean | null;
+  modeDesired: Mode | null;
+  controlError: string;
+  modeError: string;
+  /** Advances on user input, allowing stale work to yield to the latest intent. */
+  intentRevision: number;
   loading: boolean;
   error: string;
   /** bumped to ask pages to reload their data */
@@ -37,4 +44,16 @@ export function tabOf(route: Route): Route {
 }
 
 /** App-wide state: the current tab, the router status (polled by Root) and the reload tick */
-export const app = createStore<AppState>({ route: routeFromHash(location.hash), status: null, statusAt: 0, liveStatus: false, controlAction: null, loading: true, error: "", tick: 0 });
+export const app = createStore<AppState>({ route: routeFromHash(location.hash), status: null, statusAt: 0, liveStatus: false, controlAction: null, controlDesired: null, modeDesired: null, controlError: "", modeError: "", intentRevision: 0, loading: true, error: "", tick: 0 });
+
+onAccountChange(() => {
+  app.intentRevision++;
+  app.controlAction = null;
+  app.controlDesired = null;
+  app.modeDesired = null;
+  app.controlError = "";
+  app.modeError = "";
+  app.error = "";
+  app.liveStatus = false;
+  app.tick++;
+});

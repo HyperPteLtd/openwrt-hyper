@@ -56,4 +56,8 @@
 .connection-mode-section { padding-top: 4px; display: flex; flex-direction: column; gap: 8px; }
 .overview-control-column .connection-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .overview-control-column .connection-modes .option { justify-content: center; text-align: center; }
+.connection-runtime-mode .settings-row { flex-wrap: nowrap; align-items: center; gap: 12px; }
+.connection-runtime-mode .settings-row-copy { flex-basis: auto; }
+.connection-runtime-mode .settings-row-control { flex: 0 1 auto; max-width: 65%; }
+.connection-runtime-mode select { width: 100%; }
 .domain-lists { display: flex; flex-direction: column; gap: 8px; }

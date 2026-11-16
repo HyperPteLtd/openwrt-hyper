@@ -63,7 +63,7 @@ function list(value: unknown, project: (item: unknown) => RecordValue): RecordVa
 }
 
 function membership(value: unknown): RecordValue {
-  const source = record(value), result = fields(source, ["id", "status", "start_time", "expire_time"]);
+  const source = record(value), result = fields(source, ["id", "status", "start_time", "expire_time", "traffic", "upload", "download"]);
   if (source.subscribe === null) result.subscribe = null;
   else if (source.subscribe && typeof source.subscribe === "object") {
     result.subscribe = { ...fields(source.subscribe, ["device_limit", "traffic"]), name: localized(record(source.subscribe).name) };

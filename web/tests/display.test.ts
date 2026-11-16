@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { expiryText, localizedText, serviceText } from "../src/lib/display.ts";
+import { expiryText, localizedText, productText, serviceText } from "../src/lib/display.ts";
 
 test("backend names render as text with Chinese then English fallbacks", () => {
   assert.equal(localizedText('{"en-US":"Basic","zh-CN":"Basic"}'), "Basic");
@@ -32,4 +32,12 @@ test("diagnostics keep useful details with product terminology", () => {
   assert.equal(serviceText("ERROR sing-box-c: subscription token failed"), "ERROR 代理服务: 节点配置 token failed");
   assert.equal(serviceText("no_subscription"), "尚未开通套餐");
   assert.equal(serviceText("同步订阅失败"), "更新节点失败");
+});
+
+test("upstream branding stays out of localized labels, notices and log output", () => {
+  assert.equal(productText("PPANEL account service unavailable"), "Hyper account service unavailable");
+  assert.equal(localizedText({ "zh-CN": "PPanel 基础套餐", "en-US": "PPanel Basic" }), "Hyper 基础套餐");
+  assert.equal(localizedText({ "en-US": "PPanel Basic" }, "", "en-US"), "Hyper Basic");
+  assert.equal(serviceText("ERROR ppanel: sing-box request failed (HTTP 503)"), "ERROR Hyper: 代理服务 request failed (HTTP 503)");
+  assert.equal(productText("Hyper account service: HTTP 401"), "Hyper account service: HTTP 401");
 });

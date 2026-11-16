@@ -7,6 +7,12 @@
 core_gid="$(group_add_next sing-box)"
 user_exists sing-box || user_add sing-box '' "$core_gid" 'Hyper service' /var/run/hyper /bin/false
 
+# Existing installations may have written rules with the root-only RPC umask.
+sh /etc/hyper/scripts/rules-storage.sh prepare || exit 1
+
+# Background reads automatically choose a usable direct/proxy connection.
+uci -q delete hyper.subscription.update_via_proxy
+
 # Migrate manual endpoints to automatic Hyper discovery. Do not forward a session
 # from a custom panel to Hyper; existing sessions on the built-in origins survive.
 legacy_api="$(uci -q get hyper.account.api_base)"
@@ -27,7 +33,7 @@ uci -q delete hyper.account.api_base
 	uci -q set hyper.update.repo="HyperPteLtd/openwrt-hyper"
 uci -q commit hyper
 
-# The session file holds the PPanel JWT and subscription token: root only
+# The session file holds the Hyper service JWT and subscription token: root only
 [ ! -e /etc/hyper/session ] || chmod 600 /etc/hyper/session
 
 uci -q batch <<-EOT >"/dev/null"

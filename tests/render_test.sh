@@ -45,19 +45,7 @@ singbox_check() {
 	if [ "$(uname -s)" != "Linux" ]; then
 		# routing_mark and redirect/tproxy inbounds only exist on Linux
 		check_conf="$TMP/sing-box-host.json"
-		python3 -c "
-import json, sys
-c = json.load(open(sys.argv[1]))
-def strip(o):
-    if isinstance(o, dict):
-        o.pop('routing_mark', None)
-        for v in o.values(): strip(v)
-    elif isinstance(o, list):
-        for v in o: strip(v)
-strip(c)
-c['inbounds'] = [i for i in c['inbounds'] if i['type'] not in ('redirect', 'tproxy')]
-json.dump(c, open(sys.argv[2], 'w'))
-" "$conf" "$check_conf"
+		node "$HERE/render_config.mjs" host "$conf" "$check_conf" || fail=1
 	fi
 	if out="$(sing-box check -c "$check_conf" 2>&1)"; then
 		echo "ok   sing-box check, $what ($(sing-box version | head -1)$( [ "$check_conf" = "$conf" ] || echo ', Linux-only fields stripped'))"
@@ -69,26 +57,10 @@ json.dump(c, open(sys.argv[2], 'w'))
 echo "== generate_client.uc"
 if run "$FIXTURE" "$SCR/generate_client.uc"; then
 	CONF="$TMP/run/sing-box-c.json"
-	q() { python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))" "$CONF" "$1"; }
-	check "selector exists"     "$(q "[o['type'] for o in c['outbounds'] if o['tag']=='main-out'][0]")" "selector"
-	check "selector members"    "$(q "sorted([o for o in c['outbounds'] if o['tag']=='main-out'][0]['outbounds'])")" "['cfg-pp_anytls-out', 'cfg-pp_hk-out', 'cfg-pp_sg-out', 'cfg-pp_tokyo-out']"
-	check "selector default"    "$(q "[o for o in c['outbounds'] if o['tag']=='main-out'][0]['default']")" "cfg-pp_tokyo-out"
-	check "clash_api loopback"  "$(q "c['experimental']['clash_api']['external_controller']")" "127.0.0.1:5334"
-	check "clash_api secret"    "$(q "len(c['experimental']['clash_api']['secret'])")" "48"
-	check "cache_file enabled"  "$(q "c['experimental']['cache_file']['enabled']")" "True"
-	check "reality pbk"         "$(q "[o for o in c['outbounds'] if o['tag']=='cfg-pp_tokyo-out'][0]['tls']['reality']['public_key']")" "jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0"
-	check "anytls outbound"     "$(q "(lambda o: [o['type'], o['server_port'], o['tls']['server_name'], o['tls']['insecure'], o['idle_session_timeout'], o['min_idle_session']])([o for o in c['outbounds'] if o['tag']=='cfg-pp_anytls-out'][0])")" "['anytls', 8443, 'cdn.example.com', True, '30s', 5]"
-	check "trojan ws path"      "$(q "[o for o in c['outbounds'] if o['tag']=='cfg-pp_sg-out'][0]['transport']['path']")" "/ws"
-	check "final is main-out"   "$(q "c['route']['final']")" "main-out"
-	check "server rule sets"    "$(q "sorted(r['tag'] for r in c['route']['rule_set'] if r['tag'].startswith('hyper-rule-'))")" "['hyper-rule-cn-direct-domain', 'hyper-rule-streaming-domain', 'hyper-rule-streaming-ip']"
-	check "disabled rule left out" "$(q "any('off' in r['tag'] for r in c['route']['rule_set'])")" "False"
-	check "direct rule + geoip" "$(q "[r for r in c['route']['rules'] if 'hyper-rule-cn-direct-domain' in r.get('rule_set', [])][0]")" "{'rule_set': ['hyper-rule-cn-direct-domain', 'geoip-cn'], 'action': 'route', 'outbound': 'direct-out'}"
-	check "proxy rule"          "$(q "[r for r in c['route']['rules'] if 'hyper-rule-streaming-domain' in r.get('rule_set', [])][0]['outbound']")" "main-out"
-	check "dns follows policy"  "$(q "[(r['rule_set'], r['server']) for r in c['dns']['rules'] if str(r.get('rule_set','')).startswith('hyper-rule')]")" "[('hyper-rule-cn-direct-domain', 'china-dns'), ('hyper-rule-streaming-domain', 'main-dns')]"
-	check "rules before geosite" "$(q "[str(r.get('rule_set')) for r in c['dns']['rules']].index('hyper-rule-cn-direct-domain') < [str(r.get('rule_set')) for r in c['dns']['rules']].index('geosite-cn')")" "True"
+	node "$HERE/render_config.mjs" basic "$CONF" || fail=1
 	singbox_check "$CONF" "basic fixture"
 	if command -v sing-box >/dev/null 2>&1; then
-		python3 "$HERE/core_start_test.py" "$CONF" || fail=1
+		node "$HERE/core_start_test.mjs" "$CONF" || fail=1
 	fi
 else
 	echo "FAIL generate_client.uc did not run"; fail=1
@@ -96,30 +68,28 @@ fi
 
 echo "== TUN configuration (current core stack)"
 TUN="$TMP/uci-tun.json"
-python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['hyper']['config']['proxy_mode']='tun'; json.dump(d, open(sys.argv[2],'w'))" "$FIXTURE" "$TUN"
+node "$HERE/render_config.mjs" fixture-tun "$FIXTURE" "$TUN" || fail=1
 rm -f "$TMP/run/sing-box-c.json"
 if run "$TUN" "$SCR/generate_client.uc"; then
 	CONF="$TMP/run/sing-box-c.json"
-	check "TUN uses the core's default stack" "$(q "['stack' in i for i in c['inbounds'] if i['type']=='tun']")" "[False]"
+	node "$HERE/render_config.mjs" tun "$CONF" || fail=1
 	singbox_check "$CONF" "TUN"
 else
 	echo "FAIL generate_client.uc with TUN"; fail=1
 fi
+if run "$TUN" -T "$SCR/firewall_post.ut" > "$TMP/fw-tun.nft"; then
+	check "TUN: core connections bypass before interception" "$(sed -n '/^chain hyper_mangle_tun {/{n;p;}' "$TMP/fw-tun.nft" | xargs)" "meta mark 100 counter return"
+else
+	echo "FAIL firewall_post.ut render (TUN)"; fail=1
+fi
 
 echo "== custom DHCP DNS (router build feature)"
 DHCP="$TMP/uci-dhcp.json"
-python3 - "$FIXTURE" "$DHCP" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-d['hyper']['config']['routing_mode'] = 'custom'
-d['hyper']['dns']['default_server'] = 'wan_dhcp'
-d['hyper']['wan_dhcp'] = {'.type': 'dns_server', 'enabled': '1', 'type': 'dhcp'}
-json.dump(d, open(sys.argv[2], 'w'))
-PY
+node "$HERE/render_config.mjs" fixture-dhcp "$FIXTURE" "$DHCP" || fail=1
 rm -f "$TMP/run/sing-box-c.json"
 if run "$DHCP" "$SCR/generate_client.uc"; then
 	CONF="$TMP/run/sing-box-c.json"
-	check "custom DHCP DNS retained" "$(q "[s['type'] for s in c['dns']['servers'] if s['tag']=='cfg-wan_dhcp-dns']")" "['dhcp']"
+	node "$HERE/render_config.mjs" dhcp "$CONF" || fail=1
 	singbox_check "$CONF" "custom DHCP DNS"
 else
 	echo "FAIL generate_client.uc with custom DHCP DNS"; fail=1
@@ -128,17 +98,11 @@ fi
 echo "== share links of every protocol -> snapshot.uc -> generate_client.uc"
 LINKS="$TMP/uci-links.json"
 if summary="$(run "$FIXTURE" "$HERE/links_fixture.uc" "$HERE/fixtures/links.txt" "$FIXTURE" "$LINKS")"; then
-	lq() { python3 -c "import json,sys; s=json.loads(sys.argv[1]); print(eval(sys.argv[2]))" "$summary" "$1"; }
-	check "links parsed"      "$(lq "s['nodes']")" "20"
-	check "protocols"         "$(lq "sorted(set(s['types']))")" "['anytls', 'http', 'hysteria', 'hysteria2', 'shadowsocks', 'socks', 'trojan', 'tuic', 'vless', 'vmess', 'wireguard']"
-	check "unsupported kept out" "$(lq "s['unsupported']")" "['kcp transport', 'ssr://']"
+	node "$HERE/render_config.mjs" links-summary "$summary" || fail=1
 	rm -f "$TMP/run/sing-box-c.json"
 	if run "$LINKS" "$SCR/generate_client.uc"; then
 		CONF="$TMP/run/sing-box-c.json"
-		q() { python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))" "$CONF" "$1"; }
-		check "selector has all"  "$(q "len([o for o in c['outbounds'] if o['tag']=='main-out'][0]['outbounds'])")" "20"
-		check "wireguard endpoint" "$(q "[e['type'] for e in c.get('endpoints', [])]")" "['wireguard']"
-		check "vmess early data"  "$(q "[(o['transport']['path'], o['transport']['max_early_data']) for o in c['outbounds'] if o.get('type')=='vmess' and 'transport' in o][0]")" "('/vm', 2048)"
+		node "$HERE/render_config.mjs" links "$CONF" || fail=1
 		singbox_check "$CONF" "every protocol"
 	else
 		echo "FAIL generate_client.uc with the share-link fixture"; fail=1
@@ -149,14 +113,11 @@ fi
 
 echo "== DNS protection only (config.dns_only=1)"
 DNSONLY="$TMP/uci-dnsonly.json"
-python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['hyper']['config']['dns_only']='1'; json.dump(d, open(sys.argv[2],'w'))" "$FIXTURE" "$DNSONLY"
+node "$HERE/render_config.mjs" fixture-dnsonly "$FIXTURE" "$DNSONLY" || fail=1
 rm -f "$TMP/run/sing-box-c.json"
 if run "$DNSONLY" "$SCR/generate_client.uc"; then
 	CONF="$TMP/run/sing-box-c.json"
-	q() { python3 -c "import json,sys; c=json.load(open(sys.argv[1])); print(eval(sys.argv[2]))" "$CONF" "$1"; }
-	check "dns-only inbounds"   "$(q "sorted(i['tag'] for i in c['inbounds'])")" "['dns-in', 'mixed-in']"
-	check "dns-only: dns via proxy" "$(q "[s.get('detour') for s in c['dns']['servers'] if s['tag']=='main-dns'][0]")" "main-out"
-	check "dns-only: cn split kept" "$(q "any(r.get('server')=='china-dns' for r in c['dns']['rules'])")" "True"
+	node "$HERE/render_config.mjs" dnsonly "$CONF" || fail=1
 	singbox_check "$CONF" "dns only"
 else
 	echo "FAIL generate_client.uc with dns_only"; fail=1
@@ -169,7 +130,7 @@ fi
 
 echo "== firewall_post.ut"
 NOSELF="$TMP/uci-noself.json"
-python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['hyper']['control']['proxy_router_self']='0'; json.dump(d, open(sys.argv[2],'w'))" "$FIXTURE" "$NOSELF"
+node "$HERE/render_config.mjs" fixture-noself "$FIXTURE" "$NOSELF" || fail=1
 
 if run "$FIXTURE" -T "$SCR/firewall_post.ut" > "$TMP/fw-self.nft"; then
 	check "self: output redirect present" "$(grep -c 'chain hyper_output_redir' "$TMP/fw-self.nft")" "1"
@@ -210,5 +171,6 @@ nft_check() {
 nft_check "$TMP/fw-self.nft" "proxy_router_self=1"
 nft_check "$TMP/fw-noself.nft" "proxy_router_self=0"
 nft_check "$TMP/fw-nolists.nft" "no resource lists"
+nft_check "$TMP/fw-tun.nft" "TUN"
 
 exit $fail

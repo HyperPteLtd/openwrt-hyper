@@ -8,7 +8,7 @@
 #   OUT_DIR=/tmp/core scripts/stage-binaries.sh x86_64     elsewhere
 #   scripts/stage-binaries.sh --target-id <arch>          print the shared binary target
 #
-# Requires Python 3, curl and tar. Builds both programs with the pinned Go
+# Requires curl, tar and awk. Builds both programs with the pinned Go
 # toolchain, or in Docker when Go is unavailable. No prebuilt-core fallback.
 set -eu
 
@@ -78,33 +78,30 @@ if [ ! -f "$cache/$name" ]; then
 fi
 verify_source "$cache/$name"
 
-# Validate every member before extracting. The pinned archive contains only
-# regular files/directories; links and paths outside its expected root fail shut.
-python3 - "$cache/$name" "$tmp" "libbox-$LIBBOX_COMMIT" <<'PY'
-import pathlib
-import shutil
-import sys
-import tarfile
-
-archive, destination, root = sys.argv[1:]
-with tarfile.open(archive, "r:gz") as source:
-    members = source.getmembers()
-    for member in members:
-        path = pathlib.PurePosixPath(member.name)
-        if (path.is_absolute() or not path.parts or path.parts[0] != root
-                or ".." in path.parts or "\\" in member.name
-                or not (member.isfile() or member.isdir())):
-            sys.exit(f"unsafe source archive member: {member.name}")
-    for member in members:
-        target = pathlib.Path(destination).joinpath(*pathlib.PurePosixPath(member.name).parts)
-        if member.isdir():
-            target.mkdir(parents=True, exist_ok=True)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with source.extractfile(member) as src, target.open("wb") as dst:
-                shutil.copyfileobj(src, dst)
-            target.chmod(member.mode & 0o777)
-PY
+# Inspect the entire verified archive before extracting anything. GNU tar and
+# BSD tar both list effective member paths and expose the file type first in
+# verbose listings. Only regular files/directories inside the pinned root pass.
+LC_ALL=C tar -tzf "$cache/$name" > "$tmp/source.paths"
+LC_ALL=C tar -tvzf "$cache/$name" > "$tmp/source.types"
+awk -v root="libbox-$LIBBOX_COMMIT" '
+	function reject() { print "unsafe source archive member: " $0 > "/dev/stderr"; bad=1 }
+	{
+		path=$0
+		if (index(path, "\\") || path ~ /[[:cntrl:]]/) { reject(); next }
+		sub(/\/+$/, "", path)
+		if (path != root && index(path, root "/") != 1) { reject(); next }
+		n=split(path, parts, "/")
+		for (i=1; i<=n; i++) if (parts[i] == "..") { reject(); break }
+	}
+	END { exit bad || NR == 0 }
+' "$tmp/source.paths"
+awk '
+	substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" {
+		print "unsafe source archive member: " $0 > "/dev/stderr"; bad=1
+	}
+	END { exit bad || NR == 0 }
+' "$tmp/source.types"
+tar -xzf "$cache/$name" -C "$tmp" --no-same-owner --no-same-permissions
 
 runtime="$tmp/libbox-$LIBBOX_COMMIT/internal/singbox/runtime.go"
 sdk_version="$(sed -n 's/^const sdkVersion = "\([^"]*\)"$/\1/p' "$runtime")"

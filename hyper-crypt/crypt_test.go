@@ -29,7 +29,7 @@ var mbedtlsVector = struct{ priv, spk, salt, nonce, data, plain string }{
 	plain: "REMARKS=Hyper\nanytls://p@jp1.example.com:443#日本 · 东京 01",
 }
 
-// seal plays the server side of the envelope (what PPanel does).
+// seal plays the server side of the envelope (what Hyper service does).
 func seal(t *testing.T, clientPub []byte, info string, plain []byte) (spk, salt, nonce, data []byte) {
 	t.Helper()
 	server, err := ecdh.X25519().GenerateKey(rand.Reader)

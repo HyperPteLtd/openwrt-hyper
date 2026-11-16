@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { liveUptime, operationPending } from "../src/lib/service.ts";
+import { controlOutcome, liveUptime, operationPending } from "../src/lib/service.ts";
 import { formatUptime } from "../src/lib/format.ts";
 
 test("uptime advances each second, resyncs after restart, and caps stale samples", () => {
@@ -25,4 +25,15 @@ test("queued control is pending until the worker reports completion or failure",
   assert.equal(operationPending({ ...op, state: "done" }), false);
   assert.equal(operationPending({ ...op, state: "failed" }), false);
   assert.equal(operationPending(null), false);
+});
+
+test("controls wait for acknowledgment and actual completion, including a superseding restart", () => {
+  const op = { id: 2, action: "start" as const, time: 1 };
+  assert.equal(controlOutcome({ running: true }, true, undefined), "pending");
+  assert.equal(controlOutcome({ running: true, operation: { ...op, state: "running" } }, true, 2), "pending");
+  assert.equal(controlOutcome({ running: false, operation: { ...op, id: 1, state: "failed" } }, true, 2), "pending");
+  assert.equal(controlOutcome({ running: true, operation: { ...op, state: "done" } }, true, 2), "done");
+  assert.equal(controlOutcome({ running: false, operation: { ...op, state: "done" } }, true, 2), "failed");
+  assert.equal(controlOutcome({ running: false, operation: { ...op, id: 3, action: "restart", state: "failed" } }, true, 2), "failed");
+  assert.equal(controlOutcome({ running: false, operation: { ...op, action: "stop", state: "done" } }, false, 2), "done");
 });

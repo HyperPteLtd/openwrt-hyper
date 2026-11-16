@@ -1,5 +1,16 @@
 import { eq, done } from 'lib';
-import { versionCompare } from 'hyper';
+import { normalizeVersion, versionCompare } from 'hyper';
+
+for (let c in [
+	[ '0.4.0-r1', '0.4.0' ],
+	[ ' v0.4.0-r12 ', '0.4.0' ],
+	[ '0.4.0', '0.4.0' ],
+	[ '0.4.0-beta.1-r2', '0.4.0-beta.1' ],
+	[ '0.4.0-beta.1', '0.4.0-beta.1' ],
+	[ '1.0.0-1', '1.0.0-1' ],
+	[ null, '' ],
+])
+	eq(`normalizeVersion(${c[0]})`, normalizeVersion(c[0]), c[1]);
 
 /* [a, b, expected versionCompare(a, b)] */
 const cases = [

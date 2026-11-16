@@ -6,6 +6,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { app, ROUTES, tabOf } from "../lib/app";
 import { operationPending } from "../lib/service";
 import { AutosaveStatus } from "./AutosaveStatus";
+import { formatVersion } from "../lib/format";
 
 export const Logo = ({ size = 28 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 26 26" aria-hidden="true">
@@ -46,7 +47,7 @@ export function TopBar() {
       <div class="topbar-identity">
         <a class="brand" href="#/overview" aria-label="Hyper"><Logo /><h1>Hyper</h1></a>
         <span class="pill service-status" style={{ color: tone }}><span class="dot" />{label}</span>
-        {s?.update?.available && <a href="#/settings" class="pill" style={{ color: "var(--accent)" }}>{tr("有新版本")} {s.update.latest}</a>}
+        {s?.update?.available && <a href="#/settings" class="pill" style={{ color: "var(--accent)" }}>{tr("有新版本")} {formatVersion(s.update.latest)}</a>}
         {s?.signed_in && <button type="button" class="btn ghost checkin-trigger" aria-haspopup="dialog" onClick={() => (checkin.value = true)}>
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M7 3v4m10-4v4M3 10h18m-13 5 3 3 5-5" /></svg>
           {tr("每日签到")}

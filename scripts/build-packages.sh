@@ -30,6 +30,7 @@ NAME=hyper-sdk-builder
 IMAGE=debian:12-slim
 WORK=/var/tmp/hyper-sdk
 OUT="$ROOT/dist"
+SOURCE_DATE_EPOCH="$(git -C "$ROOT" log -1 --format=%ct)"
 
 echo "== web UI"
 npm --prefix "$ROOT/web" run build >/dev/null
@@ -63,7 +64,7 @@ case "$(tar --version 2>/dev/null)" in *bsdtar*) TAR_NOMETA="--no-xattrs --no-ma
 for target in $TARGETS; do
 	first_release="${RELEASES%% *}"
 	arch="$(curl -fsSL "https://downloads.openwrt.org/releases/$first_release/targets/$target/profiles.json" |
-		python3 -I -c 'import json, sys; print(json.load(sys.stdin)["arch_packages"])')"
+		node --input-type=module -e 'import { readFileSync } from "node:fs"; const arch = JSON.parse(readFileSync(0, "utf8")).arch_packages; if (typeof arch !== "string" || !arch) throw new Error("profiles.json is missing arch_packages"); console.log(arch)')"
 
 	echo "== $target ($arch): bundle the core and hyper-crypt"
 	sh "$ROOT/scripts/stage-binaries.sh" "$arch"
@@ -71,24 +72,21 @@ for target in $TARGETS; do
 	echo "== copy sources into the container"
 	# shellcheck disable=SC2086
 	COPYFILE_DISABLE=1 tar $TAR_NOMETA -C "$ROOT" --exclude='._*' --exclude='.DS_Store' \
-		-cf - luci-app-hyper scripts/sdk-build.sh |
+		-cf - luci-app-hyper scripts/sdk-build.sh scripts/sdk-package.sh |
 		docker exec -i "$NAME" sh -c 'rm -rf /work/src && mkdir -p /work/src && tar -C /work/src -xf - && chown -R build: /work/src'
 
 	for release in $RELEASES; do
 		case "$release" in 2[0-4].*) family="23.05-24.10" ;; *) family="25.12+" ;; esac
 		echo "== OpenWrt $release SDK, $target -> $family"
 		dir="/work/$release-$(echo "$target" | tr / -)"
-		if ! docker exec -u build "$NAME" sh /work/src/scripts/sdk-build.sh "$release" "$target"; then
+		if ! docker exec -u build -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" "$NAME" sh /work/src/scripts/sdk-build.sh "$release" "$target"; then
 			echo "build failed; log: docker exec $NAME tail -n 80 $dir/build.log" >&2
 			exit 1
 		fi
 		pkg="$(docker exec "$NAME" sh -c "ls $dir/sdk/bin/packages/*/hyper/luci-app-hyper*.ipk $dir/sdk/bin/packages/*/hyper/luci-app-hyper*.apk 2>/dev/null | head -n1")"
 		[ -n "$pkg" ] || { echo "no package built for $target $release" >&2; exit 1; }
 		name="$(basename "$pkg")"
-		case "$name" in
-			*.ipk) out_name="${family}_${name}" ;;
-			*.apk) out_name="${family}_${name%.apk}-${arch}.apk" ;;	# apk names carry no arch
-		esac
+		out_name="$(sh "$ROOT/scripts/package-name.sh" "$name" "$family" "$arch")"
 		docker exec "$NAME" cat "$pkg" > "$OUT/$out_name"
 		echo "   $out_name"
 	done

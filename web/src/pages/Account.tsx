@@ -3,8 +3,10 @@ import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { Card, CardHeader, Notice } from "../components/ui";
 import { app } from "../lib/app";
-import { api, apiError, formatDate, money, type ApiResult } from "../lib/ppanel";
+import { api, apiError, formatDate, money, type ApiResult } from "../lib/api";
 import { expiryText, localizedText } from "../lib/display";
+import { formatBytes } from "../lib/format";
+import { membershipCounters, type MembershipCounters } from "../lib/membership";
 import { call } from "../lib/rpc";
 import { useSiteCurrency } from "../lib/site-currency";
 import "./Account.css";
@@ -16,7 +18,7 @@ interface UserInfo {
   commission?: number;
   refer_code?: string;
 }
-interface UserSubscribe {
+interface UserSubscribe extends MembershipCounters {
   id: number;
   status: number;
   expire_time: number | string | null;
@@ -111,10 +113,9 @@ export function Account() {
   };
 
   const active = subs.value.find((s) => s.status === 1) ?? subs.value[0];
-  const sync = app.status?.sync as (Record<string, unknown> & { traffic_used?: string; traffic_total?: string }) | null | undefined;
+  const metrics = membershipCounters(active);
   const name = info.value?.nickname || app.status?.email || "";
   const hasSubs = subs.value.length > 0;
-  const trafficTotal = sync?.traffic_total === "不限" ? tr("不限") : sync?.traffic_total;
 
   return (
     <main class="page account-page">
@@ -139,10 +140,10 @@ export function Account() {
           >
             <a href="#/plans" class="btn primary account-heading-action">{active ? tr("续费 / 升级") : tr("购买套餐")}</a>
           </CardHeader>
-          {active && sync?.traffic_total && <dl class="account-metrics account-plan-metrics">
-            <div><dt>{tr("已用流量")}</dt><dd>{sync.traffic_used}</dd></div>
-            <div><dt>{tr("总流量")}</dt><dd>{trafficTotal}</dd></div>
-            <div><dt>{tr("设备上限")}</dt><dd>{active?.subscribe?.device_limit || "--"}</dd></div>
+          {active && <dl class="account-metrics account-plan-metrics">
+            <div><dt>{tr("已用流量")}</dt><dd>{formatBytes(metrics.used)}</dd></div>
+            <div><dt>{tr("总流量")}</dt><dd>{metrics.total === 0 ? tr("不限") : formatBytes(metrics.total)}</dd></div>
+            <div><dt>{tr("设备上限")}</dt><dd>{metrics.devices ?? "--"}</dd></div>
           </dl>}
         </section>
       </Card>

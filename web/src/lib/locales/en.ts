@@ -1,4 +1,6 @@
 export const en = {
+  "取消测速": "Cancel test",
+  "测速中 {0}/{1}": "Testing {0}/{1}",
   "正在切换…": "Switching…",
   "模式切换失败，请重试": "Couldn't switch modes, please retry",
   "常规设置": "General settings",
@@ -400,6 +402,7 @@ export const en = {
   "运营商 DNS（WAN 下发）": "ISP DNS (from WAN)",
   "运行中": "Running",
   "运行中…": "Running…",
+  "运行模式": "Operating mode",
   "运行日志": "Logs",
   "运行时长": "Uptime",
   "返回修改": "Edit selection",

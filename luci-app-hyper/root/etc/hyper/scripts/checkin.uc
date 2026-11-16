@@ -3,7 +3,7 @@
  *
  * Daily check-in, kept on the router only.
  *
- * PPanel has no check-in API. The Hyper app's check-in calendar is stored on
+ * Hyper service has no check-in API. The Hyper app's check-in calendar is stored on
  * the phone in the same way: a list of local dates, no reward attached. Here
  * the list is per account, so a family router shared by two accounts keeps
  * two calendars.

@@ -3,7 +3,7 @@
 
 // Package main is hyper-crypt, the subscription decryption helper of luci-app-hyper.
 //
-// PPanel delivers the subscription (GET <api>/api/subscribe?token&country&client_public_key)
+// Hyper service delivers the subscription (GET <api>/api/subscribe?token&country&client_public_key)
 // as an envelope encrypted with X25519 + HKDF-SHA256 + AES-256-GCM, the same scheme the
 // Hyper app uses (hyper-tunnel packages/app-client/src/subscribe/client.ts):
 //

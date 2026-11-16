@@ -2,6 +2,10 @@ import { locale, t as tr, type Locale } from "./i18n.ts";
 
 /** Backend labels can be plain text, a locale map, or a JSON-encoded map. */
 export function localizedText(value: unknown, fallback = "", language: Locale = locale): string {
+  return productText(localizedValue(value, fallback, language));
+}
+
+function localizedValue(value: unknown, fallback: string, language: Locale): string {
   if (typeof value === "string") {
     const text = value.trim();
     if (!text.startsWith("{")) return text || fallback;
@@ -17,9 +21,14 @@ export function localizedText(value: unknown, fallback = "", language: Locale = 
   return entries.map(([, text]) => text).find((text): text is string => typeof text === "string" && !!text.trim())?.trim() || fallback;
 }
 
+/** Upstream branding is an implementation detail, including in server errors. */
+export function productText(text: string): string {
+  return text.replace(/ppanel/gi, "Hyper");
+}
+
 /** Product terminology for diagnostic output; the underlying logs stay intact. */
 export function serviceText(text: string): string {
-  return text.replace(/sing[-_]?box(?:-c)?/gi, tr("代理服务"))
+  return productText(text).replace(/sing[-_]?box(?:-c)?/gi, tr("代理服务"))
     .replace(/no_subscription/g, tr("尚未开通套餐"))
     .replace(/subscription_token/g, tr("节点访问凭证"))
     .replace(/subscriptions?/gi, tr("节点配置"))
@@ -27,7 +36,7 @@ export function serviceText(text: string): string {
     .replace(/\b(?:anytls|vless|vmess|trojan|shadowsocks|hysteria2?|tuic|wireguard|reality)\b/gi, tr("连接"));
 }
 
-/** PPanel uses null/zero (and old Go zero dates) for unlimited validity. */
+/** Hyper service uses null/zero (and old Go zero dates) for unlimited validity. */
 export function expiryText(value: unknown, status = 1, now = Date.now()): string {
   const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
   const suffix = status === 1 ? "" : tr(" · 已失效");

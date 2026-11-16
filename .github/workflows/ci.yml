@@ -31,8 +31,13 @@ jobs:
         with:
           fetch-depth: ${{ github.ref == 'refs/heads/main' && '0' || '1' }}
 
+      - name: Validate the release tag
+        if: github.ref_type == 'tag'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: sh scripts/release/validate-tag.sh "$RELEASE_TAG"
+
       - uses: actions/setup-node@v7
-        if: github.ref == 'refs/heads/main'
         with:
           node-version: 24
           cache: npm
@@ -62,8 +67,8 @@ jobs:
 
       - name: ucode tests
         run: |
-          python3 tests/stage_binaries_test.py
-          python3 scripts/bundled-rules.py
+          node --test tests/build_scripts.test.mjs tests/stage_binaries.test.mjs
+          node scripts/bundled-rules.mjs
           UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/run.sh
 
       - name: Read the core build settings
@@ -280,14 +285,22 @@ jobs:
           test -f luci-app-hyper/htdocs/luci-static/hyper/index.html
 
       - name: Build package
-        # Pinned: the action has no releases
-        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
         env:
-          ARCH: ${{ matrix.arch }}
-          FEEDNAME: hyper
-          PACKAGES: luci-app-hyper
-          NO_REFRESH_CHECK: 1
-          V: s
+          MATRIX_ARCH: ${{ matrix.arch }}
+        # The official SDK already has the cross tools. Run it directly and
+        # package the prebuilt app using its own rules, with no wrapper image,
+        # QEMU setup or compilation of runtime dependencies.
+        run: |
+          output="$RUNNER_TEMP/sdk-artifacts"
+          sudo install -d -o 1000 -g 1000 "$output"
+          epoch="$(git log -1 --format=%ct)"
+          docker run --rm --platform linux/amd64 --entrypoint /bin/sh \
+            -e SOURCE_DATE_EPOCH="$epoch" \
+            -v "$GITHUB_WORKSPACE:/feed:ro" \
+            -v "$output:/artifacts" \
+            "ghcr.io/openwrt/sdk:$MATRIX_ARCH" /feed/scripts/ci-sdk-build.sh
+          mkdir -p bin
+          cp -R "$output/bin/." bin/
 
       - name: Collect
         env:
@@ -298,15 +311,14 @@ jobs:
           mkdir -p dist
           for f in $(find bin/packages -path '*/hyper/*' \( -name 'luci-app-hyper*.ipk' -o -name 'luci-app-hyper*.apk' \)); do
             name="$(basename "$f")"
+            out="dist/$(sh scripts/package-name.sh "$name" "$family" "$pkg_arch")"
             case "$name" in
-              *.ipk) out="dist/${family}_${name}"
-                     tar -xzOf "$f" --wildcards '*data.tar.gz' | tar -tzf - | grep -q 'usr/libexec/hyper/bin/sing-box$' \
+              *.ipk) tar -xzOf "$f" --wildcards '*data.tar.gz' | tar -tzf - | grep -q 'usr/libexec/hyper/bin/sing-box$' \
                        || { echo "::error::$name does not contain the bundled core"; exit 1; }
                      # the core inside is for one CPU: an "all" package would install anywhere
                      arch="$(tar -xzOf "$f" --wildcards '*control.tar.gz' | tar -xzOf - --wildcards '*/control' | sed -n 's/^Architecture: //p')"
                      [ "$arch" = "$pkg_arch" ] || { echo "::error::$name is built for '$arch', not $pkg_arch"; exit 1; } ;;
-              *.apk) out="dist/${family}_${name%.apk}-${pkg_arch}.apk"   # apk names carry no arch
-                     [ "$(stat -c %s "$f")" -gt 10000000 ] || { echo "::error::$name is too small to contain the bundled core"; exit 1; } ;;
+              *.apk) [ "$(stat -c %s "$f")" -gt 10000000 ] || { echo "::error::$name is too small to contain the bundled core"; exit 1; } ;;
             esac
             cp "$f" "$out"
           done
@@ -376,25 +388,20 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check the release tag
-        shell: bash
-        run: |
-          ref="refs/tags/$RELEASE_TAG"
-          tagged_commit="$(git ls-remote --tags origin "$ref" "$ref^{}" |
-            awk '$2 ~ /\^\{\}$/ { peeled=$1; next } { sha=$1 } END { print peeled ? peeled : sha }')"
-          if [[ -n "$tagged_commit" && "$tagged_commit" != "$(git rev-parse HEAD)" ]]; then
-            echo "::error::$RELEASE_TAG already points to a different commit"
-            exit 1
-          fi
+      - name: Check the release target
+        id: release-target
+        run: sh scripts/release/check-target.sh
 
       # One directory per build: merged into one folder, two packages with the
       # same name would overwrite each other without a word (v0.1.0 lost ten ipks).
       - uses: actions/download-artifact@v8
+        if: steps.release-target.outputs.publish == 'true'
         with:
           path: built
           pattern: packages-*
 
       - name: Collect and checksum
+        if: steps.release-target.outputs.publish == 'true'
         run: |
           builds="$(find built -mindepth 1 -maxdepth 1 -type d -name 'packages-*' | wc -l)"
           dupes="$(find built -type f -printf '%f\n' | sort | uniq -d)"
@@ -408,10 +415,16 @@ jobs:
           sha256sum *.ipk *.apk > sha256sums
           cat sha256sums
 
+      - name: Recheck main before publishing
+        id: publish-target
+        if: steps.release-target.outputs.publish == 'true'
+        run: sh scripts/release/check-target.sh
+
       - uses: softprops/action-gh-release@v3
+        if: steps.publish-target.outputs.publish == 'true'
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          target_commitish: ${{ needs.test.outputs.release_tag != '' && github.sha || '' }}
+          target_commitish: ${{ steps.publish-target.outputs.commit }}
           files: |
             artifacts/*.ipk
             artifacts/*.apk

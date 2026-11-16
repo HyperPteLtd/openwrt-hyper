@@ -1,7 +1,7 @@
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { app } from "./app";
-import { api, type ApiResult } from "./ppanel";
+import { api, type ApiResult } from "./api";
 import { DEFAULT_SITE_CURRENCY, resolveSiteCurrency, type SiteConfig } from "./currency";
 
 /** Both pages share the RPC read cache, including persisted currency-only data. */

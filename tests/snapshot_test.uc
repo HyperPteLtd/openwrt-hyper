@@ -180,6 +180,26 @@ n = parseNode('https://u:p@hp.example?sni=s.example#H');
 eq('https proxy', [n?.type, n?.port, n?.tls, n?.tls_sni, n?.username, n?.password], ['http', '443', '1', 's.example', 'u', 'p']);
 eq('http proxy', [parseNode('http://hp.example:3128')?.tls, parseNode('http://hp.example')?.port], [null, '80']);
 
+/* Snell v4 / v6: the protocol version is explicit, with v4 as the link default. */
+n = parseNode('snell://p%40ss%2Bword@192.0.2.1:443?version=6&mode=unshaped&userkey=fixture&reuse=1#Snell');
+eq('snell v6', [n?.type, n?.password, n?.snell_version, n?.snell_mode, n?.snell_user_key, n?.snell_reuse],
+	['snell', 'p@ss+word', '6', 'unshaped', 'fixture', '1']);
+eq('snell v6 default mode', parseNode('snell://p@192.0.2.1:443?version=6')?.snell_mode, 'default');
+eq('snell v6 unsafe-raw', parseNode('snell://p@192.0.2.1:443?version=6&mode=unsafe-raw')?.snell_mode, 'unsafe-raw');
+n = parseNode('snell://p@192.0.2.1:443?obfs=tls&obfs-host=example.com');
+eq('snell defaults to v4', [n?.snell_version, n?.snell_obfs_mode, n?.snell_obfs_host, n?.snell_mode], ['4', 'tls', 'example.com', null]);
+eq('snell query PSK', parseNode('snell://192.0.2.1:443?version=6&psk=p%2Bq')?.password, 'p+q');
+eq('snell missing PSK', parseNode('snell://192.0.2.1:443?version=6'), null);
+eq('snell missing port', parseNode('snell://p@192.0.2.1?version=6'), null);
+eq('snell v5 rejected', parseNode('snell://p@192.0.2.1:443?version=5')?.unsupported, 'snell version');
+eq('snell malformed version rejected', parseNode('snell://p@192.0.2.1:443?version=6junk')?.unsupported, 'snell version');
+eq('snell invalid mode rejected', parseNode('snell://p@192.0.2.1:443?version=6&mode=fast')?.unsupported, 'snell v6 options');
+eq('snell v6 legacy obfs rejected', parseNode('snell://p@192.0.2.1:443?version=6&obfs=tls')?.unsupported, 'snell v6 options');
+eq('snell v4 v6 mode rejected', parseNode('snell://p@192.0.2.1:443?mode=default')?.unsupported, 'snell v4 options');
+eq('snell invalid v4 obfs rejected', parseNode('snell://p@192.0.2.1:443?obfs=quic')?.unsupported, 'snell v4 options');
+eq('snell long user key rejected', parseNode('snell://p@192.0.2.1:443?version=6&userkey=' + sprintf('%0256d', 1)), null);
+eq('snell control in PSK rejected', parseNode('snell://p%00bad@192.0.2.1:443?version=6'), null);
+
 /* shared rejects */
 eq('ipv6 vless', parseNode(`vless://${UUID}@[2001:db8::9]:443`)?.address, '2001:db8::9');
 eq('unknown scheme', parseNode('naive+https://u:p@n.example')?.unsupported, 'naive+https://');
