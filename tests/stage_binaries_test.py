@@ -17,6 +17,20 @@ COMMIT = next(line.split("=", 1)[1] for line in LOCK.splitlines() if line.starts
 ARCHIVE_NAME = f"libbox-{COMMIT}.tar.gz"
 SOURCE_ROOT = f"libbox-{COMMIT}"
 TAGS = "with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0"
+ARCHITECTURES = [
+    ("x86_64", "amd64", "amd64", "", "", ""),
+    ("aarch64_cortex-a53", "arm64", "arm64", "", "", ""),
+    ("arm_arm1176jzf-s_vfp", "armv6", "arm", "6", "", ""),
+    ("arm_arm926ej-s", "armv5", "arm", "5", "", ""),
+    ("mipsel_24kc", "mipsle-softfloat", "mipsle", "", "softfloat", ""),
+    ("mips_24kc", "mips-softfloat", "mips", "", "softfloat", ""),
+    ("i386_pentium4", "386-softfloat", "386", "", "", "softfloat"),
+    ("riscv64_generic", "riscv64", "riscv64", "", "", ""),
+    ("loongarch64_generic", "loong64", "loong64", "", "", ""),
+]
+ARCHITECTURES.extend((f"arm_{arch}", "armv7", "arm", "7", "", "") for arch in (
+    "cortex-a5_vfpv4", "cortex-a7_vfpv4", "cortex-a7_neon-vfpv4", "cortex-a8_vfpv3",
+    "cortex-a9_neon", "cortex-a9_vfpv3-d16", "cortex-a15_neon-vfpv4"))
 GO_STUB = '''import json, os, pathlib, sys
 args = sys.argv[1:]
 keys = ("CGO_ENABLED", "GOOS", "GOARCH", "GOARM", "GOMIPS", "GO386", "GOTOOLCHAIN", "GOWORK", "GOFLAGS", "GOEXPERIMENT", "GOMODCACHE", "GOCACHE")
@@ -127,21 +141,7 @@ shutil.copyfile(os.environ["DOWNLOAD_ARCHIVE"], args[args.index("-o") + 1])
             self.assertIn(flag, linker)
 
     def test_architectures_and_shared_static_flags(self):
-        cases = [
-            ("x86_64", "amd64", "", "", ""),
-            ("aarch64_cortex-a53", "arm64", "", "", ""),
-            ("arm_arm1176jzf-s_vfp", "arm", "6", "", ""),
-            ("arm_arm926ej-s", "arm", "5", "", ""),
-            ("mipsel_24kc", "mipsle", "", "softfloat", ""),
-            ("mips_24kc", "mips", "", "softfloat", ""),
-            ("i386_pentium4", "386", "", "", "softfloat"),
-            ("riscv64_generic", "riscv64", "", "", ""),
-            ("loongarch64_generic", "loong64", "", "", ""),
-        ]
-        cases.extend((f"arm_{arch}", "arm", "7", "", "") for arch in (
-            "cortex-a5_vfpv4", "cortex-a7_vfpv4", "cortex-a7_neon-vfpv4", "cortex-a8_vfpv3",
-            "cortex-a9_neon", "cortex-a9_vfpv3-d16", "cortex-a15_neon-vfpv4"))
-        for arch, *expected in cases:
+        for arch, _target_id, *expected in ARCHITECTURES:
             with self.subTest(arch=arch):
                 self.run_stage(arch)
                 builds = self.builds()[-2:]
@@ -150,6 +150,39 @@ shutil.copyfile(os.environ["DOWNLOAD_ARCHIVE"], args[args.index("-o") + 1])
                     self.assertEqual([build["env"][key] for key in ("GOARCH", "GOARM", "GOMIPS", "GO386")], expected)
                     self.assertIsNone(build["env"]["GOMODCACHE"])
                     self.assertIsNone(build["env"]["GOCACHE"])
+
+    def test_target_ids_need_no_build_tools_or_filesystem_writes(self):
+        # Querying the mapping must work without a toolchain, source lock or any
+        # build/output directories, even when the normal build cannot run.
+        (self.repo / "scripts/core.lock").unlink()
+        absent = self.base / "not-created"
+        self.env.update(PATH=str(absent / "tools"), OUT_DIR=str(absent / "output"),
+                        CACHE_DIR=str(absent / "cache"), TMPDIR=str(absent / "tmp"))
+        before = sorted(str(path.relative_to(self.base)) for path in self.base.rglob("*"))
+        for arch, target_id, *_flags in ARCHITECTURES:
+            with self.subTest(arch=arch):
+                result = subprocess.run(["/bin/sh", str(self.repo / "scripts/stage-binaries.sh"),
+                                         "--target-id", arch], env=self.env, cwd=self.repo,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stdout, target_id + "\n")
+                self.assertEqual(result.stderr, "")
+        self.assertEqual(sorted(str(path.relative_to(self.base)) for path in self.base.rglob("*")), before)
+
+    def test_target_id_rejects_unknown_or_missing_architecture(self):
+        self.env["PATH"] = str(self.base / "no-tools")
+        for args in (("unsupported_cpu",), ()):
+            with self.subTest(args=args):
+                result = subprocess.run(["/bin/sh", str(self.repo / "scripts/stage-binaries.sh"),
+                                         "--target-id", *args], env=self.env, cwd=self.repo,
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("no libbox build" if args else "usage:", result.stderr)
+        self.assertEqual(self.builds(), [])
+        self.assertEqual(list(self.out.iterdir()), [])
+        self.assertEqual(list(self.scratch.iterdir()), [])
+        self.assertFalse((self.base / "curl.json").exists())
 
     def test_cache_overrides_and_toolchain_cannot_drift(self):
         self.env.update(GOMODCACHE=str(self.base / "shared-mod"), GOCACHE=str(self.base / "shared-build"),

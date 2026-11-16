@@ -6,17 +6,18 @@
 #
 #   scripts/stage-binaries.sh <openwrt package arch>       e.g. aarch64_cortex-a53
 #   OUT_DIR=/tmp/core scripts/stage-binaries.sh x86_64     elsewhere
+#   scripts/stage-binaries.sh --target-id <arch>          print the shared binary target
 #
 # Requires Python 3, curl and tar. Builds both programs with the pinned Go
 # toolchain, or in Docker when Go is unavailable. No prebuilt-core fallback.
 set -eu
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-. "$ROOT/scripts/core.lock"
-arch="${1:?usage: stage-binaries.sh <openwrt package arch>}"
-out="${OUT_DIR:-$ROOT/luci-app-hyper/root/usr/libexec/hyper/bin}"
-cache="${CACHE_DIR:-$ROOT/dist/.cache}"
-GO_IMAGE="${GO_IMAGE:-golang:${GO_TOOLCHAIN#go}-bookworm}"
+target_id_only=false
+if [ "${1:-}" = --target-id ]; then
+	target_id_only=true
+	shift
+fi
+arch="${1:?usage: stage-binaries.sh [--target-id] <openwrt package arch>}"
 
 goarm="" gomips="" go386=""
 case "$arch" in
@@ -33,6 +34,19 @@ case "$arch" in
 	loongarch64_*) goarch=loong64 ;;
 	*) echo "no libbox build for OpenWrt arch $arch" >&2; exit 1 ;;
 esac
+
+# Derive the artifact identity from the same flags used for the actual build.
+# Queries need only the shell and never create directories or fetch sources.
+if [ "$target_id_only" = true ]; then
+	printf '%s\n' "$goarch${goarm:+v$goarm}${gomips:+-$gomips}${go386:+-$go386}"
+	exit 0
+fi
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/scripts/core.lock"
+out="${OUT_DIR:-$ROOT/luci-app-hyper/root/usr/libexec/hyper/bin}"
+cache="${CACHE_DIR:-$ROOT/dist/.cache}"
+GO_IMAGE="${GO_IMAGE:-golang:${GO_TOOLCHAIN#go}-bookworm}"
 
 sha256() {
 	if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi

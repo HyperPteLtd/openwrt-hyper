@@ -35,6 +35,8 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: scripts/release/package-lock.json
 
       - name: Determine the next release from commit messages
         id: release-version
@@ -64,11 +66,20 @@ jobs:
           python3 scripts/bundled-rules.py
           UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/run.sh
 
-      - name: Read the pinned Go toolchain
+      - name: Read the core build settings
         id: go-toolchain
         run: |
           . scripts/core.lock
           echo "version=${GO_TOOLCHAIN#go}" >> "$GITHUB_OUTPUT"
+          target="$(sh scripts/stage-binaries.sh --target-id x86_64)"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the exact core binaries
+        id: core-cache
+        uses: actions/cache@v5
+        with:
+          path: /tmp/core
+          key: router-core-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-toolchain.outputs.target }}-${{ hashFiles('scripts/core.lock', 'scripts/stage-binaries.sh', 'hyper-crypt/**') }}
 
       - uses: actions/setup-go@v6
         with:
@@ -84,17 +95,119 @@ jobs:
           go vet ./...
           go test ./...
 
-      # Compile the router profile from the source commit/hash in scripts/core.lock.
-      # The static core must load the generated config and pass actual startup tests.
+      - name: Build the amd64 core and hyper-crypt
+        if: steps.core-cache.outputs.cache-hit != 'true'
+        run: OUT_DIR=/tmp/core sh scripts/stage-binaries.sh x86_64
+
+      # Always validate cached binaries too. The very same amd64 pair is shared
+      # with both SDK builds only after the real core startup tests pass.
       - name: Validate and start the bundled core
         run: |
-          OUT_DIR=/tmp/core sh scripts/stage-binaries.sh x86_64
           /tmp/core/sing-box version
           PATH="/tmp/core:$PATH" UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/render_test.sh
 
+      - name: Archive the tested core binaries
+        run: tar -C /tmp/core -cf "$RUNNER_TEMP/core.tar" sing-box hyper-crypt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: core-${{ steps.go-toolchain.outputs.target }}
+          path: ${{ runner.temp }}/core.tar
+          compression-level: 1
+          if-no-files-found: error
+
+  web:
+    name: Build and test the web UI
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build web UI into the package
+        run: |
+          npm --prefix web ci
+          npm --prefix web run typecheck
+          npm --prefix web test
+          npm --prefix web run build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-ui
+          path: luci-app-hyper/htdocs/luci-static/hyper/
+          if-no-files-found: error
+
+  cores:
+    name: Core ${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # One representative package arch per binary profile; amd64 is produced
+        # by test. stage-binaries.sh owns the package-arch to profile mapping.
+        arch:
+          - aarch64_generic
+          - arm_cortex-a7_neon-vfpv4
+          - mipsel_24kc
+          - i386_pentium4
+          - riscv64_generic
+          - loongarch64_generic
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the core build settings
+        id: go-toolchain
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: |
+          . scripts/core.lock
+          echo "version=${GO_TOOLCHAIN#go}" >> "$GITHUB_OUTPUT"
+          target="$(sh scripts/stage-binaries.sh --target-id "$MATRIX_ARCH")"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the exact core binaries
+        id: core-cache
+        uses: actions/cache@v5
+        with:
+          path: /tmp/core
+          key: router-core-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-toolchain.outputs.target }}-${{ hashFiles('scripts/core.lock', 'scripts/stage-binaries.sh', 'hyper-crypt/**') }}
+
+      # A final-binary hit needs no Go toolchain or module cache download. Cold
+      # builds retain the shared Go cache rather than storing seven large copies.
+      - uses: actions/setup-go@v6
+        if: steps.core-cache.outputs.cache-hit != 'true'
+        with:
+          go-version: ${{ steps.go-toolchain.outputs.version }}
+          cache-dependency-path: |
+            hyper-crypt/go.*
+            scripts/core.lock
+
+      - name: Build the core and hyper-crypt
+        if: steps.core-cache.outputs.cache-hit != 'true'
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: OUT_DIR=/tmp/core sh scripts/stage-binaries.sh "$MATRIX_ARCH"
+
+      - name: Archive the core binaries
+        run: |
+          test -x /tmp/core/sing-box
+          test -x /tmp/core/hyper-crypt
+          tar -C /tmp/core -cf "$RUNNER_TEMP/core.tar" sing-box hyper-crypt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: core-${{ steps.go-toolchain.outputs.target }}
+          path: ${{ runner.temp }}/core.tar
+          compression-level: 1
+          if-no-files-found: error
+
   build:
     name: Build ${{ matrix.arch }}
-    needs: test
+    needs: [test, web, cores]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -103,9 +216,9 @@ jobs:
         # package for that CPU: the 24.10 SDK builds the 23.05-24.10 .ipk, the 25.12
         # SDK the 25.12+ .apk. The package bundles the libbox core and hyper-crypt.
         # SDK images: ghcr.io/openwrt/sdk:<arch>-<release> (every tag below exists);
-        # scripts/build-packages.sh does the same locally. stage-binaries.sh cross-
-        # compiles the pinned router core for each arch. riscv64 is riscv64_riscv64 in
-        # 24.10 and riscv64_generic from 25.12.
+        # scripts/build-packages.sh does the same locally. CI shares the web UI
+        # and seven binary profiles across these 22 SDK packages. riscv64 is
+        # riscv64_riscv64 in 24.10 and riscv64_generic from 25.12.
         arch:
           - x86_64-24.10.8
           - aarch64_cortex-a53-24.10.8
@@ -131,8 +244,6 @@ jobs:
           - loongarch64_generic-25.12.6
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - name: Set the package version for the release
         env:
@@ -142,36 +253,31 @@ jobs:
             sed -i "s/^PKG_VERSION:=.*/PKG_VERSION:=${RELEASE_TAG#v}/" luci-app-hyper/Makefile
           fi
 
-      - uses: actions/setup-node@v7
-        if: hashFiles('web/package.json') != ''
-        with:
-          node-version: 24
-
-      - name: Build web UI into the package
-        if: hashFiles('web/package.json') != ''
-        run: |
-          npm --prefix web ci
-          npm --prefix web run typecheck
-          npm --prefix web test
-          npm --prefix web run build
-
-      - name: Read the pinned Go toolchain
-        id: go-toolchain
-        run: |
-          . scripts/core.lock
-          echo "version=${GO_TOOLCHAIN#go}" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: ${{ steps.go-toolchain.outputs.version }}
-          cache-dependency-path: |
-            hyper-crypt/go.*
-            scripts/core.lock
-
-      - name: Bundle the core and hyper-crypt
-        run: sh scripts/stage-binaries.sh "${MATRIX_ARCH%-*}"
+      - name: Select the shared core profile
+        id: core-target
         env:
           MATRIX_ARCH: ${{ matrix.arch }}
+        run: |
+          target="$(sh scripts/stage-binaries.sh --target-id "${MATRIX_ARCH%-*}")"
+          echo "id=$target" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: web-ui
+          path: luci-app-hyper/htdocs/luci-static/hyper/
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: core-${{ steps.core-target.outputs.id }}
+          path: ${{ runner.temp }}/core-artifact
+
+      - name: Stage the shared binaries
+        run: |
+          mkdir -p luci-app-hyper/root/usr/libexec/hyper/bin
+          tar -xf "$RUNNER_TEMP/core-artifact/core.tar" -C luci-app-hyper/root/usr/libexec/hyper/bin
+          test -x luci-app-hyper/root/usr/libexec/hyper/bin/sing-box
+          test -x luci-app-hyper/root/usr/libexec/hyper/bin/hyper-crypt
+          test -f luci-app-hyper/htdocs/luci-static/hyper/index.html
 
       - name: Build package
         # Pinned: the action has no releases
@@ -211,6 +317,7 @@ jobs:
         with:
           name: packages-${{ matrix.arch }}
           path: dist/*
+          compression-level: 0
 
   # Install the packages on the oldest and newest firmware of each family (rootfs
   # from downloads.openwrt.org) and rerun the tests on that userland: the

@@ -125,6 +125,8 @@ sh scripts/build-packages.sh mediatek/filogic
 
 CI 为每种架构构建 IPK 和 APK，并在 OpenWrt 23.05、24.10 和 25.12 的 x86_64 与 aarch64 用户空间安装测试。通过后创建标签和 GitHub Release，附上软件包及 `sha256sums`。维护者也可以推送 `vX.Y.Z` 标签来指定版本。 [查看 CI](https://github.com/HyperPteLtd/openwrt-hyper/actions/workflows/ci.yml)
 
+前端安装依赖、类型检查、测试和构建只执行一次，产物由所有 SDK 任务共享。核心与解密工具按 7 种 CPU 配置分别构建，其中 amd64 直接复用通过启动测试的产物；22 个 SDK 目标仍各自打包，6 组原生 x86_64 / ARM64 安装测试保持完整。最终双二进制缓存严格匹配 CPU 配置、源码锁定文件、构建脚本和解密工具源码，命中后跳过重复编译；缓存中的 amd64 核心仍会重新运行启动测试。二进制通过 tar 保留执行权限，再交给 SDK 打包。
+
 ## 许可证
 
 LuCI 插件源自 HomeProxy，采用 GPL-2.0-only。安装包内独立分发的 sing-box 来自 libbox，采用 GPL-3.0-or-later。 [项目许可证](LICENSE) · [HomeProxy 源码](https://github.com/immortalwrt/homeproxy) · [libbox 源码](https://github.com/HyperPteLtd/libbox)
