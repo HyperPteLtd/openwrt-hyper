@@ -1,5 +1,6 @@
 import { t as tr } from "../lib/i18n";
 import { app, ROUTES, tabOf } from "../lib/app";
+import { operationPending } from "../lib/service";
 
 export const Logo = ({ size = 28 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 26 26" aria-hidden="true">
@@ -13,7 +14,8 @@ export function TopBar() {
   const s = app.status;
   const tone = !s ? "var(--muted)" : s.health?.state === "failopen" ? "var(--warn)" : s.running ? "var(--accent)" : s.enabled ? "var(--danger-text)" : "var(--muted)";
   const tab = tabOf(app.route);
-  const label = !s ? tr("加载中") : s.health?.state === "failopen" ? tr("已临时直连") : s.running ? tr("运行中") : s.enabled ? tr("连接失败") : tr("已停止");
+  const pending = app.controlAction || (operationPending(s?.operation) ? s?.operation?.action : null);
+  const label = !s ? tr("加载中") : pending ? pending === "stop" ? tr("正在停止…") : pending === "restart" ? tr("正在重启…") : tr("正在启动…") : s.health?.state === "failopen" ? tr("已临时直连") : s.running ? tr("运行中") : s.enabled ? tr("连接失败") : tr("已停止");
 
   return (
     <header class="topbar">

@@ -165,6 +165,7 @@ start_service() {
 			procd_add_jail_mount_rw "$RUN_DIR/cache.db"
 			# Hyper: server rule lists (local rule sets)
 			[ ! -d "$HP_DIR/rules" ] || procd_add_jail_mount "$HP_DIR/rules/"
+			procd_add_jail_mount "$HP_DIR/rule-set/"
 			procd_add_jail_mount "/etc/ssl/"
 			procd_add_jail_mount "/etc/localtime"
 			procd_add_jail_mount "/etc/TZ"
@@ -265,7 +266,7 @@ stop_service() {
 	rm -rf "$DNSMASQ_DIR/../dnsmasq-hyper.conf" "$DNSMASQ_DIR"
 	/etc/init.d/dnsmasq restart >"/dev/null" 2>&1
 
-	rm -f "$RUN_DIR/sing-box-c.json" "$RUN_DIR/sing-box-c.log" "$RUN_DIR/failopen" "$RUN_DIR/health.json"
+	rm -f "$RUN_DIR/sing-box-c.json" "$RUN_DIR/failopen" "$RUN_DIR/health.json"
 
 	log "Service stopped."
 }

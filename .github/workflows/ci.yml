@@ -59,7 +59,9 @@ jobs:
           make -C /tmp/ucode/build -j"$(nproc)"
 
       - name: ucode tests
-        run: UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/run.sh
+        run: |
+          python3 scripts/bundled-rules.py
+          UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/run.sh
 
       - uses: actions/setup-go@v6
         with:
@@ -74,7 +76,7 @@ jobs:
 
       # The generated config must load on the bundled core: the libbox release pinned
       # in scripts/core.lock (its CLI archives are static, so they run on the runner).
-      - name: sing-box check against the bundled core
+      - name: Validate and start the bundled core
         run: |
           OUT_DIR=/tmp/core sh scripts/stage-binaries.sh x86_64
           /tmp/core/sing-box version

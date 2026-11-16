@@ -18,6 +18,7 @@ trap 'rm -rf "$TMP"' EXIT
 SCR="$TMP/scripts"
 mkdir -p "$SCR" "$TMP/run" "$TMP/etc-hyper"
 cp -R "$HERE/fixtures/rules" "$TMP/etc-hyper/rules"
+cp -R "$ROOT/luci-app-hyper/root/etc/hyper/rule-set" "$TMP/etc-hyper/rule-set"
 cp -R "$ROOT/luci-app-hyper/root/etc/hyper/resources" "$TMP/etc-hyper/resources"
 for f in "$SCRIPTS"/*.uc "$SCRIPTS"/*.ut; do
 	sed -e "s#/var/run/hyper#$TMP/run#g" -e "s#/etc/hyper/scripts/#$SCR/#g" \
@@ -86,8 +87,23 @@ if run "$FIXTURE" "$SCR/generate_client.uc"; then
 	check "dns follows policy"  "$(q "[(r['rule_set'], r['server']) for r in c['dns']['rules'] if str(r.get('rule_set','')).startswith('hyper-rule')]")" "[('hyper-rule-cn-direct-domain', 'china-dns'), ('hyper-rule-streaming-domain', 'main-dns')]"
 	check "rules before geosite" "$(q "[str(r.get('rule_set')) for r in c['dns']['rules']].index('hyper-rule-cn-direct-domain') < [str(r.get('rule_set')) for r in c['dns']['rules']].index('geosite-cn')")" "True"
 	singbox_check "$CONF" "basic fixture"
+	if command -v sing-box >/dev/null 2>&1; then
+		python3 "$HERE/core_start_test.py" "$CONF" || fail=1
+	fi
 else
 	echo "FAIL generate_client.uc did not run"; fail=1
+fi
+
+echo "== TUN configuration (current core stack)"
+TUN="$TMP/uci-tun.json"
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); d['hyper']['config']['proxy_mode']='tun'; json.dump(d, open(sys.argv[2],'w'))" "$FIXTURE" "$TUN"
+rm -f "$TMP/run/sing-box-c.json"
+if run "$TUN" "$SCR/generate_client.uc"; then
+	CONF="$TMP/run/sing-box-c.json"
+	check "TUN uses the core's default stack" "$(q "['stack' in i for i in c['inbounds'] if i['type']=='tun']")" "[False]"
+	singbox_check "$CONF" "TUN"
+else
+	echo "FAIL generate_client.uc with TUN"; fail=1
 fi
 
 echo "== share links of every protocol -> snapshot.uc -> generate_client.uc"

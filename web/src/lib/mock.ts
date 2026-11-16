@@ -42,6 +42,8 @@ const state: Status = {
   singbox_version: "1.15.0-alpha.13",
   version: "0.1.0-r1",
 };
+let startedAt = Date.now() - (state.uptime || 0) * 1000;
+let operationId = 0;
 
 /* last check_update, like /var/run/hyper/update_check.json */
 let lastCheck: { time: number; latest: string | null } | null = null;
@@ -206,6 +208,7 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
     case "status":
       return {
         ...state,
+        uptime: state.running ? Math.floor((Date.now() - startedAt) / 1000) : null,
         update: {
           auto_check: config["update.auto_check"] !== "0",
           checked: lastCheck?.time ?? null,
@@ -213,12 +216,20 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
           available: !!lastCheck?.latest && newer(lastCheck.latest, state.version ?? ""),
         },
       };
-    case "set_enabled":
+    case "set_enabled": {
+      const action = args.enabled ? (state.running ? "restart" : "start") : "stop";
+      const id = ++operationId;
       state.enabled = !!args.enabled;
-      state.running = state.enabled;
-      state.memory_kb = state.running ? 38120 : null;
-      state.uptime = state.running ? 1 : null;
-      return { result: true, running: state.running };
+      state.operation = { id, action, state: "queued", time: now() };
+      setTimeout(() => {
+        if (id !== operationId) return;
+        state.running = !!args.enabled;
+        state.memory_kb = state.running ? 38120 : null;
+        startedAt = Date.now();
+        state.operation = { id, action, state: "done", time: now() };
+      }, 800);
+      return { result: true, accepted: true, operation: { ...state.operation } };
+    }
     case "set_mode":
       state.mode = args.mode as Status["mode"];
       return { result: true };

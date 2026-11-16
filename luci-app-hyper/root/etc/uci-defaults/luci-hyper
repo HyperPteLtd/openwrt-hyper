@@ -1,6 +1,12 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 
+# The core is bundled now, so the standalone sing-box package no longer creates
+# its service identity. Reuse an existing identity and allocate free IDs otherwise.
+. /lib/functions.sh
+core_gid="$(group_add_next sing-box)"
+user_exists sing-box || user_add sing-box '' "$core_gid" 'Hyper service' /var/run/hyper /bin/false
+
 # Migrate manual endpoints to automatic Hyper discovery. Do not forward a session
 # from a custom panel to Hyper; existing sessions on the built-in origins survive.
 legacy_api="$(uci -q get hyper.account.api_base)"

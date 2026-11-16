@@ -6,6 +6,7 @@ import { app, type Route, routeFromHash } from "./lib/app";
 import { usePoll } from "./lib/poll";
 import { call, isMock, reportHeight, setCacheIdentity } from "./lib/rpc";
 import type { Status } from "./lib/types";
+import { operationPending } from "./lib/service";
 import { Account } from "./pages/Account";
 import { Devices } from "./pages/Devices";
 import { Login } from "./pages/Login";
@@ -39,16 +40,21 @@ export function Root() {
    * page is visible), and right after an action bumps app.tick. Pages reload
    * their own data on app.tick, not on this poll.
    */
-  const loadStatus = () =>
-    call<Status>("status")
+  const loadStatus = () => {
+    const operationAtRequest = app.status?.operation?.id;
+    return call<Status>("status")
       .then((s) => {
+        // A response started before the control acknowledgment must not erase it.
+        if (app.status?.operation?.id !== operationAtRequest) return;
         setCacheIdentity(s.signed_in ? s.email || "signed-in" : "signed-out");
         app.status = s;
+        app.statusAt = performance.now();
         app.error = "";
       })
       .catch((e: Error) => (app.error = e.message))
       .finally(() => (app.loading = false));
-  usePoll(loadStatus, 5000);
+  };
+  usePoll(loadStatus, operationPending(app.status?.operation) ? 1000 : 5000);
   const tick = app.tick;
   useEffect(() => {
     if (tick) loadStatus();

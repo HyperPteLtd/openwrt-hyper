@@ -74,6 +74,7 @@ kill "$echo_pid" 2>/dev/null
 
 echo "== watchdog"
 sh "$HERE/watchdog_test.sh" || fail=1
+python3 "$HERE/service_control_test.py" || fail=1
 
 echo "== render (sing-box config + firewall)"
 UCODE="$UCODE" UCODE_LIB="$UCODE_LIB" sh "$HERE/render_test.sh" || fail=1

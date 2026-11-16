@@ -76,6 +76,10 @@ npm --prefix web run dev
 
 `web/src/lib/cache.ts` 统一缓存允许缓存的读取请求，并合并并发请求。账户资料缓存 1 分钟，节点和配置缓存 30 秒；可后台刷新的展示数据会先显示已有内容。公共套餐目录和支付方式缓存 10 分钟，可在当前浏览器标签页刷新后复用；账户数据只保留在页面内存中。保存设置、更新节点、购买和登录状态变化会使相关缓存失效。状态、流量、诊断、价格预览和支付结果不使用缓存；手动检查更新也会跳过缓存。
 
+内核适配参考 hyper-mobile：使用显式 HTTP 下载客户端、新 DNS 回答筛选方式和默认 TUN 协议栈，开启 DNS 缓存，并通过 `initial_path` 从随包规则启动。规则保持路由器原有数据源，固定提交和 SHA-256 位于 `luci-app-hyper/root/etc/hyper/rule-set/manifest.json`；`python3 scripts/bundled-rules.py` 校验，`--fetch` 按清单恢复。路由器继续生成适配 dnsmasq / nftables 的配置，没有直接使用移动端的整份 TUN 配置。
+
+启停 RPC 只提交操作，后台 worker 串行执行，状态接口返回进度和结果；启动要等本地控制 API 就绪才算完成。前端立即反馈操作状态，运行时长按秒显示并与真实进程时长校准。CI 除配置校验外还会实际启动固定版本的核心，覆盖无缓存离线启动、DNS 分流和控制请求的响应速度。
+
 ```sh
 npm --prefix web run typecheck
 npm --prefix web test

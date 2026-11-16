@@ -107,6 +107,8 @@ for base in 'https://api.cloudcdnhyper.com/' 'https://api.hypervpn.app' 'https:/
 done
 rm -f /etc/hyper/session
 echo "ok   manual addresses removed; Hyper sessions kept and custom panel sessions cleared"
+if id sing-box >/dev/null 2>&1; then echo "ok   bundled core service identity exists"
+else echo "FAIL bundled core service identity missing"; rc=1; fi
 
 cd /src
 PATH="$BIN:$PATH" UCODE=/usr/bin/ucode UCODE_LIB=/usr/lib/ucode sh tests/run.sh || rc=1
@@ -146,6 +148,7 @@ if ubus -t 10 wait_for luci.hyper && ubus -v list luci.hyper | grep -q '"checkin
 	mv "$BIN/sing-box.real" "$BIN/sing-box"
 	if [ "$runs1" = 1 ] && [ "$runs2" = 2 ]; then echo "ok   status starts sing-box once for its version (cached until the binary changes)"
 	else echo "FAIL status started sing-box $runs1 time(s) for 3 calls, $runs2 after the binary changed (want 1, 2)"; rc=1; fi
+	python3 /src/tests/control_rpc_test.py || rc=1
 
 	# check_update records when it ran, also on a fresh install (no /var/run/hyper yet)
 	# and when GitHub is unreachable, so the daily check does not repeat on every page load

@@ -1,4 +1,6 @@
 export const en = {
+  "正在重启…": "Restarting…",
+  "服务操作未完成，请查看日志": "The service action failed. Check the logs",
   " · 服务端已停用": " · Disabled by the service",
   " · 本次下载失败，用的是上次的副本": " · Download failed; using the last saved copy",
   " · 远程列表": " · Remote list",

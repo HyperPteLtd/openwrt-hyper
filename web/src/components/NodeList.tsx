@@ -4,6 +4,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { app } from "../lib/app";
 import { formatAgo, latencyTone } from "../lib/format";
 import { serviceText } from "../lib/display";
+import { operationPending } from "../lib/service";
 import { nodeLabel, nodeRegion, regionFlag, regionName } from "../lib/regions";
 import { call } from "../lib/rpc";
 import type { NodeInfo, NodesResult, Result, SyncState } from "../lib/types";
@@ -86,6 +87,7 @@ export function NodeList() {
     (n) => !q || [n.label, nodeLabel(n.label), regionName(nodeRegion(n)), n.country, n.city].some((text) => text?.toLowerCase().includes(q)),
   );
   const current = app.status?.main_node;
+  const isBusy = !!busy.value || !!app.controlAction || operationPending(app.status?.operation);
 
   return (
     <section id="overview-nodes" aria-label={tr("节点")} style={{ display: "flex", flexDirection: "column", gap: "16px", scrollMarginTop: "20px" }}>
@@ -105,9 +107,9 @@ export function NodeList() {
               style={{ all: "unset", flexGrow: 1, fontSize: "14px" }}
             />
           </label>
-          <button type="button" class="btn" disabled={!!busy.value} onClick={() => measure()}>{busy.value === "latency" ? tr("测速中…") : tr("刷新延迟")}</button>
-          <button type="button" class="btn" disabled={!!busy.value} onClick={() => sync()}>{busy.value === "sync" ? tr("更新中…") : tr("更新节点")}</button>
-          <button type="button" class="btn primary" disabled={!!busy.value || !app.status?.running} onClick={() => autoPick()}>{tr("自动选择")}</button>
+          <button type="button" class="btn" disabled={isBusy} onClick={() => measure()}>{busy.value === "latency" ? tr("测速中…") : tr("刷新延迟")}</button>
+          <button type="button" class="btn" disabled={isBusy} onClick={() => sync()}>{busy.value === "sync" ? tr("更新中…") : tr("更新节点")}</button>
+          <button type="button" class="btn primary" disabled={isBusy || !app.status?.running} onClick={() => autoPick()}>{tr("自动选择")}</button>
         </div>
       </div>
 
@@ -127,7 +129,7 @@ export function NodeList() {
                     type="button"
                     class="option"
                     aria-pressed={on}
-                    disabled={!!busy.value}
+                    disabled={isBusy}
                     onClick={() => select(n.name)}
                     style={{ width: "100%", border: 0, background: on ? "var(--control)" : "transparent", minHeight: "64px" }}
                   >

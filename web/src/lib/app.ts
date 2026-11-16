@@ -1,6 +1,6 @@
 import { t as tr } from "./i18n";
 import { createStore } from "./store";
-import type { Status } from "./types";
+import type { ServiceOperation, Status } from "./types";
 
 export type Route = "overview" | "routing" | "devices" | "account" | "plans" | "logs" | "settings";
 
@@ -16,6 +16,8 @@ export const ROUTES: { id: Route; label: string }[] = [
 export interface AppState {
   route: Route;
   status: Status | null;
+  statusAt: number;
+  controlAction: ServiceOperation["action"] | null;
   loading: boolean;
   error: string;
   /** bumped to ask pages to reload their data */
@@ -35,4 +37,4 @@ export function tabOf(route: Route): Route {
 }
 
 /** App-wide state: the current tab, the router status (polled by Root) and the reload tick */
-export const app = createStore<AppState>({ route: routeFromHash(location.hash), status: null, loading: true, error: "", tick: 0 });
+export const app = createStore<AppState>({ route: routeFromHash(location.hash), status: null, statusAt: 0, controlAction: null, loading: true, error: "", tick: 0 });

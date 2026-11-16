@@ -57,7 +57,7 @@ const ipv6_support = uci.get(uciconfig, ucimain, 'ipv6_support') || '0';
 let main_node, main_udp_node, dedicated_udp_node, default_outbound, default_outbound_dns,
     domain_strategy, dns_server, china_dns_server, dns_default_strategy, dns_default_server,
     dns_disable_cache, dns_disable_cache_expire, dns_client_subnet,
-    cache_file_store_rdrc, cache_file_rdrc_timeout, direct_domain_list, proxy_domain_list;
+    direct_domain_list, proxy_domain_list;
 
 if (routing_mode !== 'custom') {
 	main_node = uci.get(uciconfig, ucimain, 'main_node') || 'nil';
@@ -89,8 +89,6 @@ if (routing_mode !== 'custom') {
 	dns_disable_cache = uci.get(uciconfig, ucidnssetting, 'disable_cache');
 	dns_disable_cache_expire = uci.get(uciconfig, ucidnssetting, 'disable_cache_expire');
 	dns_client_subnet = uci.get(uciconfig, ucidnssetting, 'client_subnet');
-	cache_file_store_rdrc = uci.get(uciconfig, ucidnssetting, 'cache_file_store_rdrc'),
-	cache_file_rdrc_timeout = uci.get(uciconfig, ucidnssetting, 'cache_file_rdrc_timeout');
 
 	/* Routing settings */
 	default_outbound = uci.get(uciconfig, uciroutingsetting, 'default_outbound') || 'nil';
@@ -109,7 +107,7 @@ const proxy_mode = dns_only ? 'none' : (uci.get(uciconfig, ucimain, 'proxy_mode'
 const mixed_port = uci.get(uciconfig, uciinfra, 'mixed_port') || '5330';
 
 let self_mark, redirect_port, tproxy_port, tun_name,
-    tun_addr4, tun_addr6, tun_mtu, tcpip_stack,
+    tun_addr4, tun_addr6, tun_mtu,
     endpoint_independent_nat, udp_timeout;
 
 if (routing_mode === 'custom')
@@ -129,9 +127,7 @@ if (match(proxy_mode, /tun/)) {
 	tun_addr4 = uci.get(uciconfig, uciinfra, 'tun_addr4') || '172.19.0.1/30';
 	tun_addr6 = uci.get(uciconfig, uciinfra, 'tun_addr6') || 'fdfe:dcba:9876::1/126';
 	tun_mtu = uci.get(uciconfig, uciinfra, 'tun_mtu') || '9000';
-	tcpip_stack = 'system';
 	if (routing_mode === 'custom') {
-		tcpip_stack = uci.get(uciconfig, uciroutingsetting, 'tcpip_stack') || 'system';
 		endpoint_independent_nat = uci.get(uciconfig, uciroutingsetting, 'endpoint_independent_nat');
 	}
 }
@@ -445,7 +441,7 @@ if (!isEmpty(ntp_server))
 	config.ntp = {
 		enabled: true,
 		server: ntp_server,
-		detour: 'direct-out',
+		detour: self_mark ? 'direct-out' : null,
 		domain_resolver: 'default-dns',
 	};
 
@@ -530,24 +526,20 @@ if (!isEmpty(main_node)) {
 		push(config.dns.rules, {
 			rule_set: 'geosite-cn',
 			action: 'route',
-			server: 'china-dns',
-			strategy: 'prefer_ipv6'
+			server: 'china-dns'
+		});
+		/* Resolve uncategorized names locally, accept a CN answer, otherwise
+		 * continue to main-dns. 1.14+ requires explicit response matching. */
+		push(config.dns.rules, {
+			rule_set: 'geosite-noncn',
+			invert: true,
+			action: 'evaluate',
+			server: 'china-dns'
 		});
 		push(config.dns.rules, {
-			type: 'logical',
-			mode: 'and',
-			rules: [
-				{
-					rule_set: 'geosite-noncn',
-					invert: true
-				},
-				{
-					rule_set: 'geoip-cn'
-				}
-			],
-			action: 'route',
-			server: 'china-dns',
-			strategy: 'prefer_ipv6'
+			match_response: true,
+			rule_set: 'geoip-cn',
+			action: 'respond'
 		});
 	}
 } else if (!isEmpty(default_outbound)) {
@@ -679,8 +671,7 @@ if (match(proxy_mode, /tun/))
 		mtu: strToInt(tun_mtu),
 		auto_route: false,
 		endpoint_independent_nat: strToBool(endpoint_independent_nat),
-		udp_timeout: strToTime(udp_timeout),
-		stack: tcpip_stack
+		udp_timeout: strToTime(udp_timeout)
 	});
 /* Inbound end */
 
@@ -945,21 +936,24 @@ if (!isEmpty(main_node)) {
 			tag: 'geoip-cn',
 			format: 'binary',
 			url: 'https://fastly.jsdelivr.net/gh/1715173329/IPCIDR-CHINA@rule-set/cn.srs',
-			download_detour: 'main-out'
+			initial_path: HP_DIR + '/rule-set/geoip-cn.srs',
+			http_client: { detour: 'main-out' }
 		});
 		push(config.route.rule_set, {
 			type: 'remote',
 			tag: 'geosite-cn',
 			format: 'binary',
 			url: 'https://fastly.jsdelivr.net/gh/1715173329/sing-geosite@rule-set-unstable/geosite-geolocation-cn.srs',
-			download_detour: 'main-out'
+			initial_path: HP_DIR + '/rule-set/geosite-cn.srs',
+			http_client: { detour: 'main-out' }
 		});
 		push(config.route.rule_set, {
 			type: 'remote',
 			tag: 'geosite-noncn',
 			format: 'binary',
 			url: 'https://fastly.jsdelivr.net/gh/1715173329/sing-geosite@rule-set-unstable/geosite-geolocation-!cn.srs',
-			download_detour: 'main-out'
+			initial_path: HP_DIR + '/rule-set/geosite-noncn.srs',
+			http_client: { detour: 'main-out' }
 		});
 	}
 
@@ -1030,7 +1024,7 @@ if (!isEmpty(main_node)) {
 			format: cfg.format,
 			path: cfg.path,
 			url: cfg.url,
-			download_detour: get_outbound(cfg.outbound),
+			http_client: cfg.type === 'remote' ? { detour: get_outbound(cfg.outbound) || config.route.final } : null,
 			update_interval: cfg.update_interval
 		});
 	});
@@ -1043,8 +1037,7 @@ config.experimental = {
 	cache_file: {
 		enabled: true,
 		path: RUN_DIR + '/cache.db',
-		store_rdrc: strToBool(cache_file_store_rdrc),
-		rdrc_timeout: strToTime(cache_file_rdrc_timeout),
+		store_dns: true,
 	},
 	/* Hyper: loopback only; rpcd talks to it with the secret, the browser never does */
 	clash_api: {

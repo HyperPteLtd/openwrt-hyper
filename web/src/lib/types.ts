@@ -23,6 +23,7 @@ export interface Status {
   running: boolean;
   memory_kb: number | null;
   uptime: number | null;
+  operation?: ServiceOperation | null;
   main_node: string | null;
   main_node_label: string | null;
   mode: Mode;
@@ -35,6 +36,14 @@ export interface Status {
   version: string | null;
   /** last daily update check (luci.hyper check_update) */
   update?: { auto_check: boolean; checked: number | null; latest: string | null; available: boolean };
+}
+
+export interface ServiceOperation {
+  id: number;
+  action: "start" | "stop" | "restart";
+  state: "queued" | "running" | "done" | "failed";
+  time: number;
+  error?: string;
 }
 
 export interface NodeInfo {

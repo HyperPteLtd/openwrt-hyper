@@ -8,7 +8,8 @@ import { call } from "../lib/rpc";
 import { serviceText } from "../lib/display";
 import { nodeLabel } from "../lib/regions";
 import { NodeList } from "../components/NodeList";
-import type { Result, Traffic } from "../lib/types";
+import { liveUptime, operationPending } from "../lib/service";
+import type { Result, ServiceOperation, Traffic } from "../lib/types";
 
 /* traffic sample every 3 s, 20 bars = the last minute */
 const POLL_MS = 3000;
@@ -22,7 +23,8 @@ const MODES = [
 
 export function Overview() {
   const busy = useSignal(false);
-  const switching = useSignal<"start" | "stop" | null>(null);
+  const clock = useSignal(performance.now());
+  usePoll(() => { clock.value = performance.now(); }, 1000, !!app.status?.running);
   const message = useSignal("");
   const rate = useSignal<{ up: number; down: number } | null>(null);
   const totals = useSignal<{ up: number; down: number } | null>(null);
@@ -59,20 +61,20 @@ export function Overview() {
   }, POLL_MS);
 
   const toggle = async () => {
-    if (!app.status || busy.value) return;
+    if (!app.status || busy.value || operationPending(app.status.operation)) return;
     busy.value = true;
-    const enabled = !app.status.enabled;
-    switching.value = enabled ? "start" : "stop";
+    const enabled = !app.status.running;
+    app.controlAction = enabled ? "start" : "stop";
     message.value = "";
     try {
-      const r = await call<Result & { running: boolean }>("set_enabled", { enabled });
+      const r = await call<Result & { operation?: ServiceOperation }>("set_enabled", { enabled });
       if (!r.result) message.value = tr("操作没有成功，请查看日志");
-      else app.status = await call("status");
+      else if (r.operation) app.status = { ...app.status, operation: r.operation };
     } catch (e) {
       message.value = (e as Error).message;
     }
     busy.value = false;
-    switching.value = null;
+    app.controlAction = null;
     app.tick++;
   };
 
@@ -90,8 +92,10 @@ export function Overview() {
   const s = app.status;
   if (!s) return <main class="page muted">{tr("加载中…")}</main>;
 
-  const failed = s.enabled && !s.running;
-  const isBusy = busy.value;
+  const pending = app.controlAction || (operationPending(s.operation) ? s.operation!.action : null);
+  const failed = s.enabled && !s.running && !pending;
+  const isBusy = busy.value || !!pending;
+  const actionLabel = pending === "stop" ? tr("正在停止…") : pending === "restart" ? tr("正在重启…") : pending ? tr("正在启动…") : s.running ? tr("停止") : failed ? tr("重试") : tr("启动");
   const peak = Math.max(1, ...bars.value);
 
   return (
@@ -104,35 +108,35 @@ export function Overview() {
       <div class="row">
         <section class="card" style={{ flex: "3 1 460px" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <h2 style={{ fontSize: "24px" }}>{s.running ? tr("世界很大，自在连接") : failed ? tr("连接没有成功") : tr("Hyper 已停止")}</h2>
+            <h2 style={{ fontSize: "24px" }}>{pending ? actionLabel : s.running ? tr("世界很大，自在连接") : failed ? tr("连接没有成功") : tr("Hyper 已停止")}</h2>
             <p class="muted" style={{ margin: 0 }}>
-              {s.running
+              {pending ? tr("正在应用连接设置，请稍候") : s.running
                 ? tr("接入这台路由器的设备，正在经由 Hyper 访问网络")
                 : failed
                   ? tr("可以换一个节点，或查看日志找原因")
                   : tr("启动后，接入这台路由器的设备会经由 Hyper 访问网络")}
             </p>
           </div>
-          {failed && (
-            <div class="banner">{tr("代理服务没有运行")}<a href="#/logs" style={{ color: "#fff" }}>{tr("查看日志 ›")}</a>
+          {(failed || (s.operation?.state === "failed" && !pending)) && (
+            <div class="banner">{tr("服务操作未完成，请查看日志")} <a href="#/logs" style={{ color: "#fff" }}>{tr("查看日志 ›")}</a>
             </div>
           )}
           <dl class="grid-stats" style={{ margin: 0 }}>
-            <div class="stat"><b>{s.running ? formatUptime(s.uptime) : "--"}</b><span>{tr("运行时长")}</span></div>
+            <div class="stat"><b>{s.running ? formatUptime(liveUptime(s.uptime, app.statusAt, clock.value)) : "--"}</b><span>{tr("运行时长")}</span></div>
             <div class="stat"><b>{s.memory_kb ? `${Math.round(s.memory_kb / 1024)} MB` : "--"}</b><span>{tr("内存占用")}</span></div>
             <div class="stat"><b>{s.version || "--"}</b><span>{tr("软件版本")}</span></div>
             <div class="stat"><b>{s.sync?.count ?? "--"}</b><span>{tr("节点 · {0}更新", [formatAgo(s.sync?.time)])}</span></div>
           </dl>
           <div class="power-control">
-            <button type="button" class={`power-button ${s.enabled ? "is-on" : ""} ${switching.value ? "is-busy" : ""}`} aria-busy={!!switching.value} disabled={isBusy || (!s.enabled && !s.main_node)} onClick={() => toggle()}>
+            <button type="button" class={`power-button ${s.running ? "is-on" : ""} ${pending ? "is-busy" : ""}`} aria-busy={!!pending} disabled={isBusy || (!s.running && !s.main_node)} onClick={() => toggle()}>
               <span class="power-symbol" aria-hidden="true">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                   <path d="M12 3v9M6.2 5.8a8.5 8.5 0 1 0 11.6 0" />
                 </svg>
               </span>
-              <span>{switching.value === "start" ? tr("正在启动…") : switching.value === "stop" ? tr("正在停止…") : s.enabled ? tr("停止") : tr("启动")}</span>
+              <span>{actionLabel}</span>
             </button>
-            <span class="muted small" role="status">{switching.value ? tr("正在应用连接设置，请稍候") : s.running ? tr("已连接，局域网设备可通过 Hyper 上网") : tr("一键连接，让局域网设备自在上网")}</span>
+            <span class="muted small" role="status">{pending ? tr("正在应用连接设置，请稍候") : s.running ? tr("已连接，局域网设备可通过 Hyper 上网") : tr("一键连接，让局域网设备自在上网")}</span>
             {!s.main_node && <span class="muted">{tr("还没有节点，请先在下方更新节点")}</span>}
           </div>
           {message.value && <div class="banner">{serviceText(message.value)}</div>}
@@ -148,7 +152,7 @@ export function Overview() {
           <h3 style={{ margin: 0, fontSize: "15px" }}>{tr("代理模式")}</h3>
           <div role="group" aria-label={tr("代理模式")} style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {MODES.map((m) => (
-              <button key={m.id} type="button" class="option" aria-pressed={s.mode === m.id} disabled={busy.value} onClick={() => setMode(m.id)}>
+              <button key={m.id} type="button" class="option" aria-pressed={s.mode === m.id} disabled={isBusy} onClick={() => setMode(m.id)}>
                 <span class="grow">
                   <span style={{ fontSize: "15px" }}>{m.label}</span>
                   <span class="muted small">{m.desc}</span>

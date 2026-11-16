@@ -1,0 +1,9 @@
+Bootstrap copies of the same rule lists used by the router configuration
+
+geoip-cn.srs: https://github.com/1715173329/IPCIDR-CHINA (rule-set branch)
+geosite-cn.srs and geosite-noncn.srs:
+https://github.com/1715173329/sing-geosite (rule-set-unstable branch)
+
+The geosite project's copyright and license notice is in LICENSE.geosite
+Exact source URLs, commits, sizes and SHA-256 values are in manifest.json
+These files seed a cold cache; the core continues to update its runtime copy

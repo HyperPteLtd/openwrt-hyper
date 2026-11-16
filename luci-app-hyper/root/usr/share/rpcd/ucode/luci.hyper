@@ -13,7 +13,7 @@
 
 'use strict';
 
-import { lstat, mkdir, readfile, writefile } from 'fs';
+import { lstat, mkdir, readfile, rename, writefile } from 'fs';
 import { connect } from 'ubus';
 import { cursor } from 'uci';
 
@@ -29,8 +29,8 @@ import {
 } from '/etc/hyper/scripts/checkin.uc';
 
 const CONF = 'hyper';
-const INIT = '/etc/init.d/hyper';
 const PKG = 'luci-app-hyper';
+const CONTROL_DIR = '/var/run/hyper-control';
 
 /* ---------- helpers ---------- */
 
@@ -125,7 +125,25 @@ function clash(method, path, body) {
 }
 
 function serviceAction(action) {
-	return system(`${INIT} ${action} >/dev/null 2>&1`);
+	if (!(action in ['start', 'stop', 'restart']))
+		return 1;
+	mkdir(CONTROL_DIR, 0700);
+	const request = { id: int(readJSON(CONTROL_DIR + '/request.json')?.id || 0) + 1, action, time: time() };
+	if (!writefile(CONTROL_DIR + '/request.tmp', sprintf('%J\n', request))
+		|| !rename(CONTROL_DIR + '/request.tmp', CONTROL_DIR + '/request.json'))
+		return 1;
+	return system(`${HP_DIR}/scripts/service_control.sh </dev/null >/dev/null 2>&1 &`);
+}
+
+function serviceOperation() {
+	const request = readJSON(CONTROL_DIR + '/request.json');
+	if (!request)
+		return null;
+	const state = readJSON(CONTROL_DIR + '/state.json');
+	const op = state?.id === request.id ? state : { ...request, state: 'queued' };
+	if ((op.state in ['queued', 'running']) && time() - request.time > 180)
+		return { ...op, state: 'failed', error: 'timeout' };
+	return op;
 }
 
 function nodeTag(name) {
@@ -286,6 +304,7 @@ const methods = {
 				running: !!svc,
 				memory_kb: svc ? pidMemoryKB(svc.pid) : null,
 				uptime: svc ? pidUptime(svc.pid) : null,
+				operation: serviceOperation(),
 				main_node: (main_node !== 'nil') ? main_node : null,
 				main_node_label: (main_node !== 'nil') ? uci.get(CONF, main_node, 'label') : null,
 				mode,
@@ -390,14 +409,15 @@ const methods = {
 			const uci = uciCursor();
 			uci.set(CONF, 'config', 'enabled', on ? '1' : '0');
 			uci.commit(CONF);
-			const code = serviceAction(on ? 'restart' : 'stop');
-			return { result: code === 0, running: !!serviceRunning() };
+			const code = serviceAction(on ? (serviceRunning() ? 'restart' : 'start') : 'stop');
+			return { result: code === 0, accepted: code === 0, operation: serviceOperation() };
 		}
 	},
 
 	restart: {
 		call: function() {
-			return { result: serviceAction('restart') === 0, running: !!serviceRunning() };
+			const code = serviceAction('restart');
+			return { result: code === 0, accepted: code === 0, operation: serviceOperation() };
 		}
 	},
 
