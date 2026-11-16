@@ -215,12 +215,13 @@ jobs:
   # Install the packages on the oldest and newest firmware of each family (rootfs
   # from downloads.openwrt.org) and rerun the tests on that userland: the
   # dependencies resolve, the bundled programs run, rpcd serves luci.hyper.
-  # x86_64 runs natively; aarch64 (the armsr/armv8 rootfs, same arm64 core as
-  # every aarch64_* package) runs under QEMU, which works on any runner.
+  # Both CPUs run natively. QEMU user-mode cannot exercise every Linux socket
+  # option used by the routing marks in the core startup test.
+  # armsr/armv8 uses the same arm64 core as every aarch64_* package.
   install-test:
     name: Install on OpenWrt ${{ matrix.release }} (${{ matrix.cpu }})
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.cpu == 'aarch64_generic' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -233,11 +234,6 @@ jobs:
           - { release: 25.12.6, cpu: aarch64_generic, target: armsr/armv8, platform: linux/arm64, packages: packages-aarch64_generic-25.12.6 }
     steps:
       - uses: actions/checkout@v7
-
-      - uses: docker/setup-qemu-action@v4
-        if: matrix.platform != 'linux/amd64'
-        with:
-          platforms: arm64
 
       - uses: actions/download-artifact@v8
         with:
