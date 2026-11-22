@@ -20,7 +20,7 @@ function memoryStorage() {
 const status = (email = "alice@example.com"): Status => ({
   enabled: true, running: true, uptime: 1234, memory_kb: 50000,
   main_node: "jpn-01", main_node_label: "JPN 01", mode: "smart",
-  signed_in: true, email, api_base: "https://private-api.example.com", version: "0.2.1-r1", singbox_version: "private-engine",
+  signed_in: true, email, api_base: "https://private-api.example.com", version: "0.2.1-r1", core_version: "private-engine",
   sync: { ok: true, time: 123, count: 6 }, health: { state: "ok", failures: 0, time: 123 },
   operation: { id: 1, action: "start", state: "running", time: 123 },
 });
@@ -30,7 +30,7 @@ test("status bootstrap persists only identity/configuration display fields, neve
   const display = new DisplayPersistence(storage, "router:https://router.test");
   display.writeStatus({ ...status(), jwt: "private-jwt", subscription_url: "https://private-subscription", sync: { ...status().sync!, token: "private-token", traffic_used: "1 TB" } } as Status);
   const saved = JSON.parse(storage.getItem(storedKeys(storage, "hyper:display:")[0])!);
-  for (const key of ["running", "uptime", "memory_kb", "operation", "health", "api_base", "singbox_version", "jwt", "subscription_url"]) assert(!(key in saved.value), key);
+  for (const key of ["running", "uptime", "memory_kb", "operation", "health", "api_base", "core_version", "jwt", "subscription_url"]) assert(!(key in saved.value), key);
   assert.deepEqual(saved.value.sync, { ok: true, time: 123, count: 6 });
   assert.equal(display.readStatus()?.email, "alice@example.com");
   assert.equal(display.readStatus()?.uptime, null);

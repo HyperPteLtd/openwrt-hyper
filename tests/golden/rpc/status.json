@@ -1,0 +1,25 @@
+{
+  "enabled": true,
+  "running": false,
+  "memory_kb": null,
+  "uptime": null,
+  "operation": null,
+  "main_node": "pp_tokyo",
+  "main_node_label": "日本 · 东京 01",
+  "mode": "smart",
+  "signed_in": false,
+  "email": null,
+  "api_base": "https://api.cloudcdnhyper.com",
+  "sync": null,
+  "health": null,
+  "core_version": null,
+  "version": null,
+  "update": {
+    "auto_check": true,
+    "auto_update": false,
+    "checked": null,
+    "latest": null,
+    "available": false,
+    "state": null
+  }
+}

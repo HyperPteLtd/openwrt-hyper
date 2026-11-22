@@ -11,10 +11,18 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const LOCK = fs.readFileSync(join(ROOT, 'scripts/core.lock'), 'utf8');
-const COMMIT = LOCK.match(/^LIBBOX_COMMIT=(.+)$/m)[1];
-const SOURCE_ROOT = 'libbox-' + COMMIT;
+const COMMIT = LOCK.match(/^MIHOMO_COMMIT=(.+)$/m)[1];
+const MIHOMO_TAG = LOCK.match(/^MIHOMO_TAG=(.+)$/m)[1];
+const MIHOMO_REPO = LOCK.match(/^MIHOMO_REPO=(.+)$/m)[1];
+const TAGS = LOCK.match(/^MIHOMO_TAGS=(.+)$/m)[1];
+const SOURCE_ROOT = 'mihomo-' + COMMIT;
 const ARCHIVE_NAME = SOURCE_ROOT + '.tar.gz';
-const TAGS = 'with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,badlinkname,tfogo_checklinkname0';
+// Minimal type switches in the layout scripts/mihomo-trim.mjs edits.
+const goSwitch = (fn, types) => 'package x\n\nfunc ' + fn + '() {\n\tswitch proxyType {\n' +
+  types.map(t => '\tcase "' + t + '":\n\t\tx()\n').join('') + '\tdefault:\n\t}\n}\n';
+const PARSER = goSwitch('ParseProxy', ['ss', 'ssr', 'socks5', 'http', 'naive', 'vmess', 'vless', 'snell', 'trojan', 'hysteria',
+  'hysteria2', 'wireguard', 'tuic', 'anytls', 'ssh', 'direct', 'dns', 'reject', 'rematch', 'mieru']);
+const LISTENER = goSwitch('ParseListener', ['socks', 'http', 'mixed', 'tproxy', 'redir', 'tunnel', 'tun', 'vless', 'trojan']);
 const ARCHITECTURES = [
   ['x86_64', 'amd64', 'amd64', '', '', ''],
   ['aarch64_cortex-a53', 'arm64', 'arm64', '', '', ''],
@@ -68,31 +76,6 @@ function curlStub() {
   fs.copyFileSync(process.env.DOWNLOAD_ARCHIVE, args[args.indexOf('-o') + 1]);
 }
 
-function dockerStub() {
-  const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
-  const { spawnSync } = require('node:child_process');
-  const args = process.argv.slice(2);
-  fs.writeFileSync(process.env.DOCKER_LOG, JSON.stringify(args));
-  const env = { ...process.env };
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '-e' && args[i + 1].includes('=')) {
-      const entry = args[i + 1], split = entry.indexOf('=');
-      env[entry.slice(0, split)] = entry.slice(split + 1);
-    }
-  }
-  env.PATH = env.CONTAINER_GO + path.delimiter + env.PATH;
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'hyper-docker-stub-'));
-  try {
-    // Only this test's generated, previously validated Docker context is extracted.
-    const unpacked = spawnSync('tar', ['-xf', '-', '-C', temp], { env, input: fs.readFileSync(0) });
-    if (unpacked.status !== 0) { process.stderr.write(unpacked.stderr); process.exitCode = unpacked.status || 1; return; }
-    const built = spawnSync('/bin/sh', [path.join(temp, 'build.sh')], { env, stdio: ['ignore', 2, 2] });
-    if (built.status !== 0) { process.exitCode = built.status || 1; return; }
-    const packed = spawnSync('tar', ['-cf', '-', '-C', path.join(temp, 'bin'), 'sing-box', 'hyper-crypt'], { env });
-    if (packed.status !== 0) { process.stderr.write(packed.stderr); process.exitCode = packed.status || 1; return; }
-    process.stdout.write(packed.stdout);
-  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
-}
 
 function which(name) {
   const result = spawnSync('/bin/sh', ['-c', 'command -v "$1"', 'sh', name], { encoding: 'utf8' });
@@ -121,11 +104,12 @@ class Fixture {
     this.cache = join(this.base, 'cache');
     this.out = join(this.base, 'output');
     this.scratch = join(this.base, 'scratch');
-    for (const path of [join(this.repo, 'scripts'), join(this.repo, 'hyper-crypt'), this.bin, this.cache, this.out, this.scratch]) fs.mkdirSync(path, { recursive: true });
-    fs.copyFileSync(join(ROOT, 'scripts/stage-binaries.sh'), join(this.repo, 'scripts/stage-binaries.sh'));
-    fs.writeFileSync(join(this.repo, 'hyper-crypt/go.mod'), 'module test/hyper-crypt\n\ngo 1.25\n');
+    for (const path of [join(this.repo, 'scripts'), join(this.repo, 'cmd/hyperd'), join(this.repo, 'luci-app-hyper'), this.bin, this.cache, this.out, this.scratch]) fs.mkdirSync(path, { recursive: true });
+    for (const name of ['stage-binaries.sh', 'mihomo-trim.mjs']) fs.copyFileSync(join(ROOT, 'scripts', name), join(this.repo, 'scripts', name));
+    fs.writeFileSync(join(this.repo, 'go.mod'), 'module test/hyper\n\ngo 1.25\n');
+    fs.writeFileSync(join(this.repo, 'luci-app-hyper/Makefile'), 'PKG_NAME:=luci-app-hyper\nPKG_VERSION:=9.8.7\n');
     // A closed PATH prevents a real compiler, Docker or network client running.
-    for (const name of ['sh', 'dirname', 'mkdir', 'mktemp', 'rm', 'cut', 'mv', 'sed', 'cp', 'chmod', 'ls', 'tar', 'cat', 'awk', 'gzip']) {
+    for (const name of ['sh', 'dirname', 'mkdir', 'mktemp', 'rm', 'cut', 'mv', 'sed', 'cp', 'chmod', 'ls', 'tar', 'cat', 'awk', 'gzip', 'node']) {
       const executable = which(name);
       assert(executable, 'required fixture tool: ' + name);
       fs.symlinkSync(executable, join(this.bin, name));
@@ -133,8 +117,8 @@ class Fixture {
     const checksum = which('sha256sum') ? 'sha256sum' : 'shasum';
     fs.symlinkSync(which(checksum), join(this.bin, checksum));
     this.env = { ...process.env, PATH: this.bin, OUT_DIR: this.out, CACHE_DIR: this.cache, TMPDIR: this.scratch,
-      GO_LOG: join(this.base, 'go.jsonl'), DOCKER_LOG: join(this.base, 'docker.json'), CURL_LOG: join(this.base, 'curl.json') };
-    for (const key of ['GOMODCACHE', 'GOCACHE', 'GO_IMAGE', 'BUILD_FAIL']) delete this.env[key];
+      GO_LOG: join(this.base, 'go.jsonl'), CURL_LOG: join(this.base, 'curl.json') };
+    for (const key of ['GOMODCACHE', 'GOCACHE', 'BUILD_FAIL']) delete this.env[key];
     this.tool('go', goStub);
     this.tool('curl', curlStub);
     this.source();
@@ -145,16 +129,17 @@ class Fixture {
     fs.writeFileSync(path, '#!' + process.execPath + '\n(' + fn.toString() + ')();\n', { mode: 0o755 });
   }
 
-  source({ sdk = '0.1.3', core = 'v1.15.0-alpha.13', extra } = {}) {
+  source({ extra } = {}) {
     const members = [
-      { name: SOURCE_ROOT + '/internal/singbox/runtime.go', content: 'const sdkVersion = "' + sdk + '"\nconst pinnedVersion = "' + core + '"\n' },
-      { name: SOURCE_ROOT + '/scripts/build-linux-cli.sh', content: '#!/bin/sh\nexit 99\n' },
+      { name: SOURCE_ROOT + '/adapter/parser.go', content: PARSER },
+      { name: SOURCE_ROOT + '/listener/parse.go', content: LISTENER },
+      { name: SOURCE_ROOT + '/build.sh', content: '#!/bin/sh\nexit 99\n' },
     ];
     if (extra) members.push(extra);
     const bytes = archive(members);
     fs.writeFileSync(join(this.cache, ARCHIVE_NAME), bytes);
     const digest = createHash('sha256').update(bytes).digest('hex');
-    fs.writeFileSync(join(this.repo, 'scripts/core.lock'), LOCK.replace(/^LIBBOX_SOURCE_SHA256=.+$/m, 'LIBBOX_SOURCE_SHA256=' + digest));
+    fs.writeFileSync(join(this.repo, 'scripts/core.lock'), LOCK.replace(/^MIHOMO_SOURCE_SHA256=.+$/m, 'MIHOMO_SOURCE_SHA256=' + digest));
   }
 
   run(arch = 'x86_64', ok = true) {
@@ -162,9 +147,9 @@ class Fixture {
     const output = result.stdout + result.stderr;
     if (ok) {
       assert.equal(result.status, 0, output);
-      assert.equal(fs.readFileSync(join(this.out, 'sing-box'), 'utf8'), 'built sing-box');
-      assert.equal(fs.readFileSync(join(this.out, 'hyper-crypt'), 'utf8'), 'built hyper-crypt');
-      assert.equal(fs.statSync(join(this.out, 'sing-box')).mode & 0o777, 0o755);
+      assert.equal(fs.readFileSync(join(this.out, 'mihomo'), 'utf8'), 'built mihomo');
+      assert.equal(fs.readFileSync(join(this.out, 'hyperd'), 'utf8'), 'built hyperd');
+      assert.equal(fs.statSync(join(this.out, 'mihomo')).mode & 0o777, 0o755);
     } else assert.notEqual(result.status, 0, output);
     assert.deepEqual(fs.readdirSync(this.scratch), [], 'staging directories must be cleaned on success/failure');
     return result;
@@ -187,12 +172,9 @@ function assertBuildFlags(builds) {
     assert.equal(env.GOFLAGS, ''); assert.equal(env.GOEXPERIMENT, '');
   }
   const core = builds[0].args;
-  assert.equal(core.at(-1), './cmd/sing-box');
+  assert.equal(core.at(-1), '.');
   assert.equal(core[core.indexOf('-tags') + 1], TAGS);
-  const linker = core[core.indexOf('-ldflags') + 1];
-  for (const flag of ['-checklinkname=0', 'github.com/sagernet/sing-box/constant.Version=1.15.0-alpha.13',
-    'main.libboxRevision=' + COMMIT, 'internal/singbox.buildTags=' + TAGS,
-    'runtime.godebugDefault=multipathtcp=0,tlssha1=1']) assert(linker.includes(flag), flag);
+  assert(core[core.indexOf('-ldflags') + 1].includes('github.com/metacubex/mihomo/constant.Version=' + MIHOMO_TAG.replace(/^.*-/, '')));
 }
 
 test('architectures and shared static flags', t => {
@@ -224,7 +206,7 @@ test('target ID rejects unknown or missing architecture', t => {
   for (const args of [['unsupported_cpu'], []]) {
     const result = spawnSync('/bin/sh', [join(f.repo, 'scripts/stage-binaries.sh'), '--target-id', ...args], { env: f.env, cwd: f.repo, encoding: 'utf8' });
     assert.notEqual(result.status, 0); assert.equal(result.stdout, '');
-    assert(result.stderr.includes(args.length ? 'no libbox build' : 'usage:'));
+    assert(result.stderr.includes(args.length ? 'no mihomo build' : 'usage:'));
   }
   assert.deepEqual(f.builds(), []); assert.deepEqual(fs.readdirSync(f.out), []); assert.deepEqual(fs.readdirSync(f.scratch), []);
   assert(!fs.existsSync(f.env.CURL_LOG));
@@ -246,7 +228,7 @@ test('verified download uses commit URL', t => {
   fs.renameSync(join(f.cache, ARCHIVE_NAME), download); f.env.DOWNLOAD_ARCHIVE = download;
   f.run();
   const args = JSON.parse(fs.readFileSync(f.env.CURL_LOG, 'utf8'));
-  assert.equal(args.at(-1), 'https://codeload.github.com/HyperPteLtd/libbox/tar.gz/' + COMMIT);
+  assert.equal(args.at(-1), 'https://codeload.github.com/' + MIHOMO_REPO + '/tar.gz/' + COMMIT);
   assert.deepEqual(fs.readFileSync(join(f.cache, ARCHIVE_NAME)), fs.readFileSync(download));
 });
 
@@ -277,41 +259,50 @@ test('unsafe paths and links rejected even with matching checksum', t => {
   }
 });
 
-test('source version guard', t => {
-  const f = new Fixture(t);
-  for (const [sdk, core] of [['0.1.4', 'v1.15.0-alpha.13'], ['0.1.3', '']]) {
-    f.source({ sdk, core });
-    assert(f.run('x86_64', false).stderr.includes('source version mismatch')); assert.deepEqual(f.builds(), []);
-  }
-});
 
 test('unsupported architecture', t => {
   const f = new Fixture(t);
-  assert(f.run('unsupported_cpu', false).stderr.includes('no libbox build')); assert.deepEqual(f.builds(), []);
+  assert(f.run('unsupported_cpu', false).stderr.includes('no mihomo build')); assert.deepEqual(f.builds(), []);
 });
 
 test('missing compiler never falls back to a prebuilt core', t => {
   const f = new Fixture(t); fs.unlinkSync(join(f.bin, 'go'));
-  assert(f.run('x86_64', false).stderr.includes('need Go or Docker'));
+  assert(f.run('x86_64', false).stderr.includes('need Go'));
   assert.deepEqual(fs.readdirSync(f.out), []); assert(!fs.existsSync(f.env.CURL_LOG));
 });
 
 test('failed build does not replace previous binaries', t => {
   const f = new Fixture(t);
-  for (const name of ['sing-box', 'hyper-crypt']) fs.writeFileSync(join(f.out, name), 'previous build');
-  f.env.BUILD_FAIL = 'hyper-crypt';
+  for (const name of ['mihomo', 'hyperd']) fs.writeFileSync(join(f.out, name), 'previous build');
+  f.env.BUILD_FAIL = 'hyperd';
   assert.equal(f.run('x86_64', false).status, 19); assert.equal(f.builds().length, 2);
-  for (const name of ['sing-box', 'hyper-crypt']) assert.equal(fs.readFileSync(join(f.out, name), 'utf8'), 'previous build');
+  for (const name of ['mihomo', 'hyperd']) assert.equal(fs.readFileSync(join(f.out, name), 'utf8'), 'previous build');
 });
 
-test('Docker fallback runs same build and reuses cache', t => {
-  const f = new Fixture(t); fs.unlinkSync(join(f.bin, 'go'));
-  const containerTools = join(f.base, 'container-tools'); fs.mkdirSync(containerTools);
-  f.tool('go', goStub, containerTools); f.env.CONTAINER_GO = containerTools; f.tool('docker', dockerStub);
-  f.run('mipsel_24kc'); assertBuildFlags(f.builds());
-  const args = JSON.parse(fs.readFileSync(f.env.DOCKER_LOG, 'utf8'));
-  for (const value of ['golang:1.25.5-bookworm', 'hyper-router-go-cache:/cache', '-e']) assert(args.includes(value));
-  for (const { env } of f.builds()) {
-    assert.equal(env.GOMODCACHE, '/cache/mod'); assert.equal(env.GOCACHE, '/cache/build'); assert.equal(env.GOMIPS, 'softfloat');
-  }
+
+test('the core source is trimmed before it is built', t => {
+  const f = new Fixture(t);
+  const result = f.run();
+  assert.match(result.stdout, /trim adapter\/parser\.go: removed ss ssr socks5 http naive vmess vless snell trojan hysteria hysteria2 wireguard tuic ssh mieru$/m);
+  assert.match(result.stdout, /trim listener\/parse\.go: removed vless trojan/);
+});
+
+test('changed source layout stops the build', t => {
+  const f = new Fixture(t);
+  f.source({ extra: null });
+  const members = [{ name: SOURCE_ROOT + '/adapter/parser.go', content: 'package x\n' }, { name: SOURCE_ROOT + '/listener/parse.go', content: LISTENER }];
+  const bytes = archive(members);
+  fs.writeFileSync(join(f.cache, ARCHIVE_NAME), bytes);
+  fs.writeFileSync(join(f.repo, 'scripts/core.lock'), LOCK.replace(/^MIHOMO_SOURCE_SHA256=.+$/m, 'MIHOMO_SOURCE_SHA256=' + createHash('sha256').update(bytes).digest('hex')));
+  assert(f.run('x86_64', false).stderr.includes('switch proxyType not found'));
+  assert.deepEqual(f.builds(), []);
+});
+
+test('hyperd is built from cmd/hyperd with the package version', t => {
+  const f = new Fixture(t);
+  f.run();
+  const hyperd = f.builds().find(b => b.args.includes('./cmd/hyperd'));
+  assert(hyperd, 'hyperd build missing');
+  assert(hyperd.args.join(' ').includes('-X main.Version=9.8.7'), hyperd.args.join(' '));
+  assert.equal(hyperd.env.CGO_ENABLED, '0');
 });

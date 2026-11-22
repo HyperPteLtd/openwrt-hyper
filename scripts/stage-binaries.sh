@@ -1,15 +1,15 @@
 #!/bin/sh
 # Put the programs bundled with luci-app-hyper into the package tree for one
 # OpenWrt package arch:
-#   luci-app-hyper/root/usr/libexec/hyper/bin/sing-box     router build of pinned libbox sources
-#   luci-app-hyper/root/usr/libexec/hyper/bin/hyper-crypt  built from hyper-crypt/ (static Go)
+#   luci-app-hyper/root/usr/libexec/hyper/bin/mihomo       pinned mihomo source (core.lock), trimmed
+#   luci-app-hyper/root/usr/libexec/hyper/bin/hyperd       built from cmd/hyperd (static Go)
 #
 #   scripts/stage-binaries.sh <openwrt package arch>       e.g. aarch64_cortex-a53
 #   OUT_DIR=/tmp/core scripts/stage-binaries.sh x86_64     elsewhere
 #   scripts/stage-binaries.sh --target-id <arch>          print the shared binary target
 #
-# Requires curl, tar and awk. Builds both programs with the pinned Go
-# toolchain, or in Docker when Go is unavailable. No prebuilt-core fallback.
+# Requires curl, tar, awk, node and Go (GOTOOLCHAIN fetches the pinned toolchain).
+# No prebuilt-core fallback.
 set -eu
 
 target_id_only=false
@@ -32,11 +32,10 @@ case "$arch" in
 	i386_*) goarch=386 go386=softfloat ;;
 	riscv64_*) goarch=riscv64 ;;
 	loongarch64_*) goarch=loong64 ;;
-	*) echo "no libbox build for OpenWrt arch $arch" >&2; exit 1 ;;
+	*) echo "no mihomo build for OpenWrt arch $arch" >&2; exit 1 ;;
 esac
 
-# Derive the artifact identity from the same flags used for the actual build.
-# Queries need only the shell and never create directories or fetch sources.
+# Artifact identity for shared CI caches; needs only the shell.
 if [ "$target_id_only" = true ]; then
 	printf '%s\n' "$goarch${goarm:+v$goarm}${gomips:+-$gomips}${go386:+-$go386}"
 	exit 0
@@ -46,14 +45,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 . "$ROOT/scripts/core.lock"
 out="${OUT_DIR:-$ROOT/luci-app-hyper/root/usr/libexec/hyper/bin}"
 cache="${CACHE_DIR:-$ROOT/dist/.cache}"
-GO_IMAGE="${GO_IMAGE:-golang:${GO_TOOLCHAIN#go}-bookworm}"
 
 sha256() {
 	if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
 
 mkdir -p "$cache" "$out"
-# Normalize relative overrides before building in other working directories.
 cache="$(cd "$cache" && pwd)"
 out="$(cd "$out" && pwd)"
 tmp="$(mktemp -d)"
@@ -63,27 +60,27 @@ trap 'exit 143' TERM
 
 verify_source() {
 	got="$(sha256 "$1")"
-	[ "$got" = "$LIBBOX_SOURCE_SHA256" ] || {
-		echo "checksum mismatch for libbox source: got $got, want $LIBBOX_SOURCE_SHA256" >&2
+	[ "$got" = "$MIHOMO_SOURCE_SHA256" ] || {
+		echo "checksum mismatch for mihomo source: got $got, want $MIHOMO_SOURCE_SHA256" >&2
 		exit 1
 	}
 }
 
-name="libbox-$LIBBOX_COMMIT.tar.gz"
+name="mihomo-$MIHOMO_COMMIT.tar.gz"
 if [ ! -f "$cache/$name" ]; then
 	echo "   download $name"
-	curl -fsSL --retry 3 -o "$tmp/source.tar.gz" "https://codeload.github.com/$LIBBOX_REPO/tar.gz/$LIBBOX_COMMIT"
+	curl -fsSL --retry 3 --retry-delay 10 --retry-all-errors --max-time 300 -o "$tmp/source.tar.gz" "https://codeload.github.com/$MIHOMO_REPO/tar.gz/$MIHOMO_COMMIT"
 	verify_source "$tmp/source.tar.gz"
 	mv "$tmp/source.tar.gz" "$cache/$name"
 fi
 verify_source "$cache/$name"
 
-# Inspect the entire verified archive before extracting anything. GNU tar and
-# BSD tar both list effective member paths and expose the file type first in
-# verbose listings. Only regular files/directories inside the pinned root pass.
+# Inspect the whole verified archive before extracting: only regular files and
+# directories inside the pinned root pass (GNU and BSD tar listings).
+src="mihomo-$MIHOMO_COMMIT"
 LC_ALL=C tar -tzf "$cache/$name" > "$tmp/source.paths"
 LC_ALL=C tar -tvzf "$cache/$name" > "$tmp/source.types"
-awk -v root="libbox-$LIBBOX_COMMIT" '
+awk -v root="$src" '
 	function reject() { print "unsafe source archive member: " $0 > "/dev/stderr"; bad=1 }
 	{
 		path=$0
@@ -103,57 +100,25 @@ awk '
 ' "$tmp/source.types"
 tar -xzf "$cache/$name" -C "$tmp" --no-same-owner --no-same-permissions
 
-runtime="$tmp/libbox-$LIBBOX_COMMIT/internal/singbox/runtime.go"
-sdk_version="$(sed -n 's/^const sdkVersion = "\([^"]*\)"$/\1/p' "$runtime")"
-core_version="$(sed -n 's/^const pinnedVersion = "v\([^"]*\)"$/\1/p' "$runtime")"
-[ "$sdk_version" = "$LIBBOX_VERSION" ] && [ -n "$core_version" ] || {
-	echo "libbox source version mismatch: SDK '$sdk_version' (expected $LIBBOX_VERSION), core '$core_version'" >&2
-	exit 1
-}
+# Never run scripts from the downloaded tree; only our trim step edits it.
+node "$ROOT/scripts/mihomo-trim.mjs" "$tmp/$src"
 
-# Our build commands are shared by the host and Docker paths. Never run scripts
-# from the downloaded source tree. Go validates dependencies against its go.sum.
-mkdir -p "$tmp/bin"
-cp -R "$ROOT/hyper-crypt" "$tmp/hyper-crypt"
-cat > "$tmp/build.sh" <<'BUILD'
-set -eu
-cd "$(dirname "$0")"
-cd "libbox-$LIBBOX_COMMIT"
-go build -mod=readonly -trimpath -buildvcs=false -tags "$LIBBOX_ROUTER_TAGS" \
-	-ldflags "-s -w -buildid= -checklinkname=0 -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -X github.com/sagernet/sing-box/constant.Version=$CORE_VERSION -X main.libboxRevision=$LIBBOX_COMMIT -X github.com/HyperPteLtd/libbox/internal/singbox.buildTags=$LIBBOX_ROUTER_TAGS" \
-	-o ../bin/sing-box ./cmd/sing-box
-cd ../hyper-crypt
-go build -mod=readonly -trimpath -buildvcs=false -ldflags "-s -w -buildid=" -o ../bin/hyper-crypt .
-BUILD
-
+command -v go >/dev/null 2>&1 || { echo "need Go to build mihomo and hyperd" >&2; exit 1; }
 export CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" GOARM="$goarm" GOMIPS="$gomips" GO386="$go386"
 export GOTOOLCHAIN="$GO_TOOLCHAIN" GOWORK=off GOFLAGS= GOEXPERIMENT=
-export CORE_VERSION="$core_version" LIBBOX_COMMIT LIBBOX_ROUTER_TAGS
-echo "   build core $core_version / libbox $sdk_version and hyper-crypt ($goarch${goarm:+ GOARM=$goarm}${gomips:+ GOMIPS=$gomips}${go386:+ GO386=$go386})"
-if command -v go >/dev/null 2>&1; then
-	# Keep Go's standard caches (including actions/setup-go) and any explicit
-	# GOMODCACHE/GOCACHE overrides shared across architecture builds.
-	sh "$tmp/build.sh"
-elif command -v docker >/dev/null 2>&1; then
-	# macOS (bsdtar) would add Apple extended attributes that GNU tar warns about
-	case "$(tar --version 2>/dev/null)" in *bsdtar*) nometa="--no-xattrs --no-mac-metadata" ;; *) nometa="" ;; esac
-	# shellcheck disable=SC2086
-	COPYFILE_DISABLE=1 tar $nometa -C "$tmp" -cf "$tmp/context.tar" "libbox-$LIBBOX_COMMIT" hyper-crypt build.sh bin
-	# Tar streams work when Docker cannot mount the checkout (e.g. macOS external
-	# drives). One named volume reuses module/build caches across target arches.
-	docker run --rm -i -v hyper-router-go-cache:/cache \
-		-e CGO_ENABLED -e GOOS -e GOARCH -e GOARM -e GOMIPS -e GO386 \
-		-e GOTOOLCHAIN -e GOWORK -e GOFLAGS -e GOEXPERIMENT \
-		-e CORE_VERSION -e LIBBOX_COMMIT -e LIBBOX_ROUTER_TAGS \
-		-e GOMODCACHE=/cache/mod -e GOCACHE=/cache/build "$GO_IMAGE" \
-		sh -c 'mkdir -p /b && tar -C /b -xf - && sh /b/build.sh 1>&2 && tar -C /b/bin -cf - sing-box hyper-crypt' \
-		< "$tmp/context.tar" > "$tmp/binaries.tar"
-	tar -xf "$tmp/binaries.tar" -C "$tmp/bin"
-else
-	echo "need Go or Docker to build the router core and hyper-crypt" >&2
-	exit 1
-fi
-chmod 0755 "$tmp/bin/sing-box" "$tmp/bin/hyper-crypt"
-cp "$tmp/bin/sing-box" "$out/sing-box"
-cp "$tmp/bin/hyper-crypt" "$out/hyper-crypt"
+# The core reports its release (v1.0.0) without the source tag's prefix: the Logs page and
+# the controller show it.
+core_version=${MIHOMO_TAG##*-}
+echo "   build mihomo $core_version and hyperd ($goarch${goarm:+ GOARM=$goarm}${gomips:+ GOMIPS=$gomips}${go386:+ GO386=$go386})"
+mkdir -p "$tmp/bin"
+(cd "$tmp/$src" && go build -mod=readonly -trimpath -buildvcs=false -tags "$MIHOMO_TAGS" \
+	-ldflags "-s -w -buildid= -X github.com/metacubex/mihomo/constant.Version=$core_version" \
+	-o "$tmp/bin/mihomo" .)
+version="$(awk -F':=' '$1 == "PKG_VERSION" { print $2 }' "$ROOT/luci-app-hyper/Makefile")"
+(cd "$ROOT" && go build -mod=readonly -trimpath -buildvcs=false \
+	-ldflags "-s -w -buildid= -X main.Version=$version" -o "$tmp/bin/hyperd" ./cmd/hyperd)
+
+cp "$tmp/bin/mihomo" "$out/mihomo"
+cp "$tmp/bin/hyperd" "$out/hyperd"
+chmod 0755 "$out/mihomo" "$out/hyperd"
 ls -l "$out"

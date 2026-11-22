@@ -1,0 +1,99 @@
+{
+	"acllist_read": {
+		"type": "type"
+	},
+	"acllist_write": {
+		"type": "type",
+		"content": "content"
+	},
+	"api": {
+		"method": "GET",
+		"path": "/",
+		"query": {},
+		"body": {},
+		"idempotency_key": "key"
+	},
+	"check_update": {},
+	"checkin": {
+		"date": "date"
+	},
+	"checkin_status": {},
+	"diag": {
+		"type": "ping",
+		"target": "target",
+		"via": "proxy"
+	},
+	"get_config": {},
+	"health_check": {},
+	"install_update": {
+		"force": false,
+		"automatic": false
+	},
+	"lan_clients": {},
+	"latency": {
+		"nodes": []
+	},
+	"latency_cancel": {
+		"id": "id"
+	},
+	"latency_status": {
+		"id": "id"
+	},
+	"log_clean": {
+		"type": "combined"
+	},
+	"login": {
+		"email": "email",
+		"password": "password",
+		"code": "code",
+		"cf_token": "cf_token",
+		"invite": "invite"
+	},
+	"logout": {},
+	"logs": {
+		"type": "combined",
+		"lines": 200
+	},
+	"nodes": {},
+	"register": {
+		"email": "email",
+		"password": "password",
+		"code": "code",
+		"invite": "invite",
+		"cf_token": "cf_token"
+	},
+	"restart": {},
+	"rules_list": {},
+	"select_node": {
+		"node": "node"
+	},
+	"send_code": {
+		"email": "email"
+	},
+	"set_access_control": {
+		"mode": "all",
+		"direct_macs": []
+	},
+	"set_config": {
+		"values": {}
+	},
+	"set_enabled": {
+		"enabled": true
+	},
+	"set_mode": {
+		"mode": "mode"
+	},
+	"set_rule_enabled": {
+		"key": "key",
+		"enabled": true
+	},
+	"status": {},
+	"sync_status": {},
+	"sync_subscription": {},
+	"task_status": {
+		"id": "id"
+	},
+	"traffic": {
+		"per_source": true
+	}
+}

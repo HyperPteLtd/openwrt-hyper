@@ -76,4 +76,4 @@ npm --prefix web test
 
 [提交 Issue](https://github.com/HyperPteLtd/openwrt-hyper/issues) 时请提供固件版本、架构、插件版本和复现步骤，并遮盖账号、令牌等敏感信息
 
-插件采用 [GPL-2.0-only](LICENSE)，随包组件的来源与许可见[开发指南](docs/development.md#许可证与来源)
+插件采用 [GPL-3.0-or-later](LICENSE)，随包组件的来源与许可见[开发指南](docs/development.md#许可证与来源)

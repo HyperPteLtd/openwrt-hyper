@@ -7,8 +7,9 @@
 			"path": "hyper/app"
 		},
 		"depends": {
-			"acl": [ "luci-app-hyper" ],
-			"uci": { "hyper": true }
+			"acl": [
+				"luci-app-hyper"
+			]
 		}
 	}
 }

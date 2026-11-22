@@ -67,7 +67,7 @@ if ! awk '
 ' "$package_dir/Makefile"; then
 	fail "package is no longer the reviewed prebuilt app; use the full SDK build"
 fi
-for binary in sing-box hyper-crypt; do
+for binary in mihomo hyperd; do
 	[ -x "$package_dir/root/usr/libexec/hyper/bin/$binary" ] || fail "stage the prebuilt $binary first"
 done
 [ -s "$package_dir/htdocs/luci-static/hyper/index.html" ] || fail "stage the built web app first"

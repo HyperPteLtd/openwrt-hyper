@@ -5,6 +5,7 @@ import { Notice } from "../components/ui";
 import { app } from "../lib/app";
 import { call } from "../lib/rpc";
 import type { Result } from "../lib/types";
+import { errorText } from "../lib/errors";
 
 /*
  * Same flow as the Hyper app: email (+ optional invite code) -> verification code
@@ -37,7 +38,7 @@ export function Login() {
           if (cooldown.value <= 0) clearInterval(id);
         }, 1000);
       } else {
-        message.value = r.msg || (r.error === "api_unavailable" ? tr("暂时无法连接服务，请检查网络后重试") : r.error) || tr("验证码发送失败");
+        message.value = r.msg || errorText(r.error, tr("验证码发送失败"));
       }
     } catch (e) {
       message.value = (e as Error).message;
@@ -58,7 +59,7 @@ export function Login() {
         code.value = "";
         app.tick++;
       } else {
-        message.value = r.msg || (r.error === "api_unavailable" ? tr("暂时无法连接服务，请检查网络后重试") : r.error) || tr("登录失败");
+        message.value = r.msg || errorText(r.error, tr("登录失败"));
       }
     } catch (e) {
       message.value = (e as Error).message;

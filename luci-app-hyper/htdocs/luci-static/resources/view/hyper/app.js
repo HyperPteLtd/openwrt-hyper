@@ -1,5 +1,5 @@
 /*
- * SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Mounts the Hyper web app (static build in /luci-static/hyper/) inside LuCI.
  * The app runs in a same-origin iframe and calls ubus `luci.hyper` with the

@@ -5,6 +5,7 @@ import { call } from "./rpc";
 import type { Result } from "./types";
 import { accountEpoch, onAccountChange } from "./account-epoch";
 import { CacheInvalidatedError } from "./cache";
+import { errorText } from "./errors";
 
 let writing = Promise.resolve();
 export function writePreference<T extends Result = Result>(method: string, args: Record<string, unknown>, epoch = accountEpoch()): Promise<T> {
@@ -12,7 +13,7 @@ export function writePreference<T extends Result = Result>(method: string, args:
     if (epoch !== accountEpoch()) throw new CacheInvalidatedError();
     const result = await call<T>(method, args);
     if (epoch !== accountEpoch()) throw new CacheInvalidatedError();
-    if (!result.result) throw new Error(result.error || result.msg || tr("保存失败"));
+    if (!result.result) throw new Error(errorText(result.error) || result.msg || tr("保存失败"));
     app.tick++;
     return result;
   });

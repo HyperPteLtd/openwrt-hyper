@@ -20,7 +20,7 @@ web/dist/
 *.o
 *.a
 *.so
-# Programs bundled into the package (scripts/stage-binaries.sh): libbox core, hyper-crypt
+# Programs bundled into the package (scripts/stage-binaries.sh): hyperd, mihomo
 luci-app-hyper/root/usr/libexec/hyper/bin/
 
 # ---- Dependencies and tool caches ----

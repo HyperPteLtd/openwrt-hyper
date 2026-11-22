@@ -1,0 +1,573 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Hyper Pte. Ltd.
+#
+# Installs and releases hyper's network takeover on firewall4:
+#   up      stop conflicting proxies, policy routes, an owned nft table, fw4 allowances, dnsmasq upstream
+#   down    release everything this helper installed
+#   fault   same as down; called by `hyperd guard` when the core stops answering (fail open)
+#   refresh update the attached-network sets after an interface change
+#   missing-lans  print managed LAN devices that are up but not taken over (hyperd restarts)
+#   repair  put back the rules a firewall stop or restart removed; prints "repaired"
+# While the service is stopping (init's marker) up and repair refuse.
+#
+# All inputs come from the plan hyperd writes (validated there) and from netifd. Every
+# object carries an owner mark so a release never touches rules it did not create.
+set -eu
+umask 077
+
+state=${HYPER_NETWORK_STATE:-/var/run/hyper/network}
+# The init script sets this for a service stop, before its own release takes the lock, and
+# only a start clears it: an up or repair queued behind the stop (hyperd's
+# monitor, a hotplug restart) must not take the LAN over again.
+stopping=${HYPER_STOPPING:-${state%/*}/stopping}
+plan=${HYPER_PLAN:-$state/plan.env}
+dnsconf=${HYPER_DNS_CONFIG:-/tmp/etc}
+initd=${HYPER_INIT:-/etc/init.d}
+libexec=${HYPER_LIBEXEC:-${0%/*}}
+note=hyper-owned-v1
+dnsfile=hyper-upstream.conf
+bypass4='0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4'
+bypass6='::/128, ::1/128, fe80::/10, fc00::/7, ff00::/8'
+
+log() { printf '%s\n' "$*" >&2; }
+
+# Networks the router is directly attached to (LAN, WAN and delegated IPv6 prefixes), so
+# public LAN addresses and the upstream modem stay direct. Only kernel-connected and
+# delegated routes count; a VPN's static routes never do.
+local_prefixes() {
+	if [ "$1" = 4 ]; then
+		ip -4 route show table main proto kernel 2>/dev/null | awk '$1 != "default" && $1 ~ /^[0-9.]+(\/[0-9]+)?$/ { print $1 }'
+	else
+		ip -6 route show table main 2>/dev/null | awk '
+			{ p = $1; if (p == "unreachable" || p == "blackhole" || p == "prohibit") p = $2; else if ($0 !~ / proto kernel /) next }
+			p != "default" && p !~ /^(fe80|ff[0-9a-f][0-9a-f]):/ && p ~ /^[0-9a-f:]+(\/[0-9]+)?$/ { print p }'
+	fi | sort -u
+}
+
+# Append elements (one per line) to one of our sets in a batch.
+set_elements() {
+	[ -n "$2" ] || return 0
+	echo "add element inet hyper $1 {"
+	printf '%s\n' "$2" | sed '$!s/$/,/'
+	echo "}"
+}
+
+# Pings to fake-ip addresses get an answer (as in OpenClash) instead of timing out.
+fake_ping() {
+	[ "$HYPER_FAKE_IP" = 1 ] || return 0
+	echo "		meta nfproto ipv4 ip daddr 198.18.0.0/16 icmp type echo-request meta mark set (meta mark & 0xffff0000) | $mark accept"
+}
+
+# Optional dnsmasq lines are written only when this build lists the option: names are
+# case-sensitive and an unknown line stops dnsmasq from starting.
+dnsmasq_has() { dnsmasq --help 2>/dev/null | grep -qE -- "--$1([^A-Za-z0-9-]|$)"; }
+
+mkdir -p "$state"
+exec 9>"$state/lock"
+attempt=0
+while ! flock -n 9; do
+	[ "$attempt" -lt 20 ] || { log "network helper busy"; exit 1; }
+	attempt=$((attempt + 1))
+	sleep 1
+done
+
+# fw4 holds this lock across its own commits; take it around our rule changes.
+fw_locked=0
+lock_fw4() {
+	[ "$fw_locked" = 0 ] || return 0
+	exec 8>"${HYPER_FW4_LOCK:-/var/run/fw4.lock}" || return 1
+	n=0
+	until flock -n 8; do
+		n=$((n + 1))
+		[ "$n" -lt 10 ] || { exec 8>&-; return 1; }
+		sleep 1
+	done
+	fw_locked=1
+}
+unlock_fw4() {
+	[ "$fw_locked" = 1 ] || return 0
+	flock -u 8
+	exec 8>&-
+	fw_locked=0
+}
+
+owned_table() {
+	nft list table inet hyper 2>/dev/null | grep -Fq "comment \"$note\""
+}
+
+# Handles of our runtime allowances in a fw4 chain.
+owned_handles() {
+	nft -a list chain inet fw4 "$1" 2>/dev/null | awk -v token="$note-$1" '
+		index($0, "comment \"" token "\"") && $(NF-1) == "handle" && $NF ~ /^[0-9]+$/ { print $NF }'
+}
+
+# dnsmasq conf-dirs from the generated runtime configs (one per instance).
+dns_dirs() {
+	for conf in "$dnsconf"/dnsmasq.conf.*; do
+		[ -r "$conf" ] || continue
+		awk -F= '/^conf-dir=/ { sub(/,.*/, "", $2); print $2 }' "$conf"
+	done | sort -u
+}
+valid_dir() {
+	case "$1" in /tmp/*|/var/*) ;; *) return 1 ;; esac
+	case "$1" in */../*|*/..|*' '*) return 1 ;; esac
+	[ -d "$1" ] && [ ! -L "$1" ]
+}
+
+# A managed interface that is down (a guest Wi-Fi switched off) is skipped so the others are
+# still taken over; once it comes up, missing-lans names it and hyperd restarts the takeover.
+lan_devices() {
+	for net in $HYPER_LAN_NETWORKS; do
+		case "$net" in ''|*[!A-Za-z0-9_]*) return 1 ;; esac
+		dev=$(ubus call "network.interface.$net" status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null) || continue
+		case "$dev" in ''|lo|*[!A-Za-z0-9_.-]*) continue ;; esac
+		ip link show "$dev" >/dev/null 2>&1 || continue
+		echo "$dev"
+	done
+}
+
+# As in OpenClash, dnsmasq caches nothing and forwards nowhere else while it
+# forwards to the core: a cached fake-ip answer outliving the core's mapping would point
+# devices at an address nothing serves, and dnsmasq would keep asking the DNS forwardings set
+# in LuCI (a public resolver, or SmartDNS / AdGuard Home on another port) next to the core.
+# The changes are uci state: every config_load, the dnsmasq init script's too, reads
+# /var/state over /etc/config, yet nothing commits them. A power loss or a sysupgrade loses
+# them, and LuCI keeps showing the user's own settings.
+state_uci() { uci -q -P "${HYPER_UCI_STATE:-/var/state}" "$@"; }
+nl='
+'
+dns_section() {
+	case "$1" in
+	# The default up to OpenWrt 23.05, shared by every instance: it names a section only alone.
+	*/dnsmasq.d)
+		set -- "$dnsconf"/dnsmasq.conf.*
+		[ "$#" = 1 ] && [ -f "$1" ] || return 1
+		sec=${1##*/dnsmasq.conf.}
+		;;
+	*/dnsmasq.*.d) sec=${1##*/dnsmasq.}; sec=${sec%.d} ;;
+	*) return 1 ;;
+	esac
+	case "$sec" in ''|*[!a-zA-Z0-9_]*) return 1 ;; esac
+	[ "$(uci -q get "dhcp.$sec")" = dnsmasq ] && echo "$sec"
+}
+# A forwarding for every name: no domain, or the catch-all domain #.
+default_server() {
+	case "$1" in /*) case "${1%/*}/" in */#/*) ;; *) return 1 ;; esac ;; esac
+}
+dhcp_takeover() {
+	while IFS= read -r dir; do
+		sec=$(dns_section "$dir") || continue
+		state_uci set "dhcp.$sec.cachesize=0" || return 1
+		# Forwardings for single domains stay. The option is rewritten whole, list or plain value.
+		servers=$(state_uci -d "$nl" get "dhcp.$sec.server") || continue
+		kept=; aside=0
+		while IFS= read -r server; do
+			[ -n "$server" ] || continue
+			if default_server "$server"; then aside=1; else kept="$kept$server$nl"; fi
+		done <<-SERVERS
+		$servers
+		SERVERS
+		[ "$aside" = 1 ] || continue
+		state_uci delete "dhcp.$sec.server" || return 1
+		while IFS= read -r server; do
+			[ -z "$server" ] || state_uci add_list "dhcp.$sec.server=$server" || return 1
+		done <<-SERVERS
+		$kept
+		SERVERS
+	done <"$state/dns"
+}
+# Sets reload_dns=1 when dnsmasq has to load its settings again.
+dhcp_restore() {
+	before=$(state_uci -X show dhcp) || return 0
+	for sec in $(printf '%s\n' "$before" | sed -n 's/^dhcp\.\([A-Za-z0-9_]*\)=dnsmasq$/\1/p'); do
+		state_uci revert "dhcp.$sec.cachesize" && state_uci revert "dhcp.$sec.server" || return 1
+	done
+	[ "$before" = "$(state_uci -X show dhcp)" ] || reload_dns=1
+	legacy_restore
+}
+# Development builds kept the size the user chose next to cachesize=0 in /etc/config,
+# committed from a save directory of their own.
+dhcp_uci() { mkdir -p "$state/uci" && uci -q -t "$state/uci" "$@"; }
+legacy_restore() {
+	dhcp_uci -X show dhcp 2>/dev/null | grep -q '^dhcp\.[A-Za-z0-9_]*\.hyper_cachesize=' || return 0
+	for entry in $(dhcp_uci -X show dhcp | sed -n "s/^dhcp\.\([A-Za-z0-9_]*\)\.hyper_cachesize='\([0-9-]*\)'$/\1=\2/p"); do
+		sec=${entry%%=*}; old=${entry#*=}
+		case "$old" in
+		''|*[!0-9]*) dhcp_uci delete "dhcp.$sec.cachesize" || : ;;
+		*) dhcp_uci set "dhcp.$sec.cachesize=$old" || return 1 ;;
+		esac
+		dhcp_uci delete "dhcp.$sec.hyper_cachesize" || return 1
+	done
+	dhcp_uci commit dhcp && reload_dns=1
+}
+
+release_dns() {
+	reload_dns=0
+	if [ -f "$state/dns" ]; then
+		while IFS= read -r dir; do
+			valid_dir "$dir" || continue
+			file="$dir/$dnsfile"
+			if [ -f "$file" ] && grep -Fqx "# $note" "$file"; then rm -f "$file"; fi
+		done <"$state/dns"
+		rm -f "$state/dns"
+		reload_dns=1
+	else
+		# Nothing recorded, yet a crash may have left our include or the uci state behind.
+		# Every release (hyperd starts with one) clears them.
+		for dir in $(dns_dirs); do
+			file="$dir/$dnsfile"
+			if valid_dir "$dir" && [ -f "$file" ] && grep -Fqx "# $note" "$file"; then rm -f "$file"; reload_dns=1; fi
+		done
+	fi
+	dhcp_restore || return 1
+	[ "$reload_dns" = 0 ] || "$initd/dnsmasq" restart >/dev/null 2>&1 || return 1
+}
+
+setup_dns() {
+	dns_dirs >"$state/dns.new"
+	[ -s "$state/dns.new" ] || { rm -f "$state/dns.new"; log "no dnsmasq instance"; return 1; }
+	while IFS= read -r dir; do
+		valid_dir "$dir" || { log "unexpected dnsmasq conf-dir $dir"; return 1; }
+	done <"$state/dns.new"
+	mv "$state/dns.new" "$state/dns" || return 1
+	filter_aaaa=0
+	dnsmasq_has filter-AAAA && filter_aaaa=1
+	while IFS= read -r dir; do
+		tmp=$(mktemp "$dir/.hyper.XXXXXX") || return 1
+		{
+			echo "# $note"
+			echo 'no-resolv'
+			echo "server=127.0.0.1#$HYPER_DNS_PORT"
+			# Without IPv6 interception, AAAA answers would send IPv6 traffic around
+			# the proxy; hide them while the takeover is active.
+			# The option is case-sensitive and needs dnsmasq 2.87 or newer; an unknown line stops dnsmasq.
+			if [ "$HYPER_IPV6" != 1 ] && [ "$HYPER_METHOD" != none ] && [ "$filter_aaaa" = 1 ]; then echo 'filter-AAAA'; fi
+		} >"$tmp" || return 1
+		chmod 0644 "$tmp" && mv -f "$tmp" "$dir/$dnsfile" || return 1
+	done <"$state/dns"
+	dhcp_takeover || return 1
+	"$initd/dnsmasq" restart >/dev/null 2>&1
+}
+
+families() { if [ "$HYPER_IPV6" = 1 ]; then echo 4 6; else echo 4; fi; }
+
+release_routes() {
+	[ -f "$state/routes" ] || return 0
+	read -r method table mark tun <"$state/routes" || return 1
+	for f in 4 6; do
+		while ip "-$f" rule del pref "$table" fwmark "$mark/0xffff" table "$table" 2>/dev/null; do :; done
+		if [ "$method" = tun ]; then
+			ip "-$f" route del default dev "$tun" table "$table" 2>/dev/null || :
+		else
+			ip "-$f" route del local default dev lo table "$table" 2>/dev/null || :
+		fi
+	done
+	rm -f "$state/routes"
+}
+
+setup_routes() {
+	for f in $(families); do
+		# Refuse to borrow a policy table someone else uses.
+		if ip "-$f" rule show 2>/dev/null | grep -Eq "^$HYPER_TABLE:"; then log "policy rule $HYPER_TABLE in use"; return 1; fi
+	done
+	echo "$HYPER_METHOD $HYPER_TABLE $HYPER_MARK $HYPER_TUN_NAME" >"$state/routes"
+	if [ "$HYPER_METHOD" = tun ]; then
+		n=0
+		until ip link show "$HYPER_TUN_NAME" >/dev/null 2>&1; do
+			n=$((n + 1))
+			[ "$n" -lt 10 ] || { log "TUN device $HYPER_TUN_NAME missing"; return 1; }
+			sleep 1
+		done
+		ip link set "$HYPER_TUN_NAME" up || return 1
+	fi
+	for f in $(families); do
+		if [ "$HYPER_METHOD" = tun ]; then
+			ip "-$f" route replace default dev "$HYPER_TUN_NAME" table "$HYPER_TABLE" || return 1
+		else
+			ip "-$f" route replace local default dev lo table "$HYPER_TABLE" || return 1
+		fi
+		ip "-$f" rule add pref "$HYPER_TABLE" fwmark "$HYPER_MARK/0xffff" table "$HYPER_TABLE" || return 1
+	done
+}
+
+# The owned table: LAN interception, router self, DNS hijack.
+write_table() {
+	names=""
+	for dev in $devices; do names="$names, \"$dev\""; done
+	names=${names#, }
+	fams=ipv4
+	[ "$HYPER_IPV6" != 1 ] || fams='ipv4, ipv6'
+	mark=$HYPER_MARK
+	if [ "$HYPER_METHOD" = tproxy ]; then
+		capture="meta l4proto { tcp, udp } meta mark set (meta mark & 0xffff0000) | $mark tproxy to :$HYPER_TPROXY_PORT accept"
+	else
+		capture="meta l4proto { tcp, udp } meta mark set (meta mark & 0xffff0000) | $mark"
+	fi
+	echo "table inet hyper {"
+	echo "	comment \"$note\""
+	if [ -n "$HYPER_DIRECT_MACS" ] && [ "$HYPER_LAN_MODE" = except_listed ]; then
+		echo "	set direct_macs { type ether_addr; elements = { $(echo "$HYPER_DIRECT_MACS" | sed 's/ /, /g') } }"
+	fi
+	if [ "$HYPER_LAN_MODE" = listed_only ]; then
+		if [ -n "$HYPER_PROXY_MACS" ]; then
+			echo "	set proxy_macs { type ether_addr; elements = { $(echo "$HYPER_PROXY_MACS" | sed 's/ /, /g') } }"
+		else
+			echo "	set proxy_macs { type ether_addr; }"
+		fi
+	fi
+	# Attached networks, refreshed on interface changes.
+	echo "	set local4 { type ipv4_addr; flags interval; auto-merge; }"
+	echo "	set local6 { type ipv6_addr; flags interval; auto-merge; }"
+	if [ "$HYPER_METHOD" != none ]; then
+		echo "	chain capture {"
+		echo "		$capture"
+		echo "	}"
+		echo "	chain lan {"
+		echo "		type filter hook prerouting priority mangle - 1; policy accept;"
+		if [ "$HYPER_METHOD" = tproxy ] && { [ "$HYPER_ROUTER_SELF" = 1 ] || [ "$HYPER_FAKE_IP" = 1 ]; }; then
+			# Router-originated packets marked in the output chain loop back through lo.
+			echo "		iifname \"lo\" meta mark & 0xffff == $mark meta l4proto { tcp, udp } tproxy to :$HYPER_TPROXY_PORT accept"
+		fi
+		echo "		iifname != { $names } return"
+		echo "		meta nfproto != { $fams } return"
+		# Replies to connections something else opened (port forwards, inbound services) stay untouched.
+		echo "		ct direction reply return"
+		# Time sync stays direct: NTP names keep real addresses and a node without UDP must not stop the clock.
+		echo "		udp dport 123 return"
+		fake_ping
+		echo "		fib daddr type { local, broadcast, multicast } return"
+		echo "		meta l4proto { tcp, udp } th dport 53 return"
+		echo "		ip daddr { $bypass4 } return"
+		echo "		ip6 daddr { $bypass6 } return"
+		echo "		ip daddr @local4 return"
+		echo "		ip6 daddr @local6 return"
+		# Fake addresses only the core can serve, whichever device looked them up: direct
+		# devices get them from dnsmasq too, and the core sends them direct by its device rules.
+		[ "$HYPER_FAKE_IP" != 1 ] || echo "		ip daddr 198.18.0.0/16 goto capture"
+		if [ -n "$HYPER_DIRECT_MACS" ] && [ "$HYPER_LAN_MODE" = except_listed ]; then
+			echo "		ether saddr @direct_macs return"
+		fi
+		[ "$HYPER_LAN_MODE" != listed_only ] || echo "		ether saddr != @proxy_macs return"
+		echo "		goto capture"
+		echo "	}"
+		if [ "$HYPER_ROUTER_SELF" = 1 ] || [ "$HYPER_FAKE_IP" = 1 ]; then
+			echo "	chain mark_local {"
+			echo "		meta l4proto { tcp, udp } meta mark set (meta mark & 0xffff0000) | $mark"
+			echo "	}"
+			echo "	chain local {"
+			echo "		type route hook output priority mangle - 1; policy accept;"
+			# The core's own sockets carry its routing mark and its group (hyper); they never loop.
+			echo "		meta mark & 0xffff == $HYPER_SELF_MARK return"
+			[ "${HYPER_CORE_GID:-0}" = 0 ] || echo "		meta skgid $HYPER_CORE_GID return"
+			echo "		meta nfproto != { $fams } return"
+			# Only connections the router itself opens: replies from LuCI, VPN servers and other inbound services stay direct.
+			echo "		ct direction reply return"
+			fake_ping
+			echo "		fib daddr type { local, broadcast, multicast } return"
+			echo "		meta l4proto { tcp, udp } th dport 53 return"
+			echo "		ip daddr { $bypass4 } return"
+			echo "		ip6 daddr { $bypass6 } return"
+			echo "		ip daddr @local4 return"
+			echo "		ip6 daddr @local6 return"
+			# Fake-ip answers reach the router's own lookups too; only the core serves them.
+			[ "$HYPER_FAKE_IP" != 1 ] || echo "		ip daddr 198.18.0.0/16 goto mark_local"
+			# As in OpenClash, the router's own UDP stays direct: kernel WireGuard
+			# has no socket group to exempt, and Tailscale, ZeroTier, OpenVPN, STUN hole punching,
+			# mwan3 probes and time sync break through a node without UDP.
+			if [ "$HYPER_ROUTER_SELF" = 1 ]; then
+				echo "		meta l4proto tcp goto mark_local"
+			fi
+			echo "	}"
+		fi
+	fi
+	if [ "$HYPER_METHOD" = tproxy ]; then
+		# The transparent listener binds every address; only marked (intercepted) traffic and
+		# the router itself may reach it, never a direct connection from LAN or WAN.
+		echo "	chain listener_guard {"
+		echo "		type filter hook input priority filter - 1; policy accept;"
+		echo "		iifname \"lo\" return"
+		echo "		meta l4proto { tcp, udp } th dport $HYPER_TPROXY_PORT meta mark & 0xffff != $mark reject"
+		echo "	}"
+	fi
+	if [ "$HYPER_DNS_REDIRECT" = 1 ]; then
+		# Devices with a hard-coded resolver still get dnsmasq, hence the core.
+		echo "	chain dns {"
+		echo "		type nat hook prerouting priority dstnat - 1; policy accept;"
+		# Both families even without IPv6 interception: an IPv6 resolver from router
+		# advertisements would otherwise answer with poisoned or AAAA records.
+		echo "		iifname { $names } fib daddr type != local meta l4proto { tcp, udp } th dport 53 redirect to :53"
+		echo "	}"
+	fi
+	echo "}"
+	set_elements local4 "$(local_prefixes 4)"
+	[ "$HYPER_IPV6" != 1 ] || set_elements local6 "$(local_prefixes 6)"
+}
+
+# fw4 loads this copy of the live table with each start, restart and reload of its ruleset
+# (the ruleset-post include), so the takeover survives them inside fw4's own transaction, and
+# repair puts a wiped table back from it. It is taken after every change,
+# under the fw4 lock. A copy nft rejects would stop fw4 from loading anything, the LAN's NAT
+# included, so one that fails the check is dropped instead; the next change tries again.
+replay_save() {
+	{ echo 'table inet hyper'; echo 'delete table inet hyper'; nft -s list table inet hyper; } >"$state/replay.new" &&
+		nft -c -f "$state/replay.new" && mkdir -p "$state/replay" && mv -f "$state/replay.new" "$state/replay/hyper.nft" && return 0
+	log "the table copy for fw4 failed its check and is not replayed"
+	rm -rf "$state/replay" "$state/replay.new"
+}
+
+# Interface changes (PPPoE redial, a new IPv6 prefix) only replace the attached-network sets.
+refresh() {
+	[ -f "$state/owned" ] && owned_table && [ -r "$plan" ] || return 0
+	. "$plan"
+	batch="$state/refresh.nft"
+	{
+		echo 'flush set inet hyper local4'
+		echo 'flush set inet hyper local6'
+		set_elements local4 "$(local_prefixes 4)"
+		[ "$HYPER_IPV6" != 1 ] || set_elements local6 "$(local_prefixes 6)"
+	} >"$batch" || return 1
+	# The fw4 lock keeps a reload out until the replayed copy matches.
+	lock_fw4 || return 1
+	nft -f "$batch" || { unlock_fw4; return 1; }
+	replay_save
+	unlock_fw4
+}
+
+# A firewall stop (fw4 flush), restart or another tool can remove the takeover's rules while
+# the core, routes and DNS stay. Put the same rules back: the table from the replayed copy (on
+# its own while fw4 is stopped; starting fw4 replays it with the allowances) and the fw4
+# allowances. hyperd asks only while the core answers, and limits how often.
+repair() {
+	[ ! -e "$stopping" ] || { log "service stopping"; return 1; }
+	[ -f "$state/owned" ] || { log "no takeover"; return 1; }
+	lock_fw4 || { log "firewall busy"; return 1; }
+	batch="$state/repair.nft"
+	: >"$batch"
+	if ! owned_table; then
+		# A table of that name we do not own is not ours to replace.
+		if nft list table inet hyper >/dev/null 2>&1 || [ ! -s "$state/replay/hyper.nft" ]; then
+			unlock_fw4; log "no table copy to restore"; return 1
+		fi
+		cat "$state/replay/hyper.nft" >>"$batch"
+	fi
+	# fw4 replays the allowances itself; this covers rules deleted by hand.
+	if nft list chain inet fw4 input >/dev/null 2>&1; then
+		for chain in input forward; do
+			file="$state/allow/$chain/rules.nft"
+			[ -s "$file" ] || continue
+			[ "$(owned_handles "$chain" | wc -l)" != "$(wc -l <"$file")" ] || continue
+			for handle in $(owned_handles "$chain"); do echo "delete rule inet fw4 $chain handle $handle"; done
+			while IFS= read -r rule; do printf 'insert rule inet fw4 %s %s\n' "$chain" "$rule"; done <"$file"
+		done >>"$batch"
+	fi
+	changed=0
+	if [ -s "$batch" ]; then
+		nft -f "$batch" || { unlock_fw4; return 1; }
+		changed=1
+	fi
+	rm -f "$batch"
+	unlock_fw4
+	[ "$changed" = 0 ] || echo repaired
+}
+
+# Narrow fw4 allowances, also replayed by fw4 reloads through the chain-pre includes.
+write_allow() {
+	mkdir -p "$state/allow/input" "$state/allow/forward"
+	: >"$state/allow/input/rules.new"
+	: >"$state/allow/forward/rules.new"
+	case "$HYPER_METHOD" in
+	tproxy)
+		printf 'iifname { %s } meta mark & 0xffff == %s accept comment "%s-input"\n' "$names" "$HYPER_MARK" "$note" >>"$state/allow/input/rules.new"
+		;;
+	tun)
+		printf 'iifname { %s } oifname "%s" meta mark & 0xffff == %s accept comment "%s-forward"\n' "$names" "$HYPER_TUN_NAME" "$HYPER_MARK" "$note" >>"$state/allow/forward/rules.new"
+		printf 'iifname "%s" oifname { %s } ct state established,related accept comment "%s-forward"\n' "$HYPER_TUN_NAME" "$names" "$note" >>"$state/allow/forward/rules.new"
+		printf 'iifname "%s" ct state established,related accept comment "%s-input"\n' "$HYPER_TUN_NAME" "$note" >>"$state/allow/input/rules.new"
+		;;
+	esac
+	for chain in input forward; do
+		if [ -s "$state/allow/$chain/rules.new" ]; then
+			mv "$state/allow/$chain/rules.new" "$state/allow/$chain/rules.nft"
+			while IFS= read -r rule; do printf 'insert rule inet fw4 %s %s\n' "$chain" "$rule"; done <"$state/allow/$chain/rules.nft"
+		else
+			rm -f "$state/allow/$chain/rules.new" "$state/allow/$chain/rules.nft"
+		fi
+	done
+}
+
+release_firewall() {
+	# fw4 must stop replaying the table before it goes.
+	rm -rf "$state/replay" "$state/replay.new"
+	rm -f "$state/allow/input/rules.nft" "$state/allow/forward/rules.nft"
+	nft list tables >/dev/null 2>&1 || return 0
+	lock_fw4 || return 1
+	for chain in input forward; do
+		for handle in $(owned_handles "$chain"); do
+			nft delete rule inet fw4 "$chain" handle "$handle" || { unlock_fw4; return 1; }
+		done
+	done
+	if owned_table; then nft delete table inet hyper || { unlock_fw4; return 1; }; fi
+	unlock_fw4
+}
+
+release() {
+	failed=0
+	release_firewall || { failed=1; log "firewall release failed"; }
+	release_routes || { failed=1; log "route release failed"; }
+	release_dns || { failed=1; log "dnsmasq restore failed"; }
+	[ "$failed" = 1 ] || rm -f "$state/owned" "$state/devices"
+	return "$failed"
+}
+
+missing_lans() {
+	[ -f "$state/owned" ] && [ -r "$state/devices" ] && [ -r "$plan" ] || return 0
+	. "$plan"
+	taken=" $(cat "$state/devices") "
+	for dev in $(lan_devices || :); do
+		case "$taken" in *" $dev "*) ;; *) echo "$dev" ;; esac
+	done
+}
+
+up() {
+	[ ! -e "$stopping" ] || { log "service stopping"; return 1; }
+	[ -r "$plan" ] || { log "no plan"; return 1; }
+	. "$plan"
+	# A previous takeover is replaced as a whole.
+	release || return 1
+	if [ -x "$libexec/proxy-conflicts" ]; then "$libexec/proxy-conflicts" || return 1; fi
+	nft list chain inet fw4 input >/dev/null 2>&1 || { log "firewall4 is not active"; return 1; }
+	devices=$(lan_devices) || return 1
+	devices=$(echo $devices)
+	[ -n "$devices" ] || { log "no LAN interface"; return 1; }
+	echo "$devices" >"$state/devices" || return 1
+	names=""
+	for dev in $devices; do names="$names, \"$dev\""; done
+	names=${names#, }
+	batch="$state/transaction.nft"
+	write_table >"$batch" || return 1
+	write_allow >>"$batch" || return 1
+	nft -c -f "$batch" || { log "nft rejected the ruleset"; return 1; }
+	touch "$state/owned" || return 1
+	if [ "$HYPER_METHOD" != none ]; then setup_routes || return 1; fi
+	lock_fw4 || { log "firewall busy"; return 1; }
+	nft -f "$batch" || { unlock_fw4; return 1; }
+	replay_save
+	unlock_fw4
+	setup_dns || return 1
+	owned_table || { log "owned table missing after apply"; return 1; }
+}
+
+case "${1:-}" in
+up)
+	if ! up; then
+		release || :
+		exit 1
+	fi
+	;;
+down|fault) release ;;
+refresh) refresh ;;
+missing-lans) missing_lans ;;
+repair) repair ;;
+*) echo "usage: $0 up | down | fault | refresh | missing-lans | repair" >&2; exit 2 ;;
+esac

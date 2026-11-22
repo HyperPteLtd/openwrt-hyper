@@ -1,0 +1,2 @@
+# Narrow allowances of an active hyper takeover; empty while stopped.
+include "/var/run/hyper/network/allow/forward/*.nft"

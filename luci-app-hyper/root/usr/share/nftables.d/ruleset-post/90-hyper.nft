@@ -1,0 +1,3 @@
+# The live table of an active hyper takeover, so fw4 starts, restarts and reloads keep it;
+# empty while stopped (/usr/libexec/hyper/network replay_save).
+include "/var/run/hyper/network/replay/*.nft"

@@ -3,7 +3,7 @@
 # per CPU and firmware family, named like passwall's releases:
 #   23.05-24.10_luci-app-hyper_<ver>_<arch>.ipk   (24.10 SDK, opkg)
 #   25.12+_luci-app-hyper-<ver>-<arch>.apk        (25.12 SDK, apk-tools 3)
-# Each package bundles the libbox core and hyper-crypt (scripts/stage-binaries.sh).
+# Each package bundles hyperd and the mihomo core (scripts/stage-binaries.sh).
 #
 #   scripts/build-packages.sh [target ...]          default target: x86/64
 #   e.g. scripts/build-packages.sh mediatek/filogic rockchip/armv8
@@ -66,7 +66,7 @@ for target in $TARGETS; do
 	arch="$(curl -fsSL "https://downloads.openwrt.org/releases/$first_release/targets/$target/profiles.json" |
 		node --input-type=module -e 'import { readFileSync } from "node:fs"; const arch = JSON.parse(readFileSync(0, "utf8")).arch_packages; if (typeof arch !== "string" || !arch) throw new Error("profiles.json is missing arch_packages"); console.log(arch)')"
 
-	echo "== $target ($arch): bundle the core and hyper-crypt"
+	echo "== $target ($arch): bundle hyperd and the core"
 	sh "$ROOT/scripts/stage-binaries.sh" "$arch"
 
 	echo "== copy sources into the container"

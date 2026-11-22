@@ -156,7 +156,7 @@ export class DisplayPersistence {
       const display = statusDisplay(saved.value);
       if (!display) return null;
       // These defaults are placeholders only. Controls wait for the first live status.
-      return { ...display, running: false, memory_kb: null, uptime: null, operation: null, api_base: "", health: null, singbox_version: null } as unknown as Status;
+      return { ...display, running: false, memory_kb: null, uptime: null, operation: null, api_base: "", health: null, core_version: null } as unknown as Status;
     } catch { return null; }
   }
 

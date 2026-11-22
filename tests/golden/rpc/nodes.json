@@ -1,0 +1,33 @@
+{
+  "nodes": [
+    {
+      "name": "pp_tokyo",
+      "label": "日本 · 东京 01",
+      "type": "anytls",
+      "country": "JP",
+      "city": null
+    },
+    {
+      "name": "pp_hk",
+      "label": "中国香港 01",
+      "type": "anytls",
+      "country": "HK",
+      "city": null
+    },
+    {
+      "name": "pp_sg",
+      "label": "新加坡 02",
+      "type": "anytls",
+      "country": "SG",
+      "city": null
+    },
+    {
+      "name": "pp_anytls",
+      "label": "日本 · 东京 AnyTLS",
+      "type": "anytls",
+      "country": "JP",
+      "city": null
+    }
+  ],
+  "main_node": "pp_tokyo"
+}

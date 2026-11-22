@@ -1,0 +1,4 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# rpcd exec plugin for the ubus object luci.hyper: `list` and `call METHOD` go to hyperd.
+exec /usr/libexec/hyper/bin/hyperd "$@"

@@ -1,4 +1,4 @@
-/** Shapes returned by luci.hyper (see luci-app-hyper/root/usr/share/rpcd/ucode/luci.hyper) */
+/** Shapes returned by luci.hyper (served by hyperd, see cmd/hyperd; golden shapes in tests/golden/rpc) */
 
 export type Mode = "smart" | "global" | "dns" | "custom";
 
@@ -32,7 +32,7 @@ export interface Status {
   api_base: string;
   sync: SyncState | null;
   health: HealthState | null;
-  singbox_version: string | null;
+  core_version: string | null;
   version: string | null;
   /** last daily update check (luci.hyper check_update) */
   update?: { auto_check: boolean; auto_update?: boolean; checked: number | null; latest: string | null; available: boolean; state?: SoftwareUpdateState | null };
@@ -59,8 +59,6 @@ export interface NodeInfo {
   type: string;
   country?: string;
   city?: string;
-  transport?: string;
-  reality?: boolean;
 }
 
 export interface NodesResult {

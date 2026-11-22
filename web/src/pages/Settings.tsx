@@ -12,6 +12,7 @@ import { serviceText } from "../lib/display";
 import { languagePreference, type LanguagePreference } from "../lib/i18n";
 import { call } from "../lib/rpc";
 import type { Result, SoftwareUpdateState, Status } from "../lib/types";
+import { errorText } from "../lib/errors";
 
 type Config = Record<string, string | null>;
 
@@ -101,7 +102,7 @@ export function Settings() {
       await flushPreferences();
       const r = await call<Result & { started?: boolean; version?: string }>("install_update");
       if (!r.result) {
-        msg.text = r.error === "up_to_date" ? tr("已经是最新版本") : tr("更新失败：{0}", [r.error]);
+        msg.text = r.error === "up_to_date" ? errorText(r.error) : tr("更新失败：{0}", [errorText(r.error, tr("未知原因"))]);
         msg.tone = r.error === "up_to_date" ? "ok" : "error";
         busy.value = "";
         return;
@@ -158,7 +159,7 @@ export function Settings() {
         ? tr("安装失败，请查看日志")
         : !u ? "" : !u.result ? tr("检查更新失败") : hasNew ? tr("发现新版本 {0}", [formatVersion(u.latest)]) : tr("已是最新版本");
   const updateDetail = updateFailed
-    ? serviceText(updateState?.error || u?.error || "")
+    ? errorText(updateState?.error || u?.error)
     : u?.published_at ? tr("发布于 {0}", [u.published_at.slice(0, 10)]) : "";
 
   return (
@@ -174,9 +175,6 @@ export function Settings() {
                 <option value="zh-CN">{tr("简体中文")}</option>
                 <option value="en-US">English</option>
               </select>
-            </Row>
-            <Row title="IPv6" desc={tr("同时代理 IPv6 流量")}>
-              <Switch disabled={disabled} label="IPv6" checked={flag("config.ipv6_support")} onToggle={(on) => set("config.ipv6_support", on ? "1" : "0")} />
             </Row>
             <Row title={tr("路由器自身流量走代理")} desc={tr("比如路由器上的软件更新、节点同步")}>
               <Switch disabled={disabled} label={tr("路由器自身流量走代理")} checked={draft.v["control.proxy_router_self"] !== "0"} onToggle={(on) => set("control.proxy_router_self", on ? "1" : "0")} />

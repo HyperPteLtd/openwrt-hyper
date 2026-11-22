@@ -6,14 +6,25 @@ import { call } from "../lib/rpc";
 import { serviceText } from "../lib/display";
 import { formatLogLine, parseLogs, type LogRecord } from "../lib/logs";
 import "./Logs.css";
+import { errorText } from "../lib/errors";
 
 interface Health {
   service?: { ok: boolean };
   node?: { delay?: number; message?: string } | null;
   dns?: { ok: boolean };
-  direct?: { ok: boolean; ms?: number | null };
-  proxy?: { ok: boolean; ms?: number | null };
+  // Probed through the core while it runs, so the rules pick each route; straight out otherwise.
+  via_core?: boolean;
+  sites?: Record<string, { ok: boolean; ms?: number | null }>;
 }
+
+// Sites on both sides of the rules, mainland first (hyperd healthSites).
+const SITES: { id: string; label: string; host: string }[] = [
+  { id: "baidu", label: tr("百度"), host: "www.baidu.com" },
+  { id: "netease", label: tr("网易云音乐"), host: "music.163.com" },
+  { id: "google", label: "Google", host: "www.google.com" },
+  { id: "youtube", label: "YouTube", host: "www.youtube.com" },
+  { id: "github", label: "GitHub", host: "github.com" },
+];
 
 type LogLevel = "all" | LogRecord["level"];
 const LEVELS: { id: LogLevel; label: string }[] = [
@@ -49,7 +60,7 @@ export function Logs() {
     try {
       const r = await call<{ content?: string; error?: string }>("logs", { type: "combined", lines: 300 });
       if (!active.current || request !== logRequest.current) return;
-      if (r.error) throw new Error(r.error);
+      if (r.error) throw new Error(errorText(r.error));
       content.value = r.content || "";
     } catch (e) {
       if (active.current && request === logRequest.current) msg.value = (e as Error).message;
@@ -85,7 +96,7 @@ export function Logs() {
     output.value = "";
     try {
       const r = await call<{ result: boolean; output?: string; error?: string }>("diag", { type: kind.value, target: target.value.trim(), via: via.value });
-      if (active.current && request === diagRequest.current) output.value = r.error === "illegal target" ? tr("目标只能是域名或 IP 地址") : r.output || r.error || "";
+      if (active.current && request === diagRequest.current) output.value = r.output || errorText(r.error);
     } catch (e) {
       if (active.current && request === diagRequest.current) output.value = (e as Error).message;
     } finally {
@@ -100,7 +111,7 @@ export function Logs() {
     msg.value = "";
     try {
       const r = await call<{ result?: boolean; error?: string }>("log_clean", { type: "combined" });
-      if (r.error || r.result === false) throw new Error(r.error || tr("操作没有成功，请查看日志"));
+      if (r.error || r.result === false) throw new Error(errorText(r.error, tr("操作没有成功，请查看日志")));
       if (active.current) await loadLog();
     } catch (e) {
       if (active.current) msg.value = (e as Error).message;
@@ -114,8 +125,11 @@ export function Logs() {
     { label: tr("服务进程"), ok: h?.service?.ok, detail: h ? (h.service?.ok ? tr("代理服务运行中") : tr("代理服务未运行")) : "" },
     { label: tr("节点连通"), ok: !!h?.node?.delay, detail: h ? (h.node?.delay ? tr("当前节点 {0} ms", [h.node.delay]) : h.node?.message || tr("当前节点无法连通")) : "" },
     { label: tr("DNS 解析"), ok: h?.dns?.ok, detail: h ? (h.dns?.ok ? tr("解析正常") : tr("解析失败")) : "" },
-    { label: tr("国内网站直连"), ok: h?.direct?.ok, detail: h ? (h.direct?.ok ? `www.baidu.com · ${h.direct.ms} ms` : tr("无法访问")) : "" },
-    { label: tr("境外网站经代理"), ok: h?.proxy?.ok, detail: h ? (h.proxy?.ok ? `www.google.com · ${h.proxy.ms} ms` : tr("无法访问")) : "" },
+    ...SITES.map((site) => {
+      const r = h?.sites?.[site.id];
+      const route = h?.via_core ? tr("按规则分流") : tr("直连");
+      return { label: site.label, ok: r?.ok, detail: h ? (r?.ok ? `${site.host} · ${route} · ${r.ms} ms` : `${site.host} · ${tr("无法访问")}`) : "" };
+    }),
   ];
   const records = parseLogs(serviceText(content.value)).filter((record) => level.value === "all" || record.level === level.value);
   const editDiagnostic = () => { diagRequest.current++; running.value = false; output.value = ""; };
@@ -133,7 +147,7 @@ export function Logs() {
               {checks.map((c) => (
                 <li key={c.label}>
                   <span class={`health-indicator ${!h ? "" : c.ok ? "ok" : "failed"}`} aria-label={!h ? tr("未检查") : c.ok ? tr("正常") : tr("异常")}>{!h ? "–" : c.ok ? "✓" : "!"}</span>
-                  <span class="health-copy"><span>{c.label}</span><span class="muted small">{h ? serviceText(c.detail) : tr("等待检查")}</span></span>
+                  <span class="health-copy"><span>{c.label}</span><span class="muted small">{h ? errorText(c.detail) : tr("等待检查")}</span></span>
                 </li>
               ))}
             </ul>

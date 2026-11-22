@@ -2,27 +2,7 @@
 	"luci-app-hyper": {
 		"description": "Grant access to Hyper",
 		"read": {
-			"file": {
-				"/var/run/hyper/hyper.log": [
-					"read"
-				],
-				"/var/run/hyper/sing-box-c.log": [
-					"read"
-				],
-				"/etc/hyper/resources/direct_list.txt": [
-					"read"
-				],
-				"/etc/hyper/resources/proxy_list.txt": [
-					"read"
-				],
-				"/etc/hyper/rules/index.json": [
-					"read"
-				]
-			},
 			"ubus": {
-				"service": [
-					"list"
-				],
 				"luci.hyper": [
 					"status",
 					"nodes",
@@ -39,10 +19,7 @@
 					"sync_status",
 					"task_status"
 				]
-			},
-			"uci": [
-				"hyper"
-			]
+			}
 		},
 		"write": {
 			"ubus": {
@@ -68,10 +45,7 @@
 					"checkin",
 					"latency_cancel"
 				]
-			},
-			"uci": [
-				"hyper"
-			]
+			}
 		}
 	}
 }

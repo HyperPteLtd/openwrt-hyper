@@ -67,7 +67,8 @@ export function reconcileControls(status: Status): void {
   if (app.controlDesired === null || acknowledgedControl === undefined) return;
   const outcome = controlOutcome(status, app.controlDesired, acknowledgedControl);
   if (outcome === "pending") return;
-  if (outcome === "failed") {
+  // A failed operation is told beside the power button, with its reason.
+  if (outcome === "failed" && status.operation?.state !== "failed") {
     app.controlError = tr("服务操作未完成，请查看日志");
   }
   app.controlDesired = null;

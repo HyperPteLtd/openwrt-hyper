@@ -3,7 +3,6 @@ import { useSignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import { app } from "../lib/app";
 import { formatAgo, latencyTone } from "../lib/format";
-import { serviceText } from "../lib/display";
 import { acknowledgeNode, nodeSelection, selectNode } from "../lib/node-selection";
 import { NodeProbe, type ProbeProgress, type ProbeReply } from "../lib/node-probe";
 import { nodeLabel, nodeRegion, regionFlag, regionName } from "../lib/regions";
@@ -11,6 +10,7 @@ import { beginNodeMeasurement, call, readNodeLatency } from "../lib/rpc";
 import type { NodeMeasurements } from "../lib/node-latency";
 import type { NodeInfo, NodesResult, Result, SyncState } from "../lib/types";
 import { Card } from "./ui";
+import { errorText } from "../lib/errors";
 
 const TONE: Record<string, string> = { good: "var(--good)", warn: "var(--warn)", none: "#8e8e93" };
 
@@ -97,7 +97,7 @@ export function NodeList() {
         if (!mounted.current) return;
         r = await call<SyncReply>("sync_status");
       }
-      if (!r.result) message.value = tr("更新失败：{0}", [r.state?.msg || r.state?.error || tr("未知原因")]);
+      if (!r.result) message.value = tr("更新失败：{0}", [r.state?.msg || errorText(r.state?.error, tr("未知原因"))]);
       await load(true);
     } catch (e) {
       message.value = (e as Error).message;
@@ -155,7 +155,7 @@ export function NodeList() {
       </div>
 
       {probing.value.running && <p class="muted small" role="status">{tr("测速中 {0}/{1}", [probing.value.completed, probing.value.total])}</p>}
-      {(message.value || nodeSelection.value.error) && <div class="banner">{serviceText(message.value || nodeSelection.value.error)}</div>}
+      {(message.value || nodeSelection.value.error) && <div class="banner">{errorText(message.value || nodeSelection.value.error)}</div>}
 
       <div class="node-list">
         {list.length ? (

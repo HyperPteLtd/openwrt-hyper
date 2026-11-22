@@ -17,6 +17,7 @@ import { TrafficChart, type TrafficSample } from "../components/TrafficChart";
 import "./Overview.css";
 import { liveUptime, operationPending } from "../lib/service";
 import type { Mode, Traffic } from "../lib/types";
+import { errorText } from "../lib/errors";
 
 /* Real counter samples every 3 seconds, displayed over the last minute. */
 const POLL_MS = 3000;
@@ -27,14 +28,12 @@ const MODES = [
   { id: "dns", label: tr("仅 DNS 保护"), desc: tr("只加密 DNS 查询，防劫持和污染；其他流量直连") },
 ] as const;
 const RUNTIME_MODES = [
-  { id: "redirect_tproxy", label: tr("TProxy（推荐）") },
-  { id: "redirect", label: tr("Redirect（仅 TCP）") },
-  { id: "redirect_tun", label: "Redirect + TUN" },
+  { id: "tproxy", label: tr("TProxy（推荐）") },
   { id: "tun", label: "TUN" },
 ];
 
 export function Overview() {
-  const runtimeMode = useSignal("redirect_tproxy");
+  const runtimeMode = useSignal("tproxy");
   const runtimeLoaded = useSignal(false);
   useAutosave(configWrites);
   const clock = useSignal(performance.now());
@@ -48,7 +47,7 @@ export function Overview() {
     const pending = configWrites.value;
     const apply = (result: { config: Record<string, string | null> }) => {
       if (disposed) return;
-      if (revision === configWrites.revision) runtimeMode.value = configWrites.value?.["config.proxy_mode"] ?? pending?.["config.proxy_mode"] ?? result.config["config.proxy_mode"] ?? "redirect_tproxy";
+      if (revision === configWrites.revision) runtimeMode.value = configWrites.value?.["config.proxy_mode"] ?? pending?.["config.proxy_mode"] ?? result.config["config.proxy_mode"] ?? "tproxy";
       runtimeLoaded.value = true;
     };
     void call<{ config: Record<string, string | null> }>("get_config", {}, { onUpdate: apply }).then(apply).catch((error: Error) => { if (!disposed) message.value = error.message; });
@@ -56,7 +55,7 @@ export function Overview() {
   }, []);
 
   /*
-   * Poll clash_api totals every 3 s (only while the page is visible) and turn
+   * Poll the core's traffic totals every 3 s (only while the page is visible) and turn
    * the deltas into a rate + sparkline. per_source: false skips the per-device
    * sums the overview does not show.
    */
@@ -132,7 +131,7 @@ export function Overview() {
             </p>
           </div>
           {live && (failed || (s.operation?.state === "failed" && !pending)) && (
-            <div class="banner">{tr("服务操作未完成，请查看日志")} <a href="#/diagnostics" style={{ color: "#fff" }}>{tr("查看日志 ›")}</a>
+            <div class="banner">{s.operation?.state === "failed" && s.operation.error ? tr("{0}，请查看日志", [errorText(s.operation.error)]) : tr("服务操作未完成，请查看日志")} <a href="#/diagnostics" style={{ color: "#fff" }}>{tr("查看日志 ›")}</a>
             </div>
           )}
           <div class="connection-controls">

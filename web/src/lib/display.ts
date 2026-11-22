@@ -28,7 +28,7 @@ export function productText(text: string): string {
 
 /** Product terminology for diagnostic output; the underlying logs stay intact. */
 export function serviceText(text: string): string {
-  return productText(text).replace(/sing[-_]?box(?:-c)?/gi, tr("代理服务"))
+  return productText(text).replace(/mihomo/gi, tr("代理服务"))
     .replace(/no_subscription/g, tr("尚未开通套餐"))
     .replace(/subscription_token/g, tr("节点访问凭证"))
     .replace(/subscriptions?/gi, tr("节点配置"))

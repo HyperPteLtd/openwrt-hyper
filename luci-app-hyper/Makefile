@@ -1,32 +1,32 @@
-# SPDX-License-Identifier: GPL-2.0-only
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Copyright (C) 2022-2023 ImmortalWrt.org
 # Copyright (C) 2026 Hyper Pte. Ltd.
 
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=Hyper for OpenWrt
-# One package per CPU: it bundles the libbox sing-box core and hyper-crypt in
-# /usr/libexec/hyper/bin, which scripts/stage-binaries.sh puts under root/ before
-# the build. luci.mk makes every app without a src/Makefile "all"
-# (LUCI_PKGARCH?=...all), so the package arch is set to the target's here.
+# One package per CPU: it bundles hyperd and the mihomo core in /usr/libexec/hyper/bin,
+# which scripts/stage-binaries.sh puts under root/ before the build. luci.mk makes every
+# app without a src/Makefile "all" (LUCI_PKGARCH?=...all), so the arch is set here.
 LUCI_PKGARCH:=$(ARCH_PACKAGES)
-# luci-base / rpcd-mod-ucode run the UI and the
-# luci.hyper backend; the last three dependencies are sing-box's own. All exist
-# from OpenWrt 23.05 on (ucode-mod-digest does not, hence scripts/md5.uc).
+# rpcd runs `hyperd` as the luci.hyper exec plugin; the network helper needs fw4 with
+# TProxy, the TUN driver, full iproute2 (policy rules), flock and jsonfilter. All exist
+# from OpenWrt 23.05 on. dnsmasq (or dnsmasq-full) ships with every image.
 LUCI_DEPENDS:= \
 	+luci-base \
-	+rpcd-mod-ucode \
+	+rpcd \
+	+jsonfilter \
 	+firewall4 \
 	+kmod-nft-tproxy \
+	+kmod-tun \
+	+ip-full \
+	+flock \
 	+curl \
-	+ca-bundle \
-	+kmod-inet-diag \
-	+kmod-tun
+	+ca-bundle
 
 PKG_NAME:=luci-app-hyper
 PKG_VERSION:=0.1.0
-PKG_LICENSE:=GPL-2.0-only
+PKG_LICENSE:=GPL-3.0-or-later
 
 # htdocs/luci-static/hyper/ is a Vite build (ES modules, already minified).
 # LuCI's jsmin / csstidy predate template literals and modern CSS and would
@@ -38,7 +38,8 @@ define Package/luci-app-hyper/conffiles
 /etc/config/hyper
 /etc/hyper/session
 /etc/hyper/checkin.json
-/etc/hyper/ruleset/
+/etc/hyper/nodes.json
+/etc/hyper/rules/
 /etc/hyper/resources/direct_list.txt
 /etc/hyper/resources/proxy_list.txt
 endef

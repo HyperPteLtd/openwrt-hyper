@@ -15,19 +15,15 @@ permissions:
 concurrency:
   group: ${{ github.ref == 'refs/heads/main' && 'openwrt-main' || format('ci-{0}', github.run_id) }}
 
-env:
-  # Host ucode for the fast tests, pinned so an upstream change cannot break CI
-  # (install-test runs the same tests on each firmware's own ucode)
-  UCODE_REF: a2c42eac6369a0bba0315007c7dc7b7130275340
-
 jobs:
   test:
-    name: Tests (ucode, hyper-crypt, renders)
+    name: Tests (hyperd, scripts, core renders)
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     outputs:
       release_tag: ${{ steps.release-version.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: ${{ github.ref == 'refs/heads/main' && '0' || '1' }}
 
@@ -37,7 +33,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: sh scripts/release/validate-tag.sh "$RELEASE_TAG"
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -52,24 +48,24 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Install build deps
-        run: sudo apt-get update && sudo apt-get install -y cmake libjson-c-dev pkg-config nftables
+        run: sudo apt-get update && sudo apt-get install -y nftables
 
-      - name: Build ucode (host)
+      # GPL-2.0-only HomeProxy code is gone; nothing may bring it back.
+      - name: No HomeProxy-derived files
         run: |
-          git init -q /tmp/ucode
-          git -C /tmp/ucode fetch -q --depth 1 https://github.com/jow-/ucode.git "$UCODE_REF"
-          git -C /tmp/ucode checkout -q FETCH_HEAD
-          cmake -S /tmp/ucode -B /tmp/ucode/build -DCMAKE_BUILD_TYPE=Release \
-            -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DRTNL_SUPPORT=OFF \
-            -DNL80211_SUPPORT=OFF -DDEBUG_SUPPORT=OFF -DFFI_SUPPORT=OFF -DDIGEST_SUPPORT=OFF \
-            -DZLIB_SUPPORT=OFF -DSERIAL_SUPPORT=OFF
-          make -C /tmp/ucode/build -j"$(nproc)"
+          if git grep -nI 'ImmortalWrt.org' -- .; then
+            echo "::error::ImmortalWrt.org found in the repository"; exit 1
+          fi
 
-      - name: ucode tests
+      - name: Script tests
         run: |
-          node --test tests/build_scripts.test.mjs tests/stage_binaries.test.mjs
+          node --test tests/build_scripts.test.mjs tests/stage_binaries.test.mjs tests/proxy_conflicts.test.mjs
           node scripts/bundled-rules.mjs
-          UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/run.sh
+
+      # Real nftables and iproute2 in a throwaway network namespace (root: the runner
+      # restricts unprivileged user namespaces).
+      - name: Network helper
+        run: sudo sh tests/network_test.sh
 
       - name: Read the core build settings
         id: go-toolchain
@@ -81,26 +77,25 @@ jobs:
 
       - name: Restore the exact core binaries
         id: core-cache
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/core
-          key: router-core-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-toolchain.outputs.target }}-${{ hashFiles('scripts/core.lock', 'scripts/stage-binaries.sh', 'hyper-crypt/**') }}
+          key: router-core-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-toolchain.outputs.target }}-${{ hashFiles('scripts/core.lock', 'scripts/stage-binaries.sh', 'scripts/mihomo-trim.mjs', 'go.mod', 'go.sum', 'cmd/**', 'internal/**') }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: ${{ steps.go-toolchain.outputs.version }}
           cache-dependency-path: |
-            hyper-crypt/go.*
+            go.sum
             scripts/core.lock
 
-      - name: hyper-crypt tests
-        working-directory: hyper-crypt
+      - name: hyperd tests
         run: |
-          test -z "$(gofmt -l .)"
+          test -z "$(gofmt -l cmd internal)"
           go vet ./...
-          go test ./...
+          go test -race ./...
 
-      - name: Build the amd64 core and hyper-crypt
+      - name: Build the amd64 core and hyperd
         if: steps.core-cache.outputs.cache-hit != 'true'
         run: OUT_DIR=/tmp/core sh scripts/stage-binaries.sh x86_64
 
@@ -108,13 +103,22 @@ jobs:
       # with both SDK builds only after the real core startup tests pass.
       - name: Validate and start the bundled core
         run: |
-          /tmp/core/sing-box version
-          PATH="/tmp/core:$PATH" UCODE=/tmp/ucode/build/ucode UCODE_LIB=/tmp/ucode/build sh tests/render_test.sh
+          /tmp/core/mihomo -v
+          /tmp/core/hyperd version
+          MIHOMO=/tmp/core/mihomo sh tests/render_test.sh
+
+      # The real hyperd, mihomo and network helper together: takeover, fail open when the
+      # core dies, restore when it returns, release on stop. As real root, so the core's
+      # identity (root in the core group alone, as OpenClash's) and limits are checked too.
+      - name: End-to-end
+        run: |
+          HYPER_E2E_ROOT=1 HYPERD=/tmp/core/hyperd MIHOMO=/tmp/core/mihomo sh tests/e2e_test.sh
+          HYPER_E2E_ROOT=1 E2E_METHOD=tun HYPERD=/tmp/core/hyperd MIHOMO=/tmp/core/mihomo sh tests/e2e_test.sh
 
       - name: Archive the tested core binaries
-        run: tar -C /tmp/core -cf "$RUNNER_TEMP/core.tar" sing-box hyper-crypt
+        run: tar -C /tmp/core -cf "$RUNNER_TEMP/core.tar" mihomo hyperd
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: core-${{ steps.go-toolchain.outputs.target }}
           path: ${{ runner.temp }}/core.tar
@@ -124,10 +128,11 @@ jobs:
   web:
     name: Build and test the web UI
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -140,7 +145,7 @@ jobs:
           npm --prefix web test
           npm --prefix web run build
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: web-ui
           path: luci-app-hyper/htdocs/luci-static/hyper/
@@ -149,6 +154,7 @@ jobs:
   cores:
     name: Core ${{ matrix.arch }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -162,7 +168,7 @@ jobs:
           - riscv64_generic
           - loongarch64_generic
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Read the core build settings
         id: go-toolchain
@@ -176,22 +182,22 @@ jobs:
 
       - name: Restore the exact core binaries
         id: core-cache
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/core
-          key: router-core-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-toolchain.outputs.target }}-${{ hashFiles('scripts/core.lock', 'scripts/stage-binaries.sh', 'hyper-crypt/**') }}
+          key: router-core-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.go-toolchain.outputs.target }}-${{ hashFiles('scripts/core.lock', 'scripts/stage-binaries.sh', 'scripts/mihomo-trim.mjs', 'go.mod', 'go.sum', 'cmd/**', 'internal/**') }}
 
       # A final-binary hit needs no Go toolchain or module cache download. Cold
       # builds retain the shared Go cache rather than storing seven large copies.
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         if: steps.core-cache.outputs.cache-hit != 'true'
         with:
           go-version: ${{ steps.go-toolchain.outputs.version }}
           cache-dependency-path: |
-            hyper-crypt/go.*
+            go.sum
             scripts/core.lock
 
-      - name: Build the core and hyper-crypt
+      - name: Build the core and hyperd
         if: steps.core-cache.outputs.cache-hit != 'true'
         env:
           MATRIX_ARCH: ${{ matrix.arch }}
@@ -199,11 +205,11 @@ jobs:
 
       - name: Archive the core binaries
         run: |
-          test -x /tmp/core/sing-box
-          test -x /tmp/core/hyper-crypt
-          tar -C /tmp/core -cf "$RUNNER_TEMP/core.tar" sing-box hyper-crypt
+          test -x /tmp/core/mihomo
+          test -x /tmp/core/hyperd
+          tar -C /tmp/core -cf "$RUNNER_TEMP/core.tar" mihomo hyperd
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: core-${{ steps.go-toolchain.outputs.target }}
           path: ${{ runner.temp }}/core.tar
@@ -214,12 +220,16 @@ jobs:
     name: Build ${{ matrix.arch }}
     needs: [test, web, cores]
     runs-on: ubuntu-24.04
+    # Builds take a few minutes. A stalled SDK pull takes four bounded attempts and their
+    # pauses (about 15 minutes), a stalled feed update three (about 16): room for either and
+    # the rest of the run, so a stall fails as a retried download, not a job timeout.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         # <package arch>-<OpenWrt SDK>. Like passwall's releases, each entry gives ONE
         # package for that CPU: the 24.10 SDK builds the 23.05-24.10 .ipk, the 25.12
-        # SDK the 25.12+ .apk. The package bundles the libbox core and hyper-crypt.
+        # SDK the 25.12+ .apk. The package bundles hyperd and the mihomo core.
         # SDK images: ghcr.io/openwrt/sdk:<arch>-<release> (every tag below exists);
         # scripts/build-packages.sh does the same locally. CI shares the web UI
         # and seven binary profiles across these 22 SDK packages. riscv64 is
@@ -248,7 +258,7 @@ jobs:
           - riscv64_generic-25.12.6
           - loongarch64_generic-25.12.6
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set the package version for the release
         env:
@@ -266,12 +276,12 @@ jobs:
           target="$(sh scripts/stage-binaries.sh --target-id "${MATRIX_ARCH%-*}")"
           echo "id=$target" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: web-ui
           path: luci-app-hyper/htdocs/luci-static/hyper/
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: core-${{ steps.core-target.outputs.id }}
           path: ${{ runner.temp }}/core-artifact
@@ -280,8 +290,8 @@ jobs:
         run: |
           mkdir -p luci-app-hyper/root/usr/libexec/hyper/bin
           tar -xf "$RUNNER_TEMP/core-artifact/core.tar" -C luci-app-hyper/root/usr/libexec/hyper/bin
-          test -x luci-app-hyper/root/usr/libexec/hyper/bin/sing-box
-          test -x luci-app-hyper/root/usr/libexec/hyper/bin/hyper-crypt
+          test -x luci-app-hyper/root/usr/libexec/hyper/bin/mihomo
+          test -x luci-app-hyper/root/usr/libexec/hyper/bin/hyperd
           test -f luci-app-hyper/htdocs/luci-static/hyper/index.html
 
       - name: Build package
@@ -294,6 +304,13 @@ jobs:
           output="$RUNNER_TEMP/sdk-artifacts"
           sudo install -d -o 1000 -g 1000 "$output"
           epoch="$(git log -1 --format=%ct)"
+          # The SDK pull is retried, each attempt bounded at three minutes so a stalled one is
+          # retried instead of running into the job's timeout; the build itself never is.
+          for wait in 10 20 40 0; do
+            timeout -k 30 180 docker pull --platform linux/amd64 "ghcr.io/openwrt/sdk:$MATRIX_ARCH" && break
+            [ "$wait" -gt 0 ] || exit 1
+            sleep "$wait"
+          done
           docker run --rm --platform linux/amd64 --entrypoint /bin/sh \
             -e SOURCE_DATE_EPOCH="$epoch" \
             -v "$GITHUB_WORKSPACE:/feed:ro" \
@@ -313,7 +330,7 @@ jobs:
             name="$(basename "$f")"
             out="dist/$(sh scripts/package-name.sh "$name" "$family" "$pkg_arch")"
             case "$name" in
-              *.ipk) tar -xzOf "$f" --wildcards '*data.tar.gz' | tar -tzf - | grep -q 'usr/libexec/hyper/bin/sing-box$' \
+              *.ipk) tar -xzOf "$f" --wildcards '*data.tar.gz' | tar -tzf - | grep -q 'usr/libexec/hyper/bin/mihomo$' \
                        || { echo "::error::$name does not contain the bundled core"; exit 1; }
                      # the core inside is for one CPU: an "all" package would install anywhere
                      arch="$(tar -xzOf "$f" --wildcards '*control.tar.gz' | tar -xzOf - --wildcards '*/control' | sed -n 's/^Architecture: //p')"
@@ -325,15 +342,16 @@ jobs:
           ls -la dist
           [ "$(ls dist | wc -l)" -eq 1 ] || { echo "::error::expected exactly one package"; exit 1; }
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages-${{ matrix.arch }}
           path: dist/*
           compression-level: 0
 
   # Install the packages on the oldest and newest firmware of each family (rootfs
-  # from downloads.openwrt.org) and rerun the tests on that userland: the
-  # dependencies resolve, the bundled programs run, rpcd serves luci.hyper.
+  # from downloads.openwrt.org) and test on that userland: the dependencies resolve,
+  # the bundled programs run, the upgrade migration works, rpcd serves luci.hyper
+  # through hyperd, and the network rules load on the firmware's nftables.
   # Both CPUs run natively. QEMU user-mode cannot exercise every Linux socket
   # option used by the routing marks in the core startup test.
   # armsr/armv8 uses the same arm64 core as every aarch64_* package.
@@ -341,6 +359,10 @@ jobs:
     name: Install on OpenWrt ${{ matrix.release }} (${{ matrix.cpu }})
     needs: build
     runs-on: ${{ matrix.cpu == 'aarch64_generic' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    # Runs take a few minutes. A stalled rootfs download takes five bounded attempts and
+    # their pauses (about 11 minutes) before it fails, and the package feeds are retried
+    # too (router-test.sh): room for both and the rest of the run.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -352,9 +374,9 @@ jobs:
           - { release: 24.10.8, cpu: aarch64_generic, target: armsr/armv8, platform: linux/arm64, packages: packages-aarch64_generic-24.10.8 }
           - { release: 25.12.6, cpu: aarch64_generic, target: armsr/armv8, platform: linux/arm64, packages: packages-aarch64_generic-25.12.6 }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.packages }}
           path: pkg
@@ -364,9 +386,13 @@ jobs:
           RELEASE: ${{ matrix.release }}
           TARGET: ${{ matrix.target }}
           PLATFORM: ${{ matrix.platform }}
+        # Retried (to a file, so a retry never feeds docker a torn stream): one failed
+        # download should not hold back the release. The rootfs is a few MB; each attempt is
+        # bounded at two minutes so a stalled one is retried within the job's timeout.
         run: |
-          curl -fsSL "https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/openwrt-$RELEASE-${TARGET//\//-}-rootfs.tar.gz" |
-            docker import --platform "$PLATFORM" - "openwrt-rootfs:$RELEASE"
+          curl -fsSL --retry 4 --retry-delay 10 --retry-all-errors --max-time 120 -o "$RUNNER_TEMP/rootfs.tar.gz" \
+            "https://downloads.openwrt.org/releases/$RELEASE/targets/$TARGET/openwrt-$RELEASE-${TARGET//\//-}-rootfs.tar.gz"
+          docker import --platform "$PLATFORM" "$RUNNER_TEMP/rootfs.tar.gz" "openwrt-rootfs:$RELEASE"
 
       - name: Install the package and run the tests
         env:
@@ -379,6 +405,7 @@ jobs:
     if: needs.test.outputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
     needs: [test, build, install-test]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
     concurrency:
@@ -386,7 +413,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ needs.test.outputs.release_tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check the release target
         id: release-target
@@ -394,7 +421,7 @@ jobs:
 
       # One directory per build: merged into one folder, two packages with the
       # same name would overwrite each other without a word (v0.1.0 lost ten ipks).
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.release-target.outputs.publish == 'true'
         with:
           path: built
@@ -420,7 +447,7 @@ jobs:
         if: steps.release-target.outputs.publish == 'true'
         run: sh scripts/release/check-target.sh
 
-      - uses: softprops/action-gh-release@v3
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         if: steps.publish-target.outputs.publish == 'true'
         with:
           tag_name: ${{ env.RELEASE_TAG }}

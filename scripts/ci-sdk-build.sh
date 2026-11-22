@@ -20,7 +20,7 @@ export SOURCE_DATE_EPOCH
 [ -f "$feed/luci-app-hyper/htdocs/luci-static/hyper/index.html" ] || {
 	echo 'Stage the built web app before running the SDK' >&2; exit 1;
 }
-for binary in sing-box hyper-crypt; do
+for binary in mihomo hyperd; do
 	[ -x "$feed/luci-app-hyper/root/usr/libexec/hyper/bin/$binary" ] || {
 		echo "Stage an executable $binary before running the SDK" >&2; exit 1;
 	}
@@ -61,7 +61,18 @@ printf 'src-link hyper %s\n' "$feed" >> feeds.conf
 
 echo '== SDK feeds'
 cat feeds.conf
-./scripts/feeds update base packages luci hyper
+# The feeds are cloned from GitHub: retried (three attempts, each bounded at five minutes
+# where GNU timeout exists, as in the SDK image, so a stalled clone is retried rather than
+# running into the job's timeout), starting afresh after a failed one.
+bound=
+if command -v timeout >/dev/null 2>&1; then bound="timeout -k 30 300"; fi
+n=0
+until $bound ./scripts/feeds update base packages luci hyper; do
+	n=$((n + 1))
+	[ "$n" -lt 3 ] || { echo "feeds unreachable" >&2; exit 1; }
+	rm -rf feeds/base feeds/base.* feeds/packages feeds/packages.* feeds/luci feeds/luci.* feeds/hyper feeds/hyper.*
+	sleep $((${FEEDS_RETRY_PAUSE:-15} * n))
+done
 ./scripts/feeds install -p hyper luci-app-hyper
 
 # The web assets are already built and minified. Preserve the package metadata

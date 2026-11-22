@@ -1,0 +1,80 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Enough of OpenWrt's uci for the network helper tests over a flat store ($UCI_STORE, lines
+# "config.section=type" and "config.section.option=value", a list as repeated lines):
+#   -q, -X, -t DIR (changes go straight to the store), -d DELIM (list separator for get),
+#   -P DIR (uci state: changes go to $UCI_STORE.state, which get / show read over the store,
+#   commit never writes and revert drops), get / set / add_list / delete / revert / commit / show.
+# '@dnsmasq[0]' is the section cfg01411c. hyper.config.enabled defaults to 1 (the proxy
+# conflict check asks whether hyper is still enabled).
+store=${UCI_STORE:?set UCI_STORE}
+ops=$store.state
+touch "$store" "$ops"
+state=0 delim=' '
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-q|-X) shift ;;
+	-t) shift 2 ;;
+	-P) state=1; shift 2 ;;
+	-d) delim=$2; shift 2 ;;
+	*) break ;;
+	esac
+done
+cmd=${1:-}; arg=${2:-}
+arg=$(printf '%s' "$arg" | sed 's/@dnsmasq\[0\]/cfg01411c/')
+key=${arg%%=*}
+
+# The store as seen with -P: the state changes replayed over it.
+view() {
+	cp "$store" "$store.view"
+	if [ "$state" = 1 ]; then
+		while IFS= read -r op; do
+			k=${op#* }; k=${k%%=*}
+			case "$op" in
+			"set "*) grep -v "^$k=" "$store.view" >"$store.tmp" || :; printf '%s\n' "${op#set }" >>"$store.tmp"; mv "$store.tmp" "$store.view" ;;
+			"add "*) printf '%s\n' "${op#add }" >>"$store.view" ;;
+			"del "*) grep -v "^$k=" "$store.view" >"$store.tmp" || :; mv "$store.tmp" "$store.view" ;;
+			esac
+		done <"$ops"
+	fi
+	cat "$store.view"
+	rm -f "$store.view"
+}
+change() {
+	if [ "$state" = 1 ]; then echo "$1 $2" >>"$ops"; return; fi
+	case "$1" in
+	set) grep -v "^$key=" "$store" >"$store.tmp" || :; printf '%s\n' "$2" >>"$store.tmp"; mv "$store.tmp" "$store" ;;
+	add) printf '%s\n' "$2" >>"$store" ;;
+	del) grep -v "^$key=" "$store" >"$store.tmp" || :; mv "$store.tmp" "$store" ;;
+	esac
+}
+
+case "$cmd" in
+get)
+	values=$(view | grep -F "$key=" | grep "^$key=" | sed 's/^[^=]*=//') || :
+	if [ -n "$values" ]; then printf '%s\n' "$values" | awk -v d="$delim" 'NR > 1 { printf "%s", d } { printf "%s", $0 } END { print "" }'; exit 0; fi
+	# A section exists when any of its options or its type line does.
+	if view | grep -q "^$key\."; then echo section; exit 0; fi
+	[ "$key" = hyper.config.enabled ] && { echo 1; exit 0; }
+	exit 1
+	;;
+set) change set "$arg" ;;
+add_list) change add "$arg" ;;
+delete)
+	view | grep -q "^$key=" || exit 1
+	change del "$key"
+	;;
+revert)
+	[ "$state" = 1 ] || exit 1
+	grep -v "^[a-z]* $key=" "$ops" | grep -vx "del $key" >"$ops.tmp" || :
+	mv "$ops.tmp" "$ops"
+	;;
+commit)
+	[ "$state" = 1 ] || echo "$arg" >>"$store.commits"
+	;;
+show)
+	# Section types print bare, options quoted (lists one value per line here).
+	view | grep "^$arg\." | sed -e "/^[^.=]*\.[^.=]*=/!s/=\(.*\)$/='\1'/"
+	;;
+*) exit 1 ;;
+esac

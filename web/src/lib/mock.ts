@@ -11,11 +11,11 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const nodes: NodeInfo[] = [
   { name: "pp_jp1", label: "THA 01", type: "anytls", country: "THA" },
   { name: "pp_jp2", label: "日本 · 大阪", type: "anytls", country: "JPN" },
-  { name: "pp_hk1", label: "HKG 01", type: "hysteria2", country: "HKG" },
+  { name: "pp_hk1", label: "HKG 01", type: "anytls", country: "HKG" },
   { name: "pp_sg1", label: "SGP 01", type: "anytls", country: "SGP" },
-  { name: "pp_sg2", label: "新加坡 02", type: "vless", reality: true, country: "SGP" },
+  { name: "pp_sg2", label: "新加坡 02", type: "anytls", country: "SGP" },
   { name: "pp_kr1", label: "韩国 · 首尔", type: "anytls", country: "KOR" },
-  { name: "pp_us1", label: "USA 01", type: "trojan", transport: "ws", country: "USA" },
+  { name: "pp_us1", label: "USA 01", type: "anytls", country: "USA" },
   { name: "pp_de1", label: "DEU 01", type: "anytls", country: "DEU" },
   { name: "pp_gb1", label: "英国 · 伦敦", type: "anytls", country: "GBR" },
 ];
@@ -49,7 +49,7 @@ const state: Status = {
     ...({ traffic_used: "42.6 GB", traffic_total: "不限", countries: ["JPN", "HKG", "SGP", "KOR", "USA", "DEU", "GBR"] } as object),
   },
   health: { state: "ok", failures: 0, time: now() },
-  singbox_version: "1.15.0-alpha.13",
+  core_version: "Mihomo Meta v1.0.0 linux arm64",
   version: "0.1.0",
 };
 let startedAt = Date.now() - (state.uptime || 0) * 1000;
@@ -59,7 +59,7 @@ let operationId = 0;
 let lastCheck: { time: number; latest: string | null } | null = null;
 const MOCK_LATEST = "0.2.0";
 
-/** Like versionCompare() in hyper.uc for plain x.y.z: ignores "v" and "-rN" */
+/** Like update.Compare in hyperd for plain x.y.z: ignores "v" and "-rN" */
 function newer(a: string, b: string): boolean {
   const parts = (v: string) => v.replace(/^v/, "").replace(/-r\d+$/, "").split(".").map(Number);
   const x = parts(a), y = parts(b);
@@ -68,11 +68,9 @@ function newer(a: string, b: string): boolean {
 }
 
 const config: Record<string, string> = {
-  "config.auto_reconnect": "1",
   "control.proxy_router_self": "1",
-  "config.ipv6_support": "0",
   "config.log_level": "warn",
-  "config.proxy_mode": "redirect_tproxy",
+  "config.proxy_mode": "tproxy",
   "config.dns_server": "https://1.1.1.1/dns-query",
   "config.china_dns_server": "223.5.5.5",
   "subscription.auto_update": "1",
@@ -110,7 +108,7 @@ let down = 0;
 let updateState: { state: string; version: string; time: number } | null = null;
 
 const LOG = [
-  "+0800 2026-11-09 11:06:58 INFO router: sing-box started",
+  "+0800 2026-11-09 11:06:58 [DAEMON] mihomo v1.0.0 started (smart, tproxy).",
   "+0800 2026-11-09 11:07:02 INFO outbound/anytls[cfg-pp_jp1-out]: connected",
   "+0800 2026-11-09 11:08:40 WARN outbound/anytls[cfg-pp_de1-out]: latency 156 ms",
   "+0800 2026-11-09 11:12:27 WARN dns: https://8.8.8.8/dns-query timeout, fallback",
@@ -362,7 +360,13 @@ export async function mockCall(method: string, args: Record<string, unknown>): P
       return { result: true, output: `PING ${args.target}: 4 packets transmitted, 4 received, 0% loss\nround-trip min/avg/max = 45.1/46.8/48.2 ms` };
     case "health_check":
       await delay(900);
-      return { service: { ok: state.running }, node: state.running ? { delay: 46 } : null, dns: { ok: true }, direct: { ok: true, ms: 12 }, proxy: { ok: state.running, ms: 210 } };
+      return {
+        service: { ok: state.running }, node: state.running ? { delay: 46 } : null, dns: { ok: true }, via_core: state.running,
+        sites: {
+          baidu: { ok: true, ms: 12 }, netease: { ok: true, ms: 18 }, google: { ok: state.running, ms: state.running ? 210 : null },
+          youtube: { ok: state.running, ms: state.running ? 236 : null }, github: { ok: true, ms: 380 },
+        },
+      };
     case "lan_clients":
       return { clients, lan_proxy_mode: access.mode, direct_macs: access.direct };
     case "set_access_control":

@@ -8,6 +8,7 @@ import { t as tr } from "./i18n";
  * Writes carry an Idempotency-Key, so a repeated click or a retry never creates a second order.
  */
 import { api, type ApiResult } from "./api";
+import { errorText, errorTexts } from "./errors";
 
 export type OrderStatus = "pending" | "paid" | "cancelled" | "expired" | "failed" | "fulfilled";
 export type ActionState = "preparing" | "ready" | "paid" | "cancelled" | "expired" | "failed";
@@ -65,7 +66,7 @@ export const SESSION_RECOVERING = 62030;
 
 export function paymentError(r: ApiResult<unknown>, fallback: string): string {
   if (r.error === "api_unavailable") return tr("暂时无法连接服务，请稍后查看订单状态");
-  if (r.error === "path not allowed") return tr("这个操作在路由器上不可用");
+  if (r.error && Object.hasOwn(errorTexts, r.error)) return errorText(r.error);
   const known = r.code != null ? ERRORS[String(r.code)] : undefined;
   if (known) return known;
   /* server text only when it is short and carries nothing sensitive */

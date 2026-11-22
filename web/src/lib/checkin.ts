@@ -5,6 +5,7 @@ import { t as tr } from "./i18n";
  * its check-in calendar on the phone. Dates are the browser's local dates.
  */
 import { call } from "./rpc";
+import { errorText } from "./errors";
 
 export * from "./calendar";
 
@@ -24,8 +25,5 @@ export function checkIn(date: string) {
 }
 
 export function checkinError(r: CheckinReply): string {
-  if (r.error === "not signed in") return tr("请先登录账户");
-  if (r.error === "illegal date") return tr("这台电脑和路由器的日期相差太多，请先校准时间");
-  if (r.error === "write failed") return tr("路由器存储写入失败，请稍后再试");
-  return r.error || tr("签到失败");
+  return errorText(r.error, tr("签到失败"));
 }

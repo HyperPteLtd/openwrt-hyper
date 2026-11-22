@@ -11,6 +11,7 @@ import { AccountReadCache, CacheInvalidatedError, invalidatedReads, readPolicy, 
 import type { Status } from "./types";
 import { waitForRpcTask, type RpcTaskState } from "./rpc-task";
 import { invalidateAccountWork } from "./account-epoch";
+import { errorText } from "./errors";
 
 type LuciEnv = { sessionid?: string; ubuspath?: string };
 
@@ -93,7 +94,8 @@ async function send<T>(method: string, args: Record<string, unknown>): Promise<T
       () => { if (generation !== reads.generation) throw new CacheInvalidatedError(); });
   } catch (error) {
     if (error instanceof CacheInvalidatedError || error instanceof RpcError) throw error;
-    throw new RpcError((error as Error).message);
+    // A failed task reports a code (task_failed, timeout, illegal target, ...).
+    throw new RpcError(errorText((error as Error).message, tr("操作没有成功，请查看日志")));
   }
 }
 

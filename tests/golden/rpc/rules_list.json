@@ -1,0 +1,32 @@
+{
+  "rules": [
+    {
+      "key": "cn-direct",
+      "policy": "DIRECT",
+      "server_enabled": true,
+      "count": 2,
+      "source": "inline",
+      "stale": false,
+      "enabled": true
+    },
+    {
+      "key": "streaming",
+      "policy": "PROXY",
+      "server_enabled": true,
+      "count": 3,
+      "source": "url",
+      "stale": false,
+      "enabled": true
+    },
+    {
+      "key": "off",
+      "policy": "PROXY",
+      "server_enabled": false,
+      "count": 1,
+      "source": "inline",
+      "stale": false,
+      "enabled": false
+    }
+  ],
+  "applies": true
+}

@@ -4,6 +4,7 @@ import { call } from "./rpc";
 import type { ReadOptions } from "./cache";
 import { locale } from "./i18n";
 import { DEFAULT_SITE_CURRENCY, formatMinorMoney, MINOR_AMOUNT_SCALE, type CurrencyDisplay } from "./currency";
+import { errorText } from "./errors";
 
 export interface ApiResult<T> {
   ok: boolean;
@@ -29,9 +30,7 @@ export async function api<T>(
 }
 
 export function apiError(r: ApiResult<unknown>, fallback = tr("请求失败")): string {
-  if (r.error === "api_unavailable") return tr("暂时无法连接服务，请检查网络后重试");
-  if (r.error === "path not allowed") return tr("这个操作在路由器上不可用");
-  return r.msg || r.error || fallback;
+  return r.msg || errorText(r.error, fallback);
 }
 
 /** Hyper service timestamps are milliseconds in newer builds and seconds in older ones */

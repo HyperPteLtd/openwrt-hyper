@@ -1,0 +1,19 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Hyper Pte. Ltd.
+# Interface changes refresh the attached-network bypass sets, then hyperd re-renders the core
+# config and restarts only if it changed (a new WAN resolver, or the IPv6 uplink appearing or
+# going away) or a managed LAN came up that the takeover skipped. Otherwise open connections stay.
+case "$ACTION" in
+	ifup|ifdown) ;;
+	ifupdate) [ -n "${IFUPDATE_ADDRESSES:-}${IFUPDATE_ROUTES:-}${IFUPDATE_PREFIXES:-}${IFUPDATE_DATA:-}" ] || exit 0 ;;
+	*) exit 0 ;;
+esac
+# Every interface counts: uplinks go by many names (wwan, wan2, 4G modems,
+# the dynamic wan_6 of PPPoE) and carry the IPv6 route, the resolver and attached networks;
+# managed LANs come and go. hyperd ignores events that change nothing it uses.
+[ "$INTERFACE" != loopback ] || exit 0
+[ -e /var/run/hyper/network/owned ] || exit 0
+/usr/libexec/hyper/network refresh >/dev/null 2>&1 || :
+[ -S /var/run/hyper/hyperd.sock ] || exit 0
+/usr/libexec/hyper/bin/hyperd notify-network >/dev/null 2>&1 &

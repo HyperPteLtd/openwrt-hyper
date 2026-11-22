@@ -203,7 +203,7 @@ class SdkFixture {
     write(join(this.sdk, '.config'), 'CONFIG_HAVE_DOT_CONFIG=y\nCONFIG_PACKAGE_luci-app-hyper=m\n');
     write(join(this.package, 'Makefile'), read(join(ROOT, 'luci-app-hyper/Makefile')));
     write(join(this.package, 'htdocs/luci-static/hyper/index.html'), 'app');
-    for (const name of ['sing-box', 'hyper-crypt']) write(join(this.package, 'root/usr/libexec/hyper/bin', name), 'prebuilt', true);
+    for (const name of ['mihomo', 'hyperd']) write(join(this.package, 'root/usr/libexec/hyper/bin', name), 'prebuilt', true);
     shell(join(this.sdk, 'scripts/config.guess'), 'echo x86_64-pc-linux-gnu\n');
     shell(join(this.host, 'fakeroot'), 'exec "$@"\n');
     nodeTool(join(this.host, 'tar'), sdkTarStub);
@@ -272,15 +272,17 @@ class EntryFixture {
     this.package = join(this.feed, 'luci-app-hyper');
     write(join(this.package, 'htdocs/luci-static/hyper/index.html'), 'built web app');
     write(join(this.package, 'Makefile'), 'PKG_VERSION:=0.4.1\nLUCI_DEPENDS:=+curl +firewall4\n');
-    for (const name of ['sing-box', 'hyper-crypt']) shell(join(this.package, 'root/usr/libexec/hyper/bin', name), 'exit 0\n');
+    for (const name of ['mihomo', 'hyperd']) shell(join(this.package, 'root/usr/libexec/hyper/bin', name), 'exit 0\n');
     write(join(this.sdk, 'Makefile'), '# SDK fixture\n');
     write(join(this.sdk, '.config'), 'CONFIG_TARGET_TEST=y\n');
     shell(join(this.sdk, 'scripts/feeds'), 'printf "%s\\n" "$*" >> feed-operations\n');
     shell(join(this.tools, 'id'), 'echo 1000\n');
     shell(join(this.tools, 'make'), ': > configured\n');
     shell(join(this.feed, 'scripts/sdk-package.sh'), 'test -f "$1/configured"\ntest "$PWD" = "$1"\nmkdir -p "$1/bin/packages/test/hyper"\nprintf "%s" "$SOURCE_DATE_EPOCH" > "$1/bin/packages/test/hyper/luci-app-hyper-test.ipk"\n');
-    for (const name of ['mkdir', 'awk', 'cat', 'cp', 'sh']) fs.symlinkSync(which(name), join(this.tools, name));
-    this.env = { ...process.env, PATH: this.tools, FEED_DIR: this.feed, ARTIFACTS_DIR: this.out, SOURCE_DATE_EPOCH: '1794826729' };
+    for (const name of ['mkdir', 'awk', 'cat', 'cp', 'sh', 'rm', 'sleep']) fs.symlinkSync(which(name), join(this.tools, name));
+    // GNU timeout bounds each feed update in the SDK image; developer machines may lack it.
+    try { fs.symlinkSync(which('timeout'), join(this.tools, 'timeout')); } catch { /* runs unbounded */ }
+    this.env = { ...process.env, PATH: this.tools, FEED_DIR: this.feed, ARTIFACTS_DIR: this.out, SOURCE_DATE_EPOCH: '1794826729', FEEDS_RETRY_PAUSE: '0' };
     delete this.env.SDK_DIR;
   }
   feeds(base) {
@@ -319,6 +321,26 @@ test('SDK entry: actual 24/25 feed formats preserve options, revisions and metad
     assert.equal(read(join(f.out, 'bin/packages/test/hyper/luci-app-hyper-test.ipk')), f.env.SOURCE_DATE_EPOCH);
   }
 });
+test('SDK entry: a failed feed update starts afresh, a third failure stops the build', t => {
+  const f = new EntryFixture(t);
+  f.feeds('src-git-full base https://git.openwrt.org/openwrt/openwrt.git;v24.10.8');
+  // The first update leaves a partial clone behind and fails.
+  shell(join(f.sdk, 'scripts/feeds'), 'printf "%s\\n" "$*" >> feed-operations\ncase "$1" in update) if [ ! -e failed-once ]; then : > failed-once; mkdir -p feeds/base/.git; exit 1; fi; test ! -e feeds/base ;; esac\n');
+  success(f.run());
+  assert.deepEqual(read(join(f.sdk, 'feed-operations')).trim().split('\n'), [
+    'update base packages luci hyper', 'update base packages luci hyper', 'install -p hyper luci-app-hyper',
+  ]);
+
+  const g = new EntryFixture(t);
+  g.feeds('src-git-full base https://git.openwrt.org/openwrt/openwrt.git;v24.10.8');
+  shell(join(g.sdk, 'scripts/feeds'), 'printf "%s\\n" "$*" >> feed-operations\nexit 1\n');
+  const result = g.run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /feeds unreachable/);
+  assert.equal(read(join(g.sdk, 'feed-operations')).trim().split('\n').length, 3);
+  assert(!fs.existsSync(join(g.sdk, 'configured')), 'built without feeds');
+});
+
 test('SDK entry: missing required feed fails before build', t => {
   const f = new EntryFixture(t);
   f.feeds('# base feed missing');
@@ -336,7 +358,7 @@ test('SDK entry: commit epoch is required and numeric', t => {
 });
 test('SDK entry: unstaged programs fail before feed operations', t => {
   const f = new EntryFixture(t);
-  for (const name of ['sing-box', 'hyper-crypt']) {
+  for (const name of ['mihomo', 'hyperd']) {
     const binary = join(f.package, 'root/usr/libexec/hyper/bin', name);
     fs.chmodSync(binary, 0o644);
     const result = f.run();

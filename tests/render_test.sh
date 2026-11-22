@@ -1,176 +1,88 @@
 #!/bin/sh
-# Render the router-side generators from a UCI fixture on a PC:
-#   - generate_client.uc -> sing-box config, then `sing-box check` (if sing-box is installed)
-#   - firewall_post.ut   -> nftables rules, with and without proxy_router_self
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Render the core configs (internal/mihomo) and check them with the bundled core:
+#   1. `mihomo -t` on every variant (smart, global, TUN, DNS only, fake-ip, listed_only),
+#      with the packaged .mrs rule sets
+#   2. start the core with the smart and TUN configs in a network namespace: the controller
+#      answers, the rule providers load, the listeners bind
 #
-#   UCODE=... UCODE_LIB=... tests/render_test.sh
-
+#   MIHOMO=/path/to/mihomo tests/render_test.sh      (default: mihomo on PATH)
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-SCRIPTS="$ROOT/luci-app-hyper/root/etc/hyper/scripts"
-UCODE="${UCODE:-ucode}"
-UCODE_LIB="${UCODE_LIB:-/usr/lib/ucode}"
-FIXTURE="$HERE/fixtures/uci-basic.json"
+MIHOMO="${MIHOMO:-$(command -v mihomo || :)}"
+[ -x "$MIHOMO" ] || { echo "FAIL no mihomo binary (set MIHOMO)"; exit 1; }
+MIHOMO="$(cd "$(dirname "$MIHOMO")" && pwd)/$(basename "$MIHOMO")"
+BUILTIN="$ROOT/luci-app-hyper/root/etc/hyper/rule-set"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-SCR="$TMP/scripts"
-mkdir -p "$SCR" "$TMP/run" "$TMP/etc-hyper"
-cp -R "$HERE/fixtures/rules" "$TMP/etc-hyper/rules"
-cp -R "$ROOT/luci-app-hyper/root/etc/hyper/rule-set" "$TMP/etc-hyper/rule-set"
-cp -R "$ROOT/luci-app-hyper/root/etc/hyper/resources" "$TMP/etc-hyper/resources"
-for f in "$SCRIPTS"/*.uc "$SCRIPTS"/*.ut; do
-	sed -e "s#/var/run/hyper#$TMP/run#g" -e "s#/etc/hyper/scripts/#$SCR/#g" \
-	    -e "s#HP_DIR = '/etc/hyper'#HP_DIR = '$TMP/etc-hyper'#" \
-	    -e "s#/sbin/validate_data#$HERE/stubs/validate_data#g" "$f" > "$SCR/$(basename "$f")"
-done
-
-run() {
-	HYPER_UCI_FIXTURE="$1"; shift
-	HYPER_UCI_FIXTURE="$HYPER_UCI_FIXTURE" "$UCODE" -S -L "$HERE/stubs" -L "$SCR" -L "$UCODE_LIB" "$@"
-}
-
 fail=0
-check() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got [$2] want [$3]"; fail=1; fi; }
 
-# sing-box check of a rendered config; on macOS the Linux-only fields are stripped first
-singbox_check() {
-	conf="$1"; what="$2"
-	if ! command -v sing-box >/dev/null 2>&1; then
-		echo "skip sing-box check, $what (sing-box not installed)"
-		return
-	fi
-	check_conf="$conf"
-	if [ "$(uname -s)" != "Linux" ]; then
-		# routing_mark and redirect/tproxy inbounds only exist on Linux
-		check_conf="$TMP/sing-box-host.json"
-		node "$HERE/render_config.mjs" host "$conf" "$check_conf" || fail=1
-	fi
-	if out="$(sing-box check -c "$check_conf" 2>&1)"; then
-		echo "ok   sing-box check, $what ($(sing-box version | head -1)$( [ "$check_conf" = "$conf" ] || echo ', Linux-only fields stripped'))"
+echo "== mihomo -t ($("$MIHOMO" -v | head -1))"
+if (cd "$ROOT" && HYPER_TEST_MIHOMO="$MIHOMO" HYPER_TEST_BUILTIN="$BUILTIN" HYPER_TEST_DUMP="$TMP/dump" \
+	go test -count=1 ./internal/mihomo); then
+	echo "ok   every rendered variant passes mihomo -t"
+else
+	echo "FAIL rendered config rejected by mihomo"; fail=1
+fi
+
+# A network namespace lets the core bind its TProxy socket and TUN device without
+# touching the host. Unprivileged user namespaces first, root otherwise (CI).
+if unshare -rn true 2>/dev/null; then NS="unshare -rn"
+elif sudo -n unshare -n true 2>/dev/null; then NS="sudo -n unshare -n"
+else NS=""; fi
+
+live() {
+	name="$1"; dir="$TMP/dump/$name"
+	[ -f "$dir/config.yaml" ] || { echo "FAIL $name: no rendered config"; fail=1; return; }
+	ctl="$(sed -n 's/^external-controller: //p' "$dir/config.yaml")"
+	secret="$(sed -n 's/^secret: //p' "$dir/config.yaml")"
+	if $NS sh -s "$MIHOMO" "$dir" "$ctl" "$secret" <<'EOF'
+set -u
+ip link set lo up
+"$1" -d "$2" -f "$2/config.yaml" >"$2/run.log" 2>&1 &
+pid=$!
+ok=1
+for _ in $(seq 1 50); do
+	if wget -q -O "$2/version" --header "Authorization: Bearer $4" "http://$3/version" 2>/dev/null ||
+	   curl -fsS -o "$2/version" -H "Authorization: Bearer $4" "http://$3/version" 2>/dev/null; then ok=0; break; fi
+	sleep 0.2
+done
+if [ "$ok" = 0 ]; then
+	# The core loads rule providers after its controller answers: wait for geosite-cn.
+	for _ in $(seq 1 25); do
+		curl -fsS -H "Authorization: Bearer $4" "http://$3/providers/rules" >"$2/providers" 2>/dev/null ||
+			wget -q -O "$2/providers" --header "Authorization: Bearer $4" "http://$3/providers/rules"
+		grep -Eq '"geosite-cn":\{[^}]*"ruleCount":[1-9]' "$2/providers" && break
+		sleep 0.2
+	done
+	cat /proc/net/tcp /proc/net/tcp6 /proc/net/udp /proc/net/udp6 >"$2/sockets" 2>/dev/null
+fi
+kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+exit "$ok"
+EOF
+	then
+		echo "ok   $name: core started, controller answers"
+		count="$(sed -n 's/.*"geosite-cn":{[^}]*"ruleCount":\([0-9]*\).*/\1/p' "$dir/providers")"
+		if [ "${count:-0}" -gt 1000 ]; then echo "ok   $name: bundled geosite-cn loaded ($count rules)"
+		else echo "FAIL $name: geosite-cn not loaded"; fail=1; fi
+		# 5333 = 0x14D5 (DNS), 5332 = 0x14D4 (TProxy) in /proc/net listings
+		if grep -q ':14D5 ' "$dir/sockets"; then echo "ok   $name: DNS listener"; else echo "FAIL $name: no DNS listener"; fail=1; fi
+		if [ "$name" = TestRenderSmart ]; then
+			if grep -q ':14D4 ' "$dir/sockets"; then echo "ok   $name: TProxy listener"; else echo "FAIL $name: no TProxy listener"; fail=1; fi
+		fi
 	else
-		echo "FAIL sing-box check, $what:"; echo "$out" | sed 's/^/     /'; fail=1
+		echo "FAIL $name: core did not start"; sed 's/^/     /' "$dir/run.log" | tail -20; fail=1
 	fi
 }
 
-echo "== generate_client.uc"
-if run "$FIXTURE" "$SCR/generate_client.uc"; then
-	CONF="$TMP/run/sing-box-c.json"
-	node "$HERE/render_config.mjs" basic "$CONF" || fail=1
-	singbox_check "$CONF" "basic fixture"
-	if command -v sing-box >/dev/null 2>&1; then
-		node "$HERE/core_start_test.mjs" "$CONF" || fail=1
-	fi
+echo "== core startup"
+if [ -z "$NS" ]; then
+	echo "skip core startup (needs unprivileged user namespaces or sudo)"
 else
-	echo "FAIL generate_client.uc did not run"; fail=1
+	live TestRenderSmart
+	live TestRenderTUN
 fi
 
-echo "== TUN configuration (current core stack)"
-TUN="$TMP/uci-tun.json"
-node "$HERE/render_config.mjs" fixture-tun "$FIXTURE" "$TUN" || fail=1
-rm -f "$TMP/run/sing-box-c.json"
-if run "$TUN" "$SCR/generate_client.uc"; then
-	CONF="$TMP/run/sing-box-c.json"
-	node "$HERE/render_config.mjs" tun "$CONF" || fail=1
-	singbox_check "$CONF" "TUN"
-else
-	echo "FAIL generate_client.uc with TUN"; fail=1
-fi
-if run "$TUN" -T "$SCR/firewall_post.ut" > "$TMP/fw-tun.nft"; then
-	check "TUN: core connections bypass before interception" "$(sed -n '/^chain hyper_mangle_tun {/{n;p;}' "$TMP/fw-tun.nft" | xargs)" "meta mark 100 counter return"
-else
-	echo "FAIL firewall_post.ut render (TUN)"; fail=1
-fi
-
-echo "== custom DHCP DNS (router build feature)"
-DHCP="$TMP/uci-dhcp.json"
-node "$HERE/render_config.mjs" fixture-dhcp "$FIXTURE" "$DHCP" || fail=1
-rm -f "$TMP/run/sing-box-c.json"
-if run "$DHCP" "$SCR/generate_client.uc"; then
-	CONF="$TMP/run/sing-box-c.json"
-	node "$HERE/render_config.mjs" dhcp "$CONF" || fail=1
-	singbox_check "$CONF" "custom DHCP DNS"
-else
-	echo "FAIL generate_client.uc with custom DHCP DNS"; fail=1
-fi
-
-echo "== share links of every protocol -> snapshot.uc -> generate_client.uc"
-LINKS="$TMP/uci-links.json"
-if summary="$(run "$FIXTURE" "$HERE/links_fixture.uc" "$HERE/fixtures/links.txt" "$FIXTURE" "$LINKS")"; then
-	node "$HERE/render_config.mjs" links-summary "$summary" || fail=1
-	rm -f "$TMP/run/sing-box-c.json"
-	if run "$LINKS" "$SCR/generate_client.uc"; then
-		CONF="$TMP/run/sing-box-c.json"
-		node "$HERE/render_config.mjs" links "$CONF" || fail=1
-		singbox_check "$CONF" "every protocol"
-	else
-		echo "FAIL generate_client.uc with the share-link fixture"; fail=1
-	fi
-else
-	echo "FAIL links_fixture.uc"; fail=1
-fi
-
-echo "== DNS protection only (config.dns_only=1)"
-DNSONLY="$TMP/uci-dnsonly.json"
-node "$HERE/render_config.mjs" fixture-dnsonly "$FIXTURE" "$DNSONLY" || fail=1
-rm -f "$TMP/run/sing-box-c.json"
-if run "$DNSONLY" "$SCR/generate_client.uc"; then
-	CONF="$TMP/run/sing-box-c.json"
-	node "$HERE/render_config.mjs" dnsonly "$CONF" || fail=1
-	singbox_check "$CONF" "dns only"
-else
-	echo "FAIL generate_client.uc with dns_only"; fail=1
-fi
-if run "$DNSONLY" -T "$SCR/firewall_post.ut" > "$TMP/fw-dnsonly.nft"; then
-	check "dns-only: no nft rules" "$(grep -c 'chain\|set ' "$TMP/fw-dnsonly.nft")" "0"
-else
-	echo "FAIL firewall_post.ut render (dns_only)"; fail=1
-fi
-
-echo "== firewall_post.ut"
-NOSELF="$TMP/uci-noself.json"
-node "$HERE/render_config.mjs" fixture-noself "$FIXTURE" "$NOSELF" || fail=1
-
-if run "$FIXTURE" -T "$SCR/firewall_post.ut" > "$TMP/fw-self.nft"; then
-	check "self: output redirect present" "$(grep -c 'chain hyper_output_redir' "$TMP/fw-self.nft")" "1"
-	check "self: mangle_output present"   "$(grep -c 'chain mangle_output' "$TMP/fw-self.nft")" "1"
-	check "direct mac excluded"           "$(grep -c 'ether saddr { 00:d9:d1:8b:33:e2 } counter return' "$TMP/fw-self.nft")" "2"
-else
-	echo "FAIL firewall_post.ut render (proxy_router_self=1)"; fail=1
-fi
-if run "$NOSELF" -T "$SCR/firewall_post.ut" > "$TMP/fw-noself.nft"; then
-	check "noself: output redirect gone"  "$(grep -c 'chain hyper_output_redir' "$TMP/fw-noself.nft")" "0"
-	check "noself: mangle_output gone"    "$(grep -c 'chain mangle_output' "$TMP/fw-noself.nft")" "0"
-	check "noself: LAN redirect kept"     "$(grep -c 'chain hyper_redirect {' "$TMP/fw-noself.nft")" "1"
-else
-	echo "FAIL firewall_post.ut render (proxy_router_self=0)"; fail=1
-fi
-# Missing china_ip lists (failed resource update) must still give valid rules
-mv "$TMP/etc-hyper/resources" "$TMP/etc-hyper/resources.off"
-if run "$FIXTURE" -T "$SCR/firewall_post.ut" > "$TMP/fw-nolists.nft"; then
-	check "no lists: mainland set kept, empty" "$(grep -c 'set hyper_mainland_addr_v4 {' "$TMP/fw-nolists.nft")" "1"
-	check "no lists: no element list"          "$(grep -A4 'set hyper_mainland_addr_v4 {' "$TMP/fw-nolists.nft" | grep -c 'elements')" "0"
-else
-	echo "FAIL firewall_post.ut render (no resource lists)"; fail=1
-fi
-mv "$TMP/etc-hyper/resources.off" "$TMP/etc-hyper/resources"
-
-# fw4 includes the file at "table-post", i.e. inside its table: check it the same way.
-# nft -c talks to the kernel, so it needs root (CI runners have passwordless sudo).
-NFT=nft
-[ "$(id -u)" = 0 ] || NFT="sudo -n nft"
-nft_check() {
-	if ! command -v nft >/dev/null 2>&1 || ! $NFT --version >/dev/null 2>&1; then
-		echo "skip nft -c, $2 (nft not installed or no root)"
-		return
-	fi
-	{ echo 'table inet fw4 {'; cat "$1"; echo '}'; } > "$1.table"
-	if $NFT -c -f "$1.table"; then echo "ok   nft -c, $2"; else echo "FAIL nft -c, $2"; fail=1; fi
-}
-nft_check "$TMP/fw-self.nft" "proxy_router_self=1"
-nft_check "$TMP/fw-noself.nft" "proxy_router_self=0"
-nft_check "$TMP/fw-nolists.nft" "no resource lists"
-nft_check "$TMP/fw-tun.nft" "TUN"
-
-exit $fail
+exit "$fail"

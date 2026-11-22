@@ -5,13 +5,14 @@ import { LatestAction } from "./intent";
 import { call } from "./rpc";
 import type { Result } from "./types";
 import { onAccountChange } from "./account-epoch";
+import { errorText } from "./errors";
 
 /** One queue across page navigation: a new selection supersedes older replies. */
 export const nodeSelection = signal<{ desired: string | null; pending: boolean; error: string }>({ desired: null, pending: false, error: "" });
 onAccountChange(() => { nodeSelection.value = { desired: null, pending: false, error: "" }; });
 const selector = new LatestAction<string, Result>(async name => {
   const reply = await call<Result>("select_node", { node: name });
-  if (!reply.result) throw new Error(reply.error || tr("切换失败"));
+  if (!reply.result) throw new Error(errorText(reply.error, tr("切换失败")));
   return reply;
 }, name => {
   nodeSelection.value = { desired: name, pending: false, error: "" };
