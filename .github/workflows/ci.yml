@@ -50,11 +50,12 @@ jobs:
       - name: Install build deps
         run: sudo apt-get update && sudo apt-get install -y nftables
 
-      # GPL-2.0-only HomeProxy code is gone; nothing may bring it back.
+      # GPL-2.0-only HomeProxy code is gone; nothing may bring it back. The bracket keeps
+      # this step from matching its own text.
       - name: No HomeProxy-derived files
         run: |
-          if git grep -nI 'ImmortalWrt.org' -- .; then
-            echo "::error::ImmortalWrt.org found in the repository"; exit 1
+          if git grep -nI 'ImmortalWrt[.]org' -- .; then
+            echo "::error::HomeProxy's copyright line found in the repository"; exit 1
           fi
 
       - name: Script tests
