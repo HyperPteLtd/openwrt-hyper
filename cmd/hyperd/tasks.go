@@ -72,11 +72,14 @@ func (t *tasks) wrap(names ...string) {
 				ctx, cancel := context.WithTimeout(t.m.ctx, timeout)
 				defer cancel()
 				out, err := h(ctx, args)
+				// task_status hands back what the page waits for (web/src/lib/rpc-task.ts):
+				// {state: done, data} with the method's reply, or {state: failed, error}.
+				var res any = map[string]any{"state": "done", "data": out}
 				if err != nil {
-					out = map[string]any{"result": false, "error": errCode(err)}
+					res = map[string]any{"state": "failed", "error": errCode(err)}
 				}
 				t.mu.Lock()
-				tk.result, tk.done = out, true
+				tk.result, tk.done = res, true
 				t.mu.Unlock()
 			}()
 			return map[string]any{"_hyper_task": id, "_hyper_timeout": int(timeout / time.Second)}, nil

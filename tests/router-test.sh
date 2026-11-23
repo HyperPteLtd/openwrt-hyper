@@ -149,12 +149,15 @@ if ubus -t 10 wait_for luci.hyper; then
 	task="$(ubus -t 5 call luci.hyper check_update | jsonfilter -e '@._hyper_task' || true)"
 	[ -n "$task" ] || bad "check_update did not start a task"
 	polls=0
+	state=""
 	while [ -n "$task" ] && [ "$polls" -lt 185 ]; do
-		state="$(ubus -t 5 call luci.hyper task_status "{\"id\":\"$task\"}" | jsonfilter -e '@.state' 2>/dev/null || echo done)"
+		state="$(ubus -t 5 call luci.hyper task_status "{\"id\":\"$task\"}" | jsonfilter -e '@.state' 2>/dev/null || :)"
 		[ "$state" = running ] || break
 		sleep 1
 		polls=$((polls + 1))
 	done
+	# The page waits for done (with the reply in data) or failed; anything else hangs it.
+	[ "$state" = done ] && ok "check_update ends as a task the page reads (state done)" || bad "check_update task state '$state'"
 	[ -n "$(ubus call luci.hyper status | jsonfilter -e '@.update.checked' || true)" ] &&
 		ok "check_update records when it ran" || bad "check_update did not record the check"
 

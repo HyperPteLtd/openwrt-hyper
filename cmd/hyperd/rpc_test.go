@@ -191,6 +191,40 @@ repair) [ ! -e %[5]s/repair-fails ] || exit 1; echo repaired ;; esac
 	return e
 }
 
+// taskData waits for a background task and returns the method's reply, checking the
+// envelope the page reads (web/src/lib/rpc-task.ts): {state: done, data}.
+func (e *env) taskData(id any) map[string]any {
+	e.t.Helper()
+	var r map[string]any
+	waitFor(e.t, "task", func() bool {
+		r = e.call("task_status", map[string]any{"id": id})
+		return r["state"] != "running"
+	})
+	if r["state"] != "done" {
+		e.t.Fatalf("task: %v", r)
+	}
+	data, _ := r["data"].(map[string]any)
+	return data
+}
+
+// A task reports {state: done, data} or, when its method fails, {state: failed, error}:
+// the page waits for nothing else, and any other reply only ends at its deadline.
+func TestTaskEnvelope(t *testing.T) {
+	e := newEnv(t, nil)
+	e.m.handlers["x_ok"] = func(context.Context, json.RawMessage) (any, error) { return map[string]any{"ok": true}, nil }
+	e.m.handlers["x_fail"] = func(context.Context, json.RawMessage) (any, error) { return nil, rpcError{"boom"} }
+	e.m.tasks.wrap("x_ok", "x_fail")
+	if d := e.taskData(e.call("x_ok", nil)["_hyper_task"]); d["ok"] != true {
+		t.Fatal(d)
+	}
+	id := e.call("x_fail", nil)["_hyper_task"]
+	var r map[string]any
+	waitFor(t, "task", func() bool { r = e.call("task_status", map[string]any{"id": id}); return r["state"] != "running" })
+	if r["state"] != "failed" || r["error"] != "boom" || r["data"] != nil {
+		t.Fatal(r)
+	}
+}
+
 func (e *env) call(method string, args any) map[string]any {
 	e.t.Helper()
 	b, _ := json.Marshal(args)
@@ -638,16 +672,12 @@ func TestAccountMethods(t *testing.T) {
 	if id == "" || r["_hyper_timeout"].(float64) != 180 {
 		t.Fatal(r)
 	}
-	waitFor(t, "task", func() bool { return e.call("task_status", map[string]any{"id": id})["state"] != "running" })
-	if r := e.call("task_status", map[string]any{"id": id}); r["error"] != "path not allowed" {
-		t.Fatal(r)
+	if d := e.taskData(id); d["error"] != "path not allowed" {
+		t.Fatal(d)
 	}
 	r = e.call("api", map[string]any{"method": "POST", "path": "/v2/orders/purchase"})
-	waitFor(t, "task", func() bool {
-		return e.call("task_status", map[string]any{"id": r["_hyper_task"]})["state"] != "running"
-	})
-	if got := e.call("task_status", map[string]any{"id": r["_hyper_task"]}); got["error"] != "idempotency key required" {
-		t.Fatal(got)
+	if d := e.taskData(r["_hyper_task"]); d["error"] != "idempotency key required" {
+		t.Fatal(d)
 	}
 	// Another account never sees the result.
 	e.m.sessions.Save(&account.Session{JWT: "other"})
@@ -664,18 +694,12 @@ func TestAccountMethods(t *testing.T) {
 func TestDiagAndLogs(t *testing.T) {
 	e := newEnv(t, nil)
 	r := e.call("diag", map[string]any{"type": "ping", "target": "example.com"})
-	waitFor(t, "diag", func() bool {
-		return e.call("task_status", map[string]any{"id": r["_hyper_task"]})["state"] != "running"
-	})
-	if got := e.call("task_status", map[string]any{"id": r["_hyper_task"]}); got["output"] != "ping -c 4 -W 2 example.com" {
-		t.Fatal(got)
+	if d := e.taskData(r["_hyper_task"]); d["output"] != "ping -c 4 -W 2 example.com" {
+		t.Fatal(d)
 	}
 	r = e.call("diag", map[string]any{"type": "http", "target": "-x;rm"})
-	waitFor(t, "diag", func() bool {
-		return e.call("task_status", map[string]any{"id": r["_hyper_task"]})["state"] != "running"
-	})
-	if got := e.call("task_status", map[string]any{"id": r["_hyper_task"]}); got["error"] != "illegal target" {
-		t.Fatal(got)
+	if d := e.taskData(r["_hyper_task"]); d["error"] != "illegal target" {
+		t.Fatal(d)
 	}
 
 	os.WriteFile(e.p.Log, []byte("2026-11-21 10:00:02 [SYNC] b\n2026-11-21 10:00:00 [DAEMON] a\n"), 0o600)
@@ -878,12 +902,7 @@ func TestHealthCheckSites(t *testing.T) {
 	}
 	check := func(running bool, proxy string) {
 		t.Helper()
-		id := e.call("health_check", nil)["_hyper_task"]
-		var r map[string]any
-		waitFor(t, "health check", func() bool {
-			r = e.call("task_status", map[string]any{"id": id})
-			return r["state"] != "running"
-		})
+		r := e.taskData(e.call("health_check", nil)["_hyper_task"])
 		sites, _ := r["sites"].(map[string]any)
 		if r["via_core"] != running || len(sites) != 5 {
 			t.Fatal(r)
