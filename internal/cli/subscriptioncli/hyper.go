@@ -60,7 +60,7 @@ func jsonScalar(v any) string {
 	return string(b)
 }
 
-var hyperMethods = []string{"account", "send_code", "login", "logout", "api", "checkin_status", "checkin", "catalog", "rule_toggle"}
+var hyperMethods = []string{"account", "send_code", "login", "logout", "api", "checkin_status", "checkin", "catalog", "rule_toggle", "adopt"}
 
 // hyperRun runs the Hyper account's methods; handled is false for any other.
 func hyperRun(ctx context.Context, store *sub.Store, method string, in input, f sub.Fetcher) (data any, changed []string, err error, handled bool) {
@@ -72,6 +72,19 @@ func hyperRun(ctx context.Context, store *sub.Store, method string, in input, f 
 		return nil, nil, errors.New("account_unavailable"), true
 	}
 	switch method {
+	case "adopt":
+		// A router signed in without the account's source (upgraded from the manager before
+		// this one, or its source removed) gets it back; the daemon then reads it.
+		if acct.Sessions.Load() == nil {
+			return map[string]any{"adopted": false}, nil, nil, true
+		}
+		if st, err := store.Status(sub.HyperSource); err == nil && st.Source != "" && !st.Revoked {
+			return map[string]any{"adopted": false}, nil, nil, true
+		}
+		if err := store.ConfigureHyper(store.HyperDisabled()); err != nil {
+			return nil, nil, err, true
+		}
+		return map[string]any{"adopted": true}, []string{sub.HyperSource}, nil, true
 	case "account":
 		s := acct.Sessions.Load()
 		if s == nil {

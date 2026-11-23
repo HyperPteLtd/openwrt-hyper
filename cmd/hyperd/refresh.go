@@ -304,3 +304,18 @@ func (s *app) refreshHyper() {
 	}
 	_, _ = s.runRefresh(guarded, false)
 }
+
+// adoptHyper gives a router signed in without the account's source (one upgraded from the
+// manager before this one) its source, and reads the account.
+func (s *app) adoptHyper() {
+	out, err := child(s.ctx, "hyper-subscription", []string{"adopt"}, nil)
+	var res struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Adopted bool `json:"adopted"`
+		} `json:"data"`
+	}
+	if err == nil && json.Unmarshal(out, &res) == nil && res.OK && res.Data.Adopted {
+		s.refreshHyper()
+	}
+}

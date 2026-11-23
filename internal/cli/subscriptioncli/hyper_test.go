@@ -181,3 +181,36 @@ func TestHyperAccountFlow(t *testing.T) {
 		t.Fatal(err, d)
 	}
 }
+
+// A router signed in without the account's source, as one upgraded from the manager before
+// this one is, gets the source back once; signed out, nothing happens.
+func TestHyperAdopt(t *testing.T) {
+	dir := t.TempDir()
+	old := sub.HyperAccount
+	sub.HyperAccount = &account.Client{Sessions: &account.Sessions{Path: filepath.Join(dir, "session")}, Resolver: &account.Resolver{Builtin: []string{"http://127.0.0.1:1"}}}
+	defer func() { sub.HyperAccount = old }()
+	store := sub.OpenStore(filepath.Join(dir, "sources"))
+	adopt := func() (any, []string) {
+		t.Helper()
+		data, changed, err := run(context.Background(), store, "adopt", input{}, sub.Fetcher{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data.(map[string]any)["adopted"], changed
+	}
+	if a, changed := adopt(); a != false || changed != nil {
+		t.Fatal("adopted while signed out", a, changed)
+	}
+	if err := sub.HyperAccount.Sessions.Save(&account.Session{JWT: "jwt", Email: "a@b.c"}); err != nil {
+		t.Fatal(err)
+	}
+	if a, changed := adopt(); a != true || len(changed) != 1 || changed[0] != sub.HyperSource {
+		t.Fatal("not adopted", a, changed)
+	}
+	if st, err := store.Status(sub.HyperSource); err != nil || st.Revoked || st.Source != sub.HyperSource {
+		t.Fatal(err, st)
+	}
+	if a, changed := adopt(); a != false || changed != nil {
+		t.Fatal("adopted twice", a, changed)
+	}
+}
