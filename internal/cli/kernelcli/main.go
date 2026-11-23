@@ -99,8 +99,15 @@ func run(args []string) error {
 		result, e = m.Status()
 	case "bundled":
 		// The core the package carries, staged unless installed already; the daemon selects it.
+		// --mode moves it to that storage; without, it goes where it fits.
+		chosen := ""
+		f.Visit(func(fl *flag.Flag) {
+			if fl.Name == "mode" {
+				chosen = *mode
+			}
+		})
 		var tag string
-		tag, e = m.InstallBundled(ctx, kernel.BundleDir)
+		tag, e = m.InstallBundled(ctx, kernel.BundleDir, chosen)
 		result = map[string]string{"tag": tag}
 	case "capabilities":
 		result, e = m.Capabilities(*tag)

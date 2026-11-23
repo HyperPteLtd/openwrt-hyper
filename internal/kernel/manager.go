@@ -57,6 +57,8 @@ type Status struct {
 	Pending    bool   `json:"pending"`
 	TrustReady bool   `json:"trust_ready"`
 	Repair     bool   `json:"needs_repair"`
+	// Bundled is the version the package carries for this router (BundleDir).
+	Bundled string `json:"bundled,omitempty"`
 }
 
 func New(o Options) (*Manager, error) {
@@ -234,6 +236,9 @@ func (m *Manager) Status() (Status, error) {
 	}
 	if s.Previous != nil {
 		v.Previous = s.Previous.Tag
+	}
+	if tag, _, ok, err := ReadBundle(BundleDir, m.Target); err == nil && ok {
+		v.Bundled = tag
 	}
 	return v, nil
 }

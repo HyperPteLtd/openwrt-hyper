@@ -240,7 +240,7 @@ const diagnosticText = {
     kernel_config_unreadable: '无法读取生成的配置文件',
     kernel_file_missing: '缺少启动所需的内核或配置文件',
     kernel_not_installed: '请先在内核管理中安装并选择一个版本',
-    kernel_restore_unavailable: '无法从下载源恢复临时内核',
+    kernel_restore_unavailable: '无法恢复内存中的内核，请重新安装插件',
     kernel_preparation_failed: '内核准备失败，未取得更具体的错误分类',
     // Why a subscription operation failed (hyper-subscription's error codes), on the
     // subscriptions page and in the log.
@@ -525,6 +525,7 @@ const errorText = {
     'invalid subscription refresh period': '订阅更新周期无效',
     'invalid subscription refresh hour': '订阅每日更新时间无效',
     'invalid core log level': '日志级别无效',
+    'storage mode must be double, single or tmp': '内核存储位置无效',
     'choose one to four DNS upstreams': '请选择一到四个 DNS 上游',
     'invalid DNS upstream': 'DNS 上游无效',
     'invalid or duplicate LAN network': '局域网无效或重复',

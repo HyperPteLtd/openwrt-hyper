@@ -210,7 +210,11 @@ func (m *Manager) Install(ctx context.Context, tag, mode string, src Source, sta
 }
 
 func (m *Manager) installReserved(ctx context.Context, tag, mode string, src Source, stageOnly bool, releasePin *pin) error {
-	if releasePin == nil {
+	// A pin from a release lookup belongs to the first installation (Bootstrap), which yields
+	// to anything the administrator did meanwhile. The package's pin (src.Bundle) is good for
+	// as long as the package is installed, also on a router that has run other versions.
+	bootstrap := releasePin != nil && src.Bundle == ""
+	if !bootstrap {
 		if e := m.locked(m.reclaim); e != nil {
 			return e
 		}
@@ -219,7 +223,7 @@ func (m *Manager) installReserved(ctx context.Context, tag, mode string, src Sou
 	if e != nil {
 		return e
 	}
-	if releasePin != nil && start.Revision != 0 {
+	if bootstrap && start.Revision != 0 {
 		return errors.New("install superseded by newer intent")
 	}
 	if start.Pending != nil || start.Repair {

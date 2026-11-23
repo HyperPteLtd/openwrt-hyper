@@ -13,6 +13,15 @@ import (
 	"github.com/HyperPteLtd/openwrt-hyper/internal/tlsdiag"
 )
 
+// bundledTag is the version of the core the package carries, "" without one.
+func bundledTag(ctx context.Context) string {
+	st, err := kernelStatus(ctx)
+	if err != nil {
+		return ""
+	}
+	return st.Bundled
+}
+
 func kernelStatus(ctx context.Context) (kernel.Status, error) {
 	var st kernel.Status
 	data, e := child(ctx, "hyper-kernel", []string{"status"}, nil)
@@ -47,7 +56,16 @@ func (s *app) kernelJob(r request) (any, error) {
 		if e := s.yieldFirstKernel(ctx); e != nil {
 			return nil, e
 		}
-		if r.Action == "install-json" {
+		if r.Action == "install-json" && tag == bundledTag(ctx) {
+			// The package's own core comes from the package, in the storage asked for.
+			mode := "double"
+			if raw, ok := args["mode"]; ok && (json.Unmarshal(raw, &mode) != nil || mode != "double" && mode != "single" && mode != "tmp") {
+				return nil, errors.New("storage mode must be double, single or tmp")
+			}
+			if _, e := child(ctx, "hyper-kernel", []string{"bundled", "--mode", mode}, nil); e != nil {
+				return nil, e
+			}
+		} else if r.Action == "install-json" {
 			args["stage_only"] = json.RawMessage("true")
 			body, e := json.Marshal(args)
 			if e != nil {

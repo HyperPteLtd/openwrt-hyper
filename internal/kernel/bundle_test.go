@@ -38,11 +38,11 @@ func TestInstallBundled(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
 	f.mgr.Key = "" // a package carries no signed manifest
-	if tag, err := f.mgr.InstallBundled(ctx, t.TempDir()); tag != "" || err != nil {
+	if tag, err := f.mgr.InstallBundled(ctx, t.TempDir(), ""); tag != "" || err != nil {
 		t.Fatal("a package without a core installed one:", tag, err)
 	}
 	dir := writeBundle(t, "v1.0.1", "amd64")
-	tag, err := f.mgr.InstallBundled(ctx, dir)
+	tag, err := f.mgr.InstallBundled(ctx, dir, "")
 	if err != nil || tag != "v1.0.1" {
 		t.Fatal(tag, err)
 	}
@@ -55,7 +55,7 @@ func TestInstallBundled(t *testing.T) {
 	}
 	// Already there: nothing is installed again, even if the bundle went away meanwhile.
 	os.Remove(filepath.Join(dir, rawAsset("v1.0.1", "amd64")))
-	if tag, err := f.mgr.InstallBundled(ctx, dir); tag != "v1.0.1" || err != nil {
+	if tag, err := f.mgr.InstallBundled(ctx, dir, ""); tag != "v1.0.1" || err != nil {
 		t.Fatal(tag, err)
 	}
 }
@@ -69,7 +69,7 @@ func TestBundledCoreMustMatchItsPin(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, rawAsset("v1.0.2", "amd64")), []byte("not the core"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.mgr.InstallBundled(ctx, dir); err == nil {
+	if _, err := f.mgr.InstallBundled(ctx, dir, ""); err == nil {
 		t.Fatal("installed a binary its pin does not name")
 	}
 	// A pin for another CPU is not this router's core.
@@ -130,7 +130,7 @@ func TestBundledCoreInRAMWhenFlashIsShort(t *testing.T) {
 		c.Persistent.Total, c.Flash = 64<<20, 64<<20
 		return c, e
 	}
-	if tag, err := m.InstallBundled(ctx, BundleDir); err != nil || tag != "v1.0.1" {
+	if tag, err := m.InstallBundled(ctx, BundleDir, ""); err != nil || tag != "v1.0.1" {
 		t.Fatal(tag, err)
 	}
 	if err := m.Select("v1.0.1", false); err != nil {
@@ -173,7 +173,49 @@ func TestBundledCoreInRAMWhenFlashIsShort(t *testing.T) {
 		c.Persistent.Total, c.Flash, c.RAM = 64<<20, 64<<20, 256<<20
 		return c, e
 	}
-	if _, err := m.InstallBundled(ctx, writeBundle(t, "v1.0.2", "amd64")); err == nil {
+	if _, err := m.InstallBundled(ctx, writeBundle(t, "v1.0.2", "amd64"), ""); err == nil {
 		t.Fatal("installed a core the router has no room for")
+	}
+}
+
+// Status names the package's version; asked for another storage, the package's core moves.
+func TestMoveBundledCore(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	m := f.mgr
+	m.Key = ""
+	old := BundleDir
+	BundleDir = writeBundle(t, "v1.0.1", "amd64")
+	t.Cleanup(func() { BundleDir = old })
+	if _, err := m.InstallBundled(ctx, BundleDir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Select("v1.0.1", false); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := m.Status()
+	if st.Bundled != "v1.0.1" || st.Mode != "double" {
+		t.Fatalf("%+v", st)
+	}
+	// Already there: nothing to do.
+	if _, err := m.InstallBundled(ctx, BundleDir, "double"); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ = m.Status(); st.Staged != "" {
+		t.Fatalf("staged again: %+v", st)
+	}
+	if _, err := m.InstallBundled(ctx, BundleDir, "tmp"); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ = m.Status(); st.Staged != "v1.0.1" {
+		t.Fatalf("not staged in RAM: %+v", st)
+	}
+	// An upgrade brings a newer core to a router that has run this one.
+	BundleDir = writeBundle(t, "v1.0.2", "amd64")
+	if tag, err := m.InstallBundled(ctx, BundleDir, ""); err != nil || tag != "v1.0.2" {
+		t.Fatal(tag, err)
+	}
+	if st, _ = m.Status(); st.Staged != "v1.0.2" || st.Bundled != "v1.0.2" {
+		t.Fatalf("%+v", st)
 	}
 }

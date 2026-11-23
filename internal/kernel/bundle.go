@@ -45,9 +45,10 @@ func ReadBundle(dir, target string) (tag string, p pin, ok bool, err error) {
 }
 
 // InstallBundled stages the bundled core unless the router has it already, and returns its
-// tag ("" without a bundle). Selecting it is the daemon's, which checks the configuration
+// tag ("" without a bundle). With a storage mode it stages it there even when installed
+// elsewhere, to move it. Selecting it is the daemon's, which checks the configuration
 // against it first, as for a version the administrator picks.
-func (m *Manager) InstallBundled(ctx context.Context, dir string) (string, error) {
+func (m *Manager) InstallBundled(ctx context.Context, dir, mode string) (string, error) {
 	tag, p, ok, err := ReadBundle(dir, m.Target)
 	if err != nil || !ok {
 		return "", err
@@ -59,7 +60,8 @@ func (m *Manager) InstallBundled(ctx context.Context, dir string) (string, error
 	if err != nil {
 		return "", err
 	}
-	if tag == st.Selected || tag == st.Staged || tag == st.Previous || tag == st.Active {
+	if mode == "" && (tag == st.Selected || tag == st.Staged || tag == st.Previous || tag == st.Active) ||
+		mode != "" && tag == st.Selected && mode == st.Mode {
 		return tag, nil
 	}
 	reservation, err := m.reservePayload()
@@ -67,7 +69,10 @@ func (m *Manager) InstallBundled(ctx context.Context, dir string) (string, error
 		return "", err
 	}
 	defer reservation.Close()
-	return tag, m.installBundle(ctx, tag, st.Mode, dir, p)
+	if mode == "" {
+		mode = st.Mode
+	}
+	return tag, m.installBundle(ctx, tag, mode, dir, p)
 }
 
 // installBundle stages the bundled core in mode, or without one on flash (double) where it

@@ -1,6 +1,6 @@
 import { diagnosticMessage, day, pluginName, conflictItem } from '../dom.js';
 import { h, card, bytes, field, empty, segment, modeNames, clock, resultName, say, hush, attach } from '../dom.js';
-import { installLatest, kernelStorage, kernelSummary } from './versions.js';
+import { installBundled, kernelStorage, kernelSummary } from './versions.js';
 
 const states = {
 	running: '已连接',
@@ -439,7 +439,7 @@ export async function overview(ui) {
 			? '先添加订阅'
 			: kernel.selected
 				? '连接'
-				: preparing || kernel.bootstrap?.stage === 'running' ? '内核准备中' : '先选择内核';
+				: preparing || kernel.bootstrap?.stage === 'running' ? '内核准备中' : '先安装内核';
 	let look = powerLook(ui.status),
 		shown;
 	// What the next button needs to carry on from this one: its look, word and pulse timing, and
@@ -496,11 +496,11 @@ export async function overview(ui) {
 		hush(powerLine);
 		powerLine.setAttribute('role', 'alert');
 		if (!kernel.selected) {
-			// Connecting needs a kernel: download the newest stable one first.
+			// Connecting needs a kernel: install the one the plugin carries first.
 			preparing = true;
 			show('off');
 			try {
-				kernel = await installLatest(ui, kernelUpdates);
+				kernel = await installBundled(ui, kernelUpdates, kernel);
 			} catch (error) {
 				preparing = false;
 				show('off');
