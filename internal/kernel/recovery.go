@@ -140,6 +140,10 @@ func (m *Manager) restore(ctx context.Context, p pick, v *Verified) error {
 	}
 	defer reservation.Close()
 	var sources []Source
+	// A core kept in RAM comes back from the package that carries it.
+	if src, ok := m.bundled(p.Tag); ok {
+		sources = append(sources, src)
+	}
 	if p.Source.Cache != "" {
 		sources = append(sources, Source{Bundle: filepath.Join(p.Source.Cache, p.Tag)})
 	}

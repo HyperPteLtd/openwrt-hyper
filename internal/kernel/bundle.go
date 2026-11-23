@@ -62,14 +62,33 @@ func (m *Manager) InstallBundled(ctx context.Context, dir string) (string, error
 	if tag == st.Selected || tag == st.Staged || tag == st.Previous || tag == st.Active {
 		return tag, nil
 	}
-	mode := st.Mode
-	if mode != "single" && mode != "tmp" {
-		mode = "double"
-	}
 	reservation, err := m.reservePayload()
 	if err != nil {
 		return "", err
 	}
 	defer reservation.Close()
-	return tag, m.installReserved(ctx, tag, mode, Source{Bundle: dir}, true, &p)
+	return tag, m.installBundle(ctx, tag, st.Mode, dir, p)
+}
+
+// installBundle stages the bundled core in mode, or without one on flash (double) where it
+// fits and else in RAM (tmp), restored from the package after a reboot (restore). The full
+// core is large; a router with room for neither keeps its current core.
+func (m *Manager) installBundle(ctx context.Context, tag, mode, dir string, p pin) error {
+	if mode == "single" || mode == "tmp" || mode == "double" {
+		return m.installReserved(ctx, tag, mode, Source{Bundle: dir}, true, &p)
+	}
+	err := m.installReserved(ctx, tag, "double", Source{Bundle: dir}, true, &p)
+	var short capacityError
+	if errors.As(err, &short) {
+		if e := m.installReserved(ctx, tag, "tmp", Source{Bundle: dir}, true, &p); !errors.As(e, &short) {
+			return e
+		}
+	}
+	return err
+}
+
+// bundled is the package's core for tag as a source, if the package carries that one.
+func (m *Manager) bundled(tag string) (Source, bool) {
+	t, _, ok, err := ReadBundle(BundleDir, m.Target)
+	return Source{Bundle: BundleDir}, err == nil && ok && t == tag
 }

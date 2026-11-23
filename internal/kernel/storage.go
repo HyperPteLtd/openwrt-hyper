@@ -116,6 +116,11 @@ func physicalRAM(root string) int64 {
 	return total
 }
 
+// capacityError: the router lacks the storage or memory a mode needs; another mode may fit.
+type capacityError string
+
+func (e capacityError) Error() string { return string(e) }
+
 // compressed is temporary storage for a network archive. An uploaded archive
 // already resides on its own volume and is not counted twice.
 func CheckCapacity(c Capacity, mode string, compressed, expanded, peak, replace int64) error {
@@ -129,7 +134,7 @@ func CheckCapacity(c Capacity, mode string, compressed, expanded, peak, replace 
 	switch mode {
 	case "double", "single":
 		if flash < 128*MiB || c.RAM < 256*MiB {
-			return errors.New("persistent mode requires 128 MiB storage and 256 MiB RAM")
+			return capacityError("persistent mode requires 128 MiB storage and 256 MiB RAM")
 		}
 		if mode == "double" {
 			flashNeed += expanded
@@ -141,7 +146,7 @@ func CheckCapacity(c Capacity, mode string, compressed, expanded, peak, replace 
 		}
 	case "tmp":
 		if flash < 64*MiB || c.RAM < 512*MiB {
-			return errors.New("temporary mode requires 64 MiB storage and 512 MiB RAM")
+			return capacityError("temporary mode requires 64 MiB storage and 512 MiB RAM")
 		}
 		tmpNeed += expanded
 	default:
@@ -149,17 +154,17 @@ func CheckCapacity(c Capacity, mode string, compressed, expanded, peak, replace 
 	}
 	if c.Persistent.Device == c.Temporary.Device {
 		if c.Persistent.Free < flashNeed+tmpNeed {
-			return errors.New("insufficient shared storage; active core retained")
+			return capacityError("insufficient shared storage; active core retained")
 		}
 	} else if c.Persistent.Free < flashNeed || c.Temporary.Free < tmpNeed {
-		return errors.New("insufficient free storage; active core retained")
+		return capacityError("insufficient free storage; active core retained")
 	}
 	memory := int64(48)*MiB + peak
 	if c.Temporary.InMemory {
 		memory += tmpNeed
 	}
 	if c.Available < memory {
-		return errors.New("insufficient trial RAM and 48 MiB system reserve")
+		return capacityError("insufficient trial RAM and 48 MiB system reserve")
 	}
 	return nil
 }

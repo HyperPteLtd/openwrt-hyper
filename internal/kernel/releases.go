@@ -50,6 +50,19 @@ func runtimeVersion(tag string) string {
 	return tag
 }
 func BinaryVersion(tag string) string { return runtimeVersion(tag) }
+
+var releaseLine = regexp.MustCompile(`^[a-z][a-z0-9]{0,31}-v[0-9]`)
+
+// ReportsVersion: the core built for tag says so in `mihomo -v`. A core release line may name
+// its build after itself ("<line>-v1.0.1"), which the package carries as the plain tag; its
+// pin, not this string, is what identifies the binary.
+func ReportsVersion(reported, tag string) bool {
+	if reported == BinaryVersion(tag) {
+		return true
+	}
+	line, rest, ok := strings.Cut(reported, "-")
+	return ok && rest == tag && releaseLine.MatchString(reported) && line != "alpha"
+}
 func releaseRef(tag string) string {
 	if strings.HasPrefix(runtimeVersion(tag), "alpha-") {
 		return rolling

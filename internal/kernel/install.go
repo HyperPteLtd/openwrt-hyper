@@ -436,7 +436,7 @@ func (m *Manager) Bootstrap(ctx context.Context) (map[string]string, error) {
 	if tag, p, ok, err := ReadBundle(BundleDir, m.Target); err != nil {
 		return nil, err
 	} else if ok {
-		if err = m.installReserved(ctx, tag, "double", Source{Bundle: BundleDir}, true, &p); err != nil {
+		if err = m.installBundle(ctx, tag, "", BundleDir, p); err != nil {
 			return nil, err
 		}
 		return map[string]string{"staged": tag}, nil

@@ -258,7 +258,7 @@ func inspect(ctx context.Context, l kernel.Launch, config string) error {
 		}
 		for _, line := range strings.Split(out.b.String(), "\n") {
 			fields := strings.Fields(line)
-			if len(fields) >= 6 && fields[0] == "Mihomo" && fields[1] == "Meta" && fields[2] == kernel.BinaryVersion(l.Tag) && fields[3] == "linux" && fields[5] == "with" {
+			if len(fields) >= 6 && fields[0] == "Mihomo" && fields[1] == "Meta" && kernel.ReportsVersion(fields[2], l.Tag) && fields[3] == "linux" && fields[5] == "with" {
 				return nil
 			}
 		}
