@@ -40,6 +40,7 @@ live() {
 	secret="$(sed -n 's/^secret: //p' "$dir/config.yaml")"
 	if $NS sh -s "$MIHOMO" "$dir" "$ctl" "$secret" <<'EOF'
 set -u
+umask 022  # under sudo the files are root's: the checks below read them as the caller
 ip link set lo up
 "$1" -d "$2" -f "$2/config.yaml" >"$2/run.log" 2>&1 &
 pid=$!
