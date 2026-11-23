@@ -222,6 +222,9 @@ func applyArgs(i Intent, n Network, gid int) []string {
 	if chinaShortcut(i, n) {
 		args = append(args, "china")
 	}
+	if n.Method == "none" {
+		args = append(args, "dns-only")
+	}
 	if n.SideRouter {
 		args = append(args, "side-router")
 	} else {
@@ -279,9 +282,14 @@ func networkOptions(ctx context.Context) (Network, error) {
 	fw4 := fw4Active(ctx)
 	n.RouterSelf = uci(ctx, "router_self") != "0"
 	n.LogLevel = logLevel(uci(ctx, "log_level"))
-	n.FakeIP = n.DNS && fw4 && n.RouterSelf
 	n.FailOpen = uci(ctx, "fail_open") != "0"
 	n.ChinaDirect = uci(ctx, "bypass_cn") == "1" && fw4
+	// DNS protection only: the core resolves for the LAN and captures nothing (method none),
+	// so a failing core only ever gives DNS back to dnsmasq.
+	if uci(ctx, "dns_only") == "1" {
+		n.Method, n.DNS, n.RouterSelf, n.ChinaDirect, n.FailOpen = "none", true, false, false, true
+	}
+	n.FakeIP = n.DNS && fw4 && n.RouterSelf
 	var e error
 	n.LAN, e = managedLAN(strings.Fields(uci(ctx, "network")), n.Family6, func(name string) (netifStatus, error) {
 		var status netifStatus

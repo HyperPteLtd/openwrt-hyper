@@ -54,7 +54,7 @@ func TestMigrateLegacy(t *testing.T) {
 	config := fakeUCI(t, map[string]string{
 		"hyper.account": "hyper", "hyper.account.device_id": "0d0c0b0a-0000-4000-8000-000000000001",
 		"hyper.infra": "hyper", "hyper.infra.dns_redirect": "1", "hyper.infra.lan_network": "lan guest wan",
-		"hyper.config": "hyper", "hyper.config.enabled": "1", "hyper.config.routing_mode": "global", "hyper.config.log_level": "warn",
+		"hyper.config": "hyper", "hyper.config.enabled": "1", "hyper.config.routing_mode": "global", "hyper.config.log_level": "warn", "hyper.config.dns_only": "1",
 		"hyper.control": "hyper", "hyper.control.proxy_router_self": "0", "hyper.control.lan_proxy_mode": "except_listed",
 		"hyper.control.lan_direct_mac_addrs": "AA:BB:CC:DD:EE:01 not-a-mac",
 		"hyper.subscription":                 "hyper", "hyper.subscription.auto_update": "1", "hyper.subscription.auto_update_time": "3",
@@ -80,7 +80,7 @@ func TestMigrateLegacy(t *testing.T) {
 	}
 	for k, want := range map[string]string{"hyper.main": "router", "hyper.main.enabled": "1", "hyper.main.dns": "1",
 		"hyper.main.method": "tproxy", "hyper.main.fail_open": "1", "hyper.main.update_hours": "6", "hyper.main.network": "lan guest",
-		"hyper.main.update_at": "3", "hyper.main.router_self": "0", "hyper.main.auto_check": "1", "hyper.main.auto_update": "1",
+		"hyper.main.update_at": "3", "hyper.main.router_self": "0", "hyper.main.dns_only": "1", "hyper.main.auto_check": "1", "hyper.main.auto_update": "1",
 		"hyper.main.log_level":    "warning",
 		"hyper.account.device_id": "0d0c0b0a-0000-4000-8000-000000000001"} {
 		if config[k] != want {

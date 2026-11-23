@@ -335,7 +335,7 @@ func Compile(i Intent, p subscription.Profile, c kernel.TargetCapabilities, n Ne
 	if !validMode(i.Mode) {
 		return nil, errors.New("unknown routing mode")
 	}
-	if n.Method != "tproxy" && n.Method != "tun" {
+	if n.Method != "tproxy" && n.Method != "tun" && n.Method != "none" {
 		return nil, errors.New("unknown interception method")
 	}
 	if n.Method == "tun" && !c.TUN || n.Method == "tproxy" && !c.TProxy {
@@ -403,7 +403,7 @@ func Compile(i Intent, p subscription.Profile, c kernel.TargetCapabilities, n Ne
 			host = "::"
 		}
 		listeners = append(listeners, obj{"name": "lan-tproxy", "type": "tproxy", "listen": host, "port": TProxyPort, "udp": true})
-	} else {
+	} else if n.Method == "tun" {
 		tun := obj{"enable": true, "device": "owtun0", "stack": "system", "auto-route": false, "auto-redirect": false, "auto-detect-interface": false, "dns-hijack": []string{}, "inet6-address": []string{}}
 		if n.Family6 {
 			tun["inet6-address"] = []string{"fd7e:5745:4952::1/126"}
@@ -583,7 +583,7 @@ func Compile(i Intent, p subscription.Profile, c kernel.TargetCapabilities, n Ne
 		}
 		rules = append(rules, cond+","+coreTarget(d.Target)+src)
 	}
-	if i.Mode == "smart" && i.Policy.DefaultDirect {
+	if i.Mode == "smart" && i.Policy.DefaultDirect && n.Method != "none" {
 		conditions := append([]string{"IN-TYPE," + strings.ToUpper(n.Method)}, exceptions...)
 		rules = append(rules, logical("AND", conditions)+",DIRECT")
 	}

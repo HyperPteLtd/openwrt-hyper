@@ -89,7 +89,7 @@ func command(ctx context.Context, bin string, args ...string) ([]byte, error) {
 				return nil, errors.New(stage)
 			}
 			switch stage {
-			case "service_stopping", "fault_flow_offload", "fault_protection", "fault_restore", "firewall_inspection", "firewall_release", "dns_restore", "ipv4_restore", "ipv6_restore", "fw4_restore", "fw3_restore", "firewall_backend", "legacy_capabilities", "direct_lan_probe", "firewall_conflict", "lan_interfaces", "management_probe", "firewall_prepare", "ipv4_route", "ipv6_route", "dns_reload", "firewall_apply", "managed_lan_probe":
+			case "service_stopping", "fault_flow_offload", "fault_protection", "fault_restore", "firewall_inspection", "firewall_release", "dns_restore", "ipv4_restore", "ipv6_restore", "fw4_restore", "fw3_restore", "firewall_backend", "legacy_capabilities", "direct_lan_probe", "firewall_conflict", "lan_interfaces", "management_probe", "firewall_prepare", "ipv4_route", "ipv6_route", "dns_reload", "firewall_apply", "managed_lan_probe", "dns_only_firewall":
 				return nil, fmt.Errorf("network %s failed at %s", args[0], stage)
 			}
 		}

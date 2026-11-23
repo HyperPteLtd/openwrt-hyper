@@ -839,10 +839,15 @@ export async function overview(ui) {
 			toggle('开机启动', prefs.enabled, (v) => saveP({ enabled: v })),
 		)),
 	);
+	const dnsOnly = !!prefs.dns_only;
+	const dnsSwitch = toggle('DNS 保护', prefs.dns || dnsOnly, (v) => saveP({ dns: v }));
+	if (dnsOnly) dnsSwitch.disabled = true;
 	const dnsPrefs = card(
 		'DNS',
-		lined(updateRow('DNS 保护', toggle('DNS 保护', prefs.dns, (v) => saveP({ dns: v })),
-			h('small', { class: 'ow-muted' }, '由内核解析，防污染'))),
+		lined(updateRow('DNS 保护', dnsSwitch,
+			h('small', { class: 'ow-muted' }, dnsOnly ? '仅 DNS 保护时始终开启' : '由内核解析，防污染'))),
+		lined(updateRow('仅 DNS 保护', toggle('仅 DNS 保护', dnsOnly, (v) => saveP({ dns_only: v, ...(v ? { dns: true } : {}) })),
+			h('small', { class: 'ow-muted' }, '只加密 DNS 查询，防劫持和污染；所有流量直连，不经过代理'))),
 		upstreamRow(ui, '国内域名', '直连解析', 'domestic', prefs.dns_domestic, (v) => saveP({ dns_domestic: v })),
 		upstreamRow(ui, '其他域名', '经代理加密解析', 'foreign', prefs.dns_foreign, (v) => saveP({ dns_foreign: v })),
 	);

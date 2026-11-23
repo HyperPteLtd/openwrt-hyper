@@ -346,7 +346,7 @@ release_active() {
   restored=0
   for _ in 1 2 3 4; do if verify_direct; then restored=1; break; fi; sleep 1; done
   [ "$restored" = 1 ] || { fail_stage direct_lan_probe; return 1; }
-  rm -f "$state/owned" "$state/armed" "$state/interfaces" "$state/dns-probed" "$state/ipv6" "$state/management.json" "$state/backend" "$state/side_router"
+  rm -f "$state/owned" "$state/armed" "$state/interfaces" "$state/dns-probed" "$state/ipv6" "$state/management.json" "$state/backend" "$state/side_router" "$state/dns-only"
  fi
  return "$failure"
 }
@@ -396,7 +396,7 @@ probe_interfaces() {
      if [ "$family" = 4 ]; then
       peer=$(echo "$addr" | awk -F . -v bits="${prefix#*/}" '{ n=$4; if (bits==31) n+=(n%2 ? -1 : 1); else n+=(n%4<2 ? 1 : -1); print $1"."$2"."$3"."n }')
      else peer=::; fi
-     ip -N "-$family" route get "$dst" from "$peer" iif "$dev" mark "$mark" | grep -Eq 'table 21998( |$)' || return 1
+     [ -f "$state/dns-only" ] || ip -N "-$family" route get "$dst" from "$peer" iif "$dev" mark "$mark" | grep -Eq 'table 21998( |$)' || return 1
     fi
     ip "-$family" route get "$addr" | grep -Eq '^local ' || return 1
     if [ -e "$state/dns-probed" ]; then
@@ -441,7 +441,7 @@ prepare_fw4() {
  : >"$state/allow/input/rules.new"
  if [ "$method" = tproxy ]; then
   printf 'iifname { %s } meta mark & 0xffff == %s accept comment "%s-input"\n' "$names" "$mark" "$note" >"$state/allow/input/rules.new"
- else
+ elif [ "$method" = tun ]; then
   {
    printf 'iifname { %s } oifname "owtun0" meta mark & 0xffff == %s accept comment "%s-forward"\n' "$names" "$mark" "$note"
    printf 'iifname "owtun0" oifname { %s } ct state established,related accept comment "%s-forward"\n' "$names" "$note"
@@ -494,7 +494,7 @@ verify() {
   ip -N "-$family" rule show | grep -Eq '^21998:.*fwmark 0x4f57/0xffff.*lookup 21998 proto 199([[:space:]]|$)' || return 1
   ip "-$family" route show table "$table" proto "$proto" | grep -q . || return 1
  done
- [ -f "$state/route4" ] && probe_interfaces active
+ { [ -f "$state/route4" ] || [ -f "$state/dns-only" ]; } && probe_interfaces active
 }
 apply() {
  # init sets this before taking the network lock for stop, and clears it only
@@ -510,6 +510,13 @@ apply() {
   ! nft list table inet hyper >/dev/null 2>&1 || return 1
  fi
  method=$(uci -q get hyper.main.method);case "$method" in tun|tproxy) ;; *) return 1 ;; esac
+ # DNS protection only (hyper.main.dns_only): the core answers the LAN's DNS and no traffic is
+ # captured, so there are no marks, routes or listeners to guard. It needs nftables.
+ if [ "${dns_only:-0}" = 1 ]; then
+  stage=dns_only_firewall
+  [ "$backend" = fw4 ] || return 1
+  method=none
+ fi
  # IPv6 is taken over when the core can reach the IPv6 internet. The manager decides once
  # (ipv6Uplink in network.go) and passes the result, so the core's listeners and the firewall
  # agree; a manual run checks the route the same way.
@@ -538,6 +545,7 @@ apply() {
    case " $interfaces " in *" $uplink "*) [ -z "$uplink" ] || side_router=1 ;; esac ;;
  esac
  dns=$(uci -q get hyper.main.dns || echo 0)
+ if [ "$method" = none ]; then dns=1; fi
  # As in OpenClash, DNS protection also takes over lookups devices send to other resolvers.
  dns_intercept=$dns
  if [ "$v6" = 1 ]; then touch "$state/ipv6"; families='ipv4, ipv6';else rm -f "$state/ipv6"; families=ipv4;fi
@@ -545,7 +553,7 @@ apply() {
  # since the router's own lookups also get fake addresses. The core's group is always known:
  # the manager passes it (gid= below).
  local_proxy=1
- if [ "$backend" != fw4 ] || [ "$(uci -q get hyper.main.router_self)" = 0 ]; then local_proxy=0; fi
+ if [ "$backend" != fw4 ] || [ "$method" = none ] || [ "$(uci -q get hyper.main.router_self)" = 0 ]; then local_proxy=0; fi
  fake_ip=0
  if [ "$dns" = 1 ] && [ "$local_proxy" = 1 ]; then fake_ip=1; fi
  # The China IP shortcut needs nftables sets; on fw3 the core still routes these itself. The
@@ -610,7 +618,7 @@ EOF
   echo '  meta nfproto ipv4 icmp type echo-request meta mark set (meta mark & 0xffff0000) | 0x4f57 return' >>"$batch"
   [ "$v6" != 1 ] || echo '  meta nfproto ipv6 icmpv6 type echo-request meta mark set (meta mark & 0xffff0000) | 0x4f57 return' >>"$batch"
   echo '  meta l4proto { tcp, udp } meta mark set (meta mark & 0xffff0000) | 0x4f57' >>"$batch"
- else
+ elif [ "$method" = tproxy ]; then
   echo "  meta l4proto { tcp, udp } meta mark set (meta mark & 0xffff0000) | 0x4f57 tproxy to :$port accept" >>"$batch"
  fi
  echo ' }' >>"$batch"
@@ -696,6 +704,8 @@ EOF
  nft -c -f "$batch"
  fi
  fail_open=$(uci -q get hyper.main.fail_open || echo 1)
+ # With DNS alone taken over, a failing core only ever gives DNS back to dnsmasq.
+ if [ "$method" = none ]; then fail_open=1; fi
  if [ "$fail_open" = 0 ]; then
   stage=fault_flow_offload
   guard_no_offload "$backend" "$interfaces" "$v6"
@@ -706,9 +716,13 @@ EOF
  echo "$backend" >"$state/backend"
  touch "$state/owned"
  if [ "$side_router" = 1 ]; then touch "$state/side_router"; else rm -f "$state/side_router"; fi
- stage=ipv4_route
- add_routes 4
- if [ "$v6" = 1 ]; then stage=ipv6_route; add_routes 6; fi
+ if [ "$method" = none ]; then touch "$state/dns-only"
+ else
+  rm -f "$state/dns-only"
+  stage=ipv4_route
+  add_routes 4
+  if [ "$v6" = 1 ]; then stage=ipv6_route; add_routes 6; fi
+ fi
  if [ "$dns" = 1 ]; then stage=dns_reload; dns_setup; touch "$state/dns-probed"
  elif [ "$v6" != 1 ]; then stage=dns_reload; dns_setup || true; fi
  stage=firewall_apply
@@ -794,9 +808,10 @@ finish_apply() {
 }
 case "${1:-}" in
  apply)
-  family_arg=; china_arg=; router_arg=; core_gid=; shift
+  family_arg=; china_arg=; router_arg=; core_gid=; dns_only=0; shift
   for arg in "$@"; do
    case "$arg" in ipv4|ipv6) family_arg=$arg ;; china) china_arg=$arg ;; side-router|main-router) router_arg=$arg ;;
+    dns-only) dns_only=1 ;;
     gid=[1-9]*) core_gid=${arg#gid=} ;; *) exit 2 ;; esac
   done
   # The core runs as root:nogroup, like OpenClash's. The manager resolves that group once

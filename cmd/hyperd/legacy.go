@@ -113,6 +113,7 @@ func migrateLegacy(ctx context.Context, m *router.Manager) (disabled []string, e
 		}
 		b.WriteString("set hyper.main.update_at='" + strconv.Itoa(at) + "'\n")
 		b.WriteString("set hyper.main.router_self='" + bit(uciGet(ctx, "hyper.control.proxy_router_self") != "0") + "'\n")
+		b.WriteString("set hyper.main.dns_only='" + bit(uciGet(ctx, "hyper.config.dns_only") == "1") + "'\n")
 		b.WriteString("set hyper.main.auto_check='" + bit(uciGet(ctx, "hyper.update.auto_check") != "0") + "'\n")
 		b.WriteString("set hyper.main.auto_update='" + bit(uciGet(ctx, "hyper.update.auto_update") == "1") + "'\n")
 		level := uciGet(ctx, "hyper.config.log_level")

@@ -651,3 +651,31 @@ func TestSnifferDialsTheNameOnlyWithoutDNSProtection(t *testing.T) {
 		}
 	}
 }
+
+// DNS protection only: the core resolves for the LAN, captures nothing and hands out real
+// addresses; the helper takes over DNS alone.
+func TestDNSOnly(t *testing.T) {
+	p := baseProfile(t, "p")
+	i := initial()
+	i.Source = p.Source
+	i.Policy.DefaultDirect = true
+	n := Network{Method: "none", DNS: true, LAN: map[string][]netip.Prefix{"br-lan": {netip.MustParsePrefix("192.168.3.1/24")}}}
+	c := configForTest(t, i, p, n)
+	if c["listeners"] != nil || c["tun"] != nil {
+		t.Fatal("DNS-only captures traffic", c["listeners"], c["tun"])
+	}
+	if c["dns"].(map[string]any)["enhanced-mode"] != "redir-host" {
+		t.Fatal("DNS-only hands out fake addresses")
+	}
+	for _, r := range c["rules"].([]any) {
+		if strings.Contains(r.(string), "IN-TYPE") {
+			t.Fatal("a capture rule without capture:", r)
+		}
+	}
+	if args := applyArgs(i, n, 65534); !slices.Contains(args, "dns-only") {
+		t.Fatal(args)
+	}
+	if args := applyArgs(i, Network{Method: "tproxy"}, 65534); slices.Contains(args, "dns-only") {
+		t.Fatal(args)
+	}
+}
