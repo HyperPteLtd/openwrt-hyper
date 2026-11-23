@@ -13,7 +13,11 @@ HELPER="$HERE/../luci-app-hyper/root/usr/libexec/hyper/network"
 
 if [ "${HYPER_IN_NETNS:-}" != 1 ]; then
 	command -v nft >/dev/null && command -v unshare >/dev/null || { echo "skip: needs nft and unshare"; exit 0; }
-	exec env HYPER_IN_NETNS=1 unshare -rn sh "$0" "$@"
+	# Root needs only the network namespace: in a user namespace of its own it could no
+	# longer pass directories other users own (the runner's home is 0750).
+	ns="unshare -rn"
+	[ "$(id -u)" = 0 ] && ns="unshare -n"
+	exec env HYPER_IN_NETNS=1 $ns sh "$0" "$@"
 fi
 
 T="$(mktemp -d)"
