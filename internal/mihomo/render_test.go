@@ -240,8 +240,8 @@ func TestRenderNoServerRules(t *testing.T) {
 }
 
 func TestRenderTUN(t *testing.T) {
-	r := render(t, func(u map[string]map[string]any) { u["config"]["proxy_mode"] = "tun" },
-		func(in *Input) { in.Settings.IPv6 = true }) // the router has an IPv6 uplink
+	// hyperd picked TUN at start; the router has an IPv6 uplink.
+	r := render(t, nil, func(in *Input) { in.Settings.Method, in.Settings.IPv6 = MethodTUN, true })
 	tun := r.cfg["tun"].(map[string]any)
 	if tun["device"] != "hypertun0" || tun["auto-route"] != false || tun["stack"] != "system" || tun["inet6-address"].([]any)[0] != "fdfe:dcba:9876::1/126" {
 		t.Fatal(tun)
@@ -341,7 +341,6 @@ func TestFromUCI(t *testing.T) {
 	}
 	for _, bad := range []func(map[string]map[string]any){
 		func(u map[string]map[string]any) { u["config"]["routing_mode"] = "custom" },
-		func(u map[string]map[string]any) { u["config"]["proxy_mode"] = "redirect_tproxy" },
 		func(u map[string]map[string]any) { u["config"]["routing_mode"] = "bypass_mainland_china" },
 		func(u map[string]map[string]any) { u["control"]["lan_direct_mac_addrs"] = []any{"nope"} },
 		func(u map[string]map[string]any) { u["infra"]["tproxy_port"] = "70000" },

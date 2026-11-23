@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"syscall"
@@ -66,6 +67,39 @@ func (m *manager) runtimeSettings(ctx context.Context) (mihomo.Settings, error) 
 	return s, nil
 }
 
+// tproxyProbe is the network helper's capture rule in a table of its own, for nft -c.
+const tproxyProbe = `table inet hyper_probe {
+	chain pre {
+		type filter hook prerouting priority mangle; policy accept;
+		meta l4proto { tcp, udp } meta mark set 0x1 tproxy to :1 accept
+	}
+}
+`
+
+// captureMethod picks how the LAN's traffic reaches the core, automatically like IPv6
+// (there is no setting): TProxy where this firewall accepts the helper's tproxy rule
+// (checked with nft -c, which changes nothing), otherwise TUN where the kernel has it.
+// With neither, TProxy, so the start's network step reports what is missing.
+// HYPERD_METHOD forces one in tests, as HYPERD_CORE_GROUP does the group.
+func (m *manager) captureMethod(ctx context.Context) string {
+	if v := os.Getenv("HYPERD_METHOD"); v == mihomo.MethodTProxy || v == mihomo.MethodTUN {
+		return v
+	}
+	probe := filepath.Join(m.paths.RunDir, "tproxy-probe.nft")
+	if err := os.WriteFile(probe, []byte(tproxyProbe), 0o600); err == nil {
+		defer os.Remove(probe)
+		c, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if _, err := m.sys.Run(c, "nft", "-c", "-f", probe); err == nil {
+			return mihomo.MethodTProxy
+		}
+	}
+	if m.sys.Exists("/dev/net/tun") {
+		return mihomo.MethodTUN
+	}
+	return mihomo.MethodTProxy
+}
+
 func (m *manager) enabled() bool {
 	c, _ := m.config()
 	return c.Get("config", "enabled") == "1"
@@ -75,7 +109,6 @@ func (m *manager) enabled() bool {
 var settingsTable = map[string]func() *regexp.Regexp{
 	"control.proxy_router_self":     lazyre.New(`^[01]$`),
 	"config.log_level":              lazyre.New(`^(trace|debug|info|warn|error)$`),
-	"config.proxy_mode":             lazyre.New(`^(tproxy|tun)$`),
 	"config.dns_server":             lazyre.New(`^[A-Za-z0-9.:/\[\]_-]{1,255}$`),
 	"config.china_dns_server":       lazyre.New(`^[A-Za-z0-9.:/\[\]_-]{1,255}$`),
 	"subscription.auto_update":      lazyre.New(`^[01]$`),

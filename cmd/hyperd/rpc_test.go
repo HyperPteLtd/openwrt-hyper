@@ -39,8 +39,11 @@ type env struct {
 	neigh string
 	wan   string // WAN resolver netifd reports
 	v6    bool   // the router has an IPv6 route to the internet
-	core  string // fake core log
-	net   string // network helper log
+	// The firewall refuses the tproxy rule / the kernel has no TUN device. Read only by a
+	// start, after the call that requested it.
+	noTProxy, noTUN bool
+	core            string // fake core log
+	net             string // network helper log
 }
 
 func freePort(t *testing.T) int {
@@ -144,8 +147,20 @@ repair) [ ! -e %[5]s/repair-fails ] || exit 1; echo repaired ;; esac
 `, e.p.Plan, e.net, e.p.Owned, e.p.Owned, e.p.RunDir)), 0o755)
 	e.sys = defaultSystem()
 	real := e.sys.Run
+	exists := e.sys.Exists
+	e.sys.Exists = func(p string) bool {
+		if p == "/dev/net/tun" {
+			return !e.noTUN
+		}
+		return exists(p)
+	}
 	e.sys.Run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		switch name {
+		case "nft": // only the capture method's check runs nft
+			if e.noTProxy {
+				return []byte("Error: Could not process rule: No such file or directory"), errors.New("exit status 1")
+			}
+			return nil, nil
 		case "ubus":
 			return []byte(`{"dns-server":["` + e.wan + `"]}`), nil
 		case "ip":
@@ -250,7 +265,7 @@ func TestGoldenReadOnly(t *testing.T) {
 	sameJSON(t, "acllist_read", e.call("acllist_read", map[string]any{"type": "direct"}), golden(t, "acllist_read-invalid")) // the list types are direct_list / proxy_list
 	sameJSON(t, "sync_status", e.call("sync_status", nil), golden(t, "sync_status"))
 
-	// get_config: proxy_mode is tproxy / tun; IPv6 and fake-ip are automatic, not settings.
+	// get_config: the capture method, IPv6 and fake-ip are automatic, not settings.
 	want := golden(t, "get_config")
 	want["api_base"] = "http://127.0.0.1:1" // the test's API
 	sameJSON(t, "get_config", e.call("get_config", nil), want)
@@ -381,8 +396,10 @@ func TestServiceLifecycle(t *testing.T) {
 		t.Fatal(readFile(e.p.Log))
 	}
 
-	// A settings change restarts; TUN is passed to the helper.
-	if r := e.call("set_config", map[string]any{"values": map[string]any{"config.proxy_mode": "tun"}}); r["result"] != true {
+	// A settings change restarts, and the restart picks the capture method again: this
+	// firewall refuses the tproxy rule now, so TUN is passed to the helper.
+	e.noTProxy = true
+	if r := e.call("set_config", map[string]any{"values": map[string]any{"config.log_level": "info"}}); r["result"] != true {
 		t.Fatal(r)
 	}
 	opID := e.call("status", nil)["operation"].(map[string]any)["id"].(float64)
@@ -532,12 +549,16 @@ func TestSettingsMethods(t *testing.T) {
 	if r := e.call("set_config", map[string]any{"values": map[string]any{"bogus.key": "1"}}); r["result"] != false {
 		t.Fatal(r)
 	}
-	r := e.call("set_config", map[string]any{"values": map[string]any{"config.proxy_mode": "tun", "subscription.auto_update_time": 5}})
+	// The capture method is picked at each start, not set.
+	if r := e.call("set_config", map[string]any{"values": map[string]any{"config.proxy_mode": "tun"}}); r["result"] != false {
+		t.Fatal(r)
+	}
+	r := e.call("set_config", map[string]any{"values": map[string]any{"subscription.auto_update_time": 5}})
 	if r["result"] != true {
 		t.Fatal(r)
 	}
 	cfg := e.call("get_config", nil)["config"].(map[string]any)
-	if cfg["config.proxy_mode"] != "tun" || cfg["subscription.auto_update_time"] != "5" {
+	if _, ok := cfg["config.proxy_mode"]; ok || cfg["subscription.auto_update_time"] != "5" {
 		t.Fatal(cfg)
 	}
 
@@ -763,6 +784,31 @@ func TestCoreLogText(t *testing.T) {
 		"\npanic: boom\ntime=bad level=info msg=x"
 	if got != want {
 		t.Fatalf("\n got %q\nwant %q", got, want)
+	}
+}
+
+// The capture method is TProxy where the firewall accepts the helper's rule, TUN where only
+// the kernel's TUN device is there, and TProxy again with neither (the start then reports
+// what is missing); the check leaves nothing behind.
+func TestCaptureMethod(t *testing.T) {
+	e := newEnv(t, nil)
+	ctx := context.Background()
+	for _, c := range []struct {
+		noTProxy, noTUN bool
+		want            string
+	}{{false, false, "tproxy"}, {false, true, "tproxy"}, {true, false, "tun"}, {true, true, "tproxy"}} {
+		e.noTProxy, e.noTUN = c.noTProxy, c.noTUN
+		if got := e.m.captureMethod(ctx); got != c.want {
+			t.Errorf("tproxy refused %v, no TUN %v: %s, want %s", c.noTProxy, c.noTUN, got, c.want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.p.RunDir, "tproxy-probe.nft")); !os.IsNotExist(err) {
+		t.Fatal("the probe ruleset was left behind:", err)
+	}
+	t.Setenv("HYPERD_METHOD", "tun")
+	e.noTProxy, e.noTUN = false, false
+	if got := e.m.captureMethod(ctx); got != "tun" {
+		t.Fatal("HYPERD_METHOD:", got)
 	}
 }
 

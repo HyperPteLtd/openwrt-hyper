@@ -9,11 +9,13 @@ import type { Status } from "./lib/types";
 import { operationPending } from "./lib/service";
 import { reconcileControls } from "./lib/controls";
 import { accountEpoch } from "./lib/account-epoch";
+import { warmSignedIn } from "./lib/account-warm";
 import { Account } from "./pages/Account";
 import { Login } from "./pages/Login";
 import { Logs } from "./pages/Logs";
 import { Overview } from "./pages/Overview";
 import { Plans } from "./pages/Plans";
+import { Rules } from "./pages/Rules";
 import { Settings } from "./pages/Settings";
 
 import "./global.css";
@@ -56,9 +58,13 @@ export function Root() {
         // A response started before the control acknowledgment must not erase it.
         if (epoch !== accountEpoch() || request < appliedStatus.current || intentAtRequest !== app.intentRevision || tickAtRequest !== app.tick || app.status?.operation?.id !== operationAtRequest) return;
         appliedStatus.current = request;
+        // Signed in during this page session (not a page opened signed in): fill the cache
+        // once the reads are keyed to the new account (rememberStatus).
+        const signedIn = s.signed_in && app.liveStatus && app.status?.signed_in === false;
         rememberStatus(s);
         app.liveStatus = true;
         app.status = s;
+        if (signedIn) void warmSignedIn(s.email || "signed-in", () => (app.status?.signed_in ? app.status.email || "signed-in" : ""));
         app.statusAt = performance.now();
         reconcileControls(s);
         app.error = "";
@@ -98,6 +104,7 @@ export function Root() {
 
 const PAGES: Record<Route, () => VNode> = {
   overview: () => <Overview />,
+  rules: () => <Rules />,
   account: () => <Account />,
   plans: () => <Plans />,
   diagnostics: () => <Logs />,

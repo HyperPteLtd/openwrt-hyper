@@ -52,7 +52,7 @@ sh tests/router-test.sh "$IMAGE" /tmp/hyper-core "$PLATFORM"
 
 国际化统一使用 [i18n.ts](../web/src/lib/i18n.ts)：中文源文案作为消息键，英文位于 [en.ts](../web/src/lib/locales/en.ts)，通过 `t()` 翻译和插值。TypeScript 检查消息键，测试检查中英文参数一致性。语言默认跟随 LuCI，手动选择优先；套餐名称、地区名称与接口参数使用同一 locale
 
-[cache.ts](../web/src/lib/cache.ts) 合并并发读取，并按路由器和账户隔离展示数据。账户资料、套餐信息与累计用量缓存 1 分钟，节点和配置缓存 30 秒；可持久保存的展示数据最多保留 7 天，重开页面先展示旧值再后台校准。退出登录或换号会清理旧缓存，不持久保存登录凭据、订阅链接或节点连接配置
+[cache.ts](../web/src/lib/cache.ts) 合并并发读取，并按路由器和账户隔离展示数据。账户资料、套餐信息与累计用量缓存 1 分钟，节点和配置缓存 30 秒；可持久保存的展示数据最多保留 7 天，重开页面先展示旧值再后台校准。退出登录或换号会清理旧缓存，不持久保存登录凭据、订阅链接或节点连接配置。在本页面登录成功后（不是打开时已登录），[account-warm.ts](../web/src/lib/account-warm.ts) 在新账户的状态到达后逐个读取各页面首次打开会请求的账户资料、套餐、设备、邀请统计、套餐列表、支付方式、站点配置、公告和签到状态，参数与页面完全一致，之后打开账户、套餐页直接用缓存；退出或换号时停止。“规则”页放我的规则与分流规则
 
 节点延迟连同测量时间按账户和节点身份保存。刷新失败保留上次结果，自动选择仅使用本次测量结果。测速使用独立的临时进程，服务停止时也可运行，最多同时测量 6 个节点并逐项返回；手选节点或启停服务会取消旧测速。运行状态、路由器实时流量、诊断和支付结果不复用读取缓存；服务控制等待首次真实状态返回，手动检查更新也会重新请求
 
@@ -68,7 +68,7 @@ procd 运行两个实例：`hyperd serve` 和 `hyperd guard`。rpcd 通过 exec 
 
 - serve 生成 mihomo 配置（[internal/mihomo](../internal/mihomo/render.go)），写入 `/var/run/hyper/core`，先用 `mihomo -t` 校验，再启动核心；控制接口可能先于监听端口应答，所以等 DNS、mixed 和 TProxy 端口都在监听后才调用 [network](../luci-app-hyper/root/usr/libexec/hyper/network) 接管网络。核心退出后自动重启
 - 核心按 OpenClash 的方式运行：serve 直接以 root 的用户 ID 启动它，拥有全部能力，不加沙箱、不设能力上限和 `no_new_privs`，TUN 模式直接打开路由器的 `/dev/net/tun`；只是它的组换成 uci-defaults 创建的 `hyper` 组（真实、有效、保存和文件系统组），没有附加组，防火墙按 `meta skgid` 放行该组的连接。不用系统自带的 nogroup，因为以 nogroup 运行的其他进程也会绕过接管。核心随 serve 退出（父进程死亡信号），在自己的进程组里，停止时整组结束。校验和测速用的临时核心也一样。缺少 `hyper` 组或它是 root 的组时不启动核心。核心的文件都归 root 私有；完整启动前，如果 `/var/run/hyper/core` 里有不属于 root 的文件（之前的版本以独立账户运行时留下的），整个目录会重建。核心可打开 1000000 个文件（与 OpenClash 一致）：init 脚本让 procd 给 serve 设这个上限，serve 启动核心前自己再设一次，免得 Go 把最初的软上限交给核心；内核的 `fs.nr_open` 更低时取 `fs.nr_open`，仍设不上时日志警告。核心日志保留 “too many open files”。核心崩溃（panic、fatal error 或信号）时，第一行写成带时间的错误日志，后面只保留出错 goroutine 的调用栈，其余几百个 goroutine 的转储不写入日志（只记一次）；运行时自己的 `runtime:` 行（内存耗尽等）也记为错误。MIPS 上 hyperd 和核心的 TLS 都不使用后量子密钥交换 X25519MLKEM768：Go 在 MIPS 上做这部分运算时会非对齐读取，QEMU 里直接 SIGBUS，真机上每次读取都陷入内核。`HYPER_E2E_ROOT=1 sh tests/e2e_test.sh` 以真实 root 运行端到端测试并检查核心的身份、能力和文件数上限（CI 默认如此）
-- network 脚本在 fw4 上创建带归属标记的 `inet hyper` 表，加入策略路由、fw4 放行规则和 dnsmasq 上游。TProxy 与 TUN 由 `config.proxy_mode` 二选一；释放时只删除带标记的对象
+- network 脚本在 fw4 上创建带归属标记的 `inet hyper` 表，加入策略路由、fw4 放行规则和 dnsmasq 上游。TProxy 与 TUN 没有设置项，每次启动时自动选择：防火墙接受 network 脚本的 tproxy 规则（`nft -c` 只检查、不改动）就用 TProxy，否则有 `/dev/net/tun` 时用 TUN，都没有时仍用 TProxy，由接管步骤报出缺少什么；所选方式写入日志，运行期间的接口变化不会切换。升级时 uci-defaults 删除旧版本留下的 `config.proxy_mode`。测试用 `HYPERD_METHOD=tun` 强制 TUN（`E2E_METHOD=tun sh tests/e2e_test.sh`）；释放时只删除带标记的对象
 - 路由器直连的网段（LAN、WAN 和下发的 IPv6 前缀）与入站连接的回包不经过核心；接口变化时 hotplug 先执行 `network refresh` 更新这组集合，再执行 `hyperd notify-network`：重新生成的配置与运行中的相同就不重启，避免断开现有连接；IPv6 上行出现或消失会改变配置，因此会重启。fake-ip 在接管流量时固定开启，IPv6 按上行自动接管，二者都不是设置项。所有端口都交给核心，NTP 始终直连；接管期间 dnsmasq 缓存清零，释放时恢复。TProxy 监听端口只接受被拦截的流量，局域网或 WAN 直接连接会被拒绝；fake-ip 地址可以 ping 通
 - guard 检查 serve 的心跳和核心控制接口，连续失败时执行 `network fault` 释放接管，局域网恢复直连。核心恢复后 serve 重新接管
 - `/etc/init.d/hyper stop` 先放置 `/var/run/hyper/stopping` 标记并释放接管，procd 随后才通知 serve 退出（最多等 20 秒）。标记存在期间 serve 不恢复、不修复、不重启接管，network 脚本也拒绝 `up` 和 `repair`；下次启动时清除

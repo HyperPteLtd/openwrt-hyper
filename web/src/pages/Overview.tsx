@@ -1,15 +1,13 @@
 import { t as tr } from "../lib/i18n";
 import { useSignal } from "@preact/signals";
-import { useEffect, useRef } from "preact/hooks";
+import { useRef } from "preact/hooks";
 import { app } from "../lib/app";
 import { usePoll } from "../lib/poll";
 import { formatBytes, formatUptime } from "../lib/format";
 import { call } from "../lib/rpc";
 import { serviceText } from "../lib/display";
 import { Announcements } from "../components/Announcements";
-import { Card, Row } from "../components/ui";
-import { useAutosave } from "../components/AutosaveStatus";
-import { configWrites } from "../lib/preferences";
+import { Card } from "../components/ui";
 import { desiredEnabled, requestEnabled, requestMode } from "../lib/controls";
 import { NodeList } from "../components/NodeList";
 import { OverviewNetwork } from "../components/OverviewNetwork";
@@ -27,32 +25,12 @@ const MODES = [
   { id: "global", label: tr("全局代理"), desc: tr("局域网全部流量经过代理") },
   { id: "dns", label: tr("仅 DNS 保护"), desc: tr("只加密 DNS 查询，防劫持和污染；其他流量直连") },
 ] as const;
-const RUNTIME_MODES = [
-  { id: "tproxy", label: tr("TProxy（推荐）") },
-  { id: "tun", label: "TUN" },
-];
 
 export function Overview() {
-  const runtimeMode = useSignal("tproxy");
-  const runtimeLoaded = useSignal(false);
-  useAutosave(configWrites);
   const clock = useSignal(performance.now());
   usePoll(() => { clock.value = performance.now(); }, 1000, app.liveStatus && !!app.status?.running);
-  const message = useSignal("");
   const totals = useSignal<{ up: number; down: number } | null>(null);
   const samples = useSignal<TrafficSample[]>([]);
-  useEffect(() => {
-    let disposed = false;
-    const revision = configWrites.revision;
-    const pending = configWrites.value;
-    const apply = (result: { config: Record<string, string | null> }) => {
-      if (disposed) return;
-      if (revision === configWrites.revision) runtimeMode.value = configWrites.value?.["config.proxy_mode"] ?? pending?.["config.proxy_mode"] ?? result.config["config.proxy_mode"] ?? "tproxy";
-      runtimeLoaded.value = true;
-    };
-    void call<{ config: Record<string, string | null> }>("get_config", {}, { onUpdate: apply }).then(apply).catch((error: Error) => { if (!disposed) message.value = error.message; });
-    return () => { disposed = true; };
-  }, []);
 
   /*
    * Poll the core's traffic totals every 3 s (only while the page is visible) and turn
@@ -148,7 +126,7 @@ export function Overview() {
             {live && !s.main_node && <span class="muted">{tr("还没有节点，请先在下方更新节点")}</span>}
           </div>
           </div>
-          {(app.controlError || app.modeError || message.value) && <div class="banner">{serviceText(app.controlError || app.modeError || message.value)}</div>}
+          {(app.controlError || app.modeError) && <div class="banner">{serviceText(app.controlError || app.modeError)}</div>}
           <div class="connection-mode-section">
           <h3 style={{ margin: 0, fontSize: "15px" }}>{tr("代理模式")}</h3>
           <div role="group" aria-label={tr("代理模式")} aria-busy={!!app.modeDesired} class="connection-modes">
@@ -160,14 +138,6 @@ export function Overview() {
               </button>
             ))}
           </div>
-          <div class="connection-runtime-mode"><Row title={tr("运行模式")}>
-            <select class="input" aria-label={tr("运行模式")} value={configWrites.value?.["config.proxy_mode"] ?? runtimeMode.value} disabled={!live || !runtimeLoaded.value} onChange={(event) => {
-              runtimeMode.value = event.currentTarget.value;
-              configWrites.enqueue({ "config.proxy_mode": event.currentTarget.value });
-            }}>
-              {RUNTIME_MODES.map(mode => <option key={mode.id} value={mode.id}>{mode.label}</option>)}
-            </select>
-          </Row></div>
           </div>
       <div class="overview-telemetry">
         <div class="traffic-summary">
@@ -177,15 +147,11 @@ export function Overview() {
         <TrafficChart samples={live && s.running ? samples.value : []} />
       </div>
         </Card>
-        <OverviewNetwork section="custom" />
-        <OverviewNetwork section="rules" />
+        <OverviewNetwork section="dns" />
       </div>
 
       <div class="overview-content-column">
-
-
       <NodeList />
-      <OverviewNetwork section="dns" />
       <OverviewNetwork section="devices" />
       </div>
       </div>

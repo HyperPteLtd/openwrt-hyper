@@ -7,7 +7,7 @@
 #   -> core comes back -> serve restores the takeover -> stop releases everything
 #
 #   HYPERD=/path/to/hyperd MIHOMO=/path/to/mihomo tests/e2e_test.sh
-#   E2E_METHOD=tun ...    the TUN path
+#   E2E_METHOD=tun ...    the TUN path (forced; TProxy is what this firewall gets picked)
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
@@ -36,7 +36,7 @@ trap cleanup EXIT
 mkdir -p "$R/bin" "$R/etc/config" "$R/etc/hyper" "$R/usr/libexec/hyper/bin" "$R/var/run" "$R/tmp/etc" "$R/tmp/dnsmasq.d" "$R/init"
 cp "$PKG/etc/config/hyper" "$R/etc/config/hyper"
 METHOD="${E2E_METHOD:-tproxy}"
-sed -i "s/option enabled '0'/option enabled '1'/; s/option main_node 'nil'/option main_node 'pp_e2e'/; s/option proxy_mode 'tproxy'/option proxy_mode '$METHOD'/" "$R/etc/config/hyper"
+sed -i "s/option enabled '0'/option enabled '1'/; s/option main_node 'nil'/option main_node 'pp_e2e'/" "$R/etc/config/hyper"
 tun_mode_before=$(stat -c %a /dev/net/tun 2>/dev/null || echo none)
 if [ -n "${HYPERD_CORE_GROUP:-}" ]; then
 	# What an earlier build left: the core directory and its cache under the core's own account.
@@ -108,16 +108,20 @@ wait_for() {
 owned() { [ -e "$R/var/run/hyper/network/owned" ] && nft list table inet hyper >/dev/null 2>&1; }
 
 set +e
-"$H" serve >"$R/serve.log" 2>&1 & serve=$!
+# The capture method is picked at start: TProxy here, unless the run asks for TUN.
+if [ "$METHOD" = tun ]; then HYPERD_METHOD=tun "$H" serve >"$R/serve.log" 2>&1 & serve=$!
+else "$H" serve >"$R/serve.log" 2>&1 & serve=$!; fi
 "$H" guard >"$R/guard.log" 2>&1 & guard=$!
 
 wait_for "serve starts the core (enabled at boot)" '[ "$(call status | field running)" = true ]' 30
 wait_for "takeover installed" owned 15
 if [ "$METHOD" = tun ]; then
+	check "TUN as asked" 'grep -q "Capture method: TUN" "$R/var/run/hyper/hyper.log"'
 	check "TUN device and route" 'ip route show table 100 | grep -q "default dev hypertun0"'
 	check "policy rule" 'ip rule show | grep -q "fwmark 0x66/0xffff lookup 100"'
 	check "router's /dev/net/tun untouched" '[ "$(stat -c %a /dev/net/tun 2>/dev/null || echo none)" = "$tun_mode_before" ]'
 else
+	check "TProxy picked automatically" 'grep -q "Capture method: TProxy" "$R/var/run/hyper/hyper.log"'
 	check "TProxy capture rule" 'nft list table inet hyper | grep -q "tproxy to :5332"'
 	check "policy rule" 'ip rule show | grep -q "fwmark 0x65/0xffff lookup 100"'
 fi

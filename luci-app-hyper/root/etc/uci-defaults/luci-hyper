@@ -16,5 +16,12 @@ group_add_next hyper >/dev/null
 	uci -q commit hyper
 }
 
+# The capture method is picked at each start (TProxy where the firewall has it); an older
+# install's setting would be ignored, so it goes.
+[ -z "$(uci -q get hyper.config.proxy_mode)" ] || {
+	uci -q delete hyper.config.proxy_mode
+	uci -q commit hyper
+}
+
 rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 exit 0

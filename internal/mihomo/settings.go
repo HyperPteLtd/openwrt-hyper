@@ -21,7 +21,7 @@ const (
 	ModeGlobal = "global"
 )
 
-// Interception methods, chosen in UCI (config.proxy_mode).
+// Interception methods: hyperd picks one at each start (TProxy where the firewall has it).
 const (
 	MethodTProxy = "tproxy"
 	MethodTUN    = "tun"
@@ -95,13 +95,6 @@ func FromUCI(c *uci.Config) (Settings, error) {
 		s.Mode = ModeGlobal
 	default:
 		return s, fmt.Errorf("unsupported routing mode %q", m)
-	}
-	switch m := c.Get("config", "proxy_mode"); m {
-	case "", MethodTProxy:
-	case MethodTUN:
-		s.Method = MethodTUN
-	default:
-		return s, fmt.Errorf("unsupported proxy mode %q", m)
 	}
 	switch l := c.Get("config", "log_level"); l {
 	case "", "warn", "warning":

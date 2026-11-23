@@ -383,6 +383,8 @@ func (s *service) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	settings.Method = m.captureMethod(ctx)
+	m.log.Printf("DAEMON", "Capture method: %s.", map[string]string{mihomo.MethodTProxy: "TProxy", mihomo.MethodTUN: "TUN"}[settings.Method])
 	secret := randomSecret()
 	out, err := m.render(ctx, settings, secret)
 	if err != nil {
@@ -881,12 +883,13 @@ func (m *manager) networkChanged(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	m.svc.mu.Lock()
-	secret := m.svc.secret
+	secret, method := m.svc.secret, m.svc.settings.Method
 	m.svc.mu.Unlock()
 	s, err := m.runtimeSettings(ctx)
 	if err != nil {
 		return false, err
 	}
+	s.Method = method // chosen at start; a network notice never switches it
 	out, err := m.render(ctx, s, secret)
 	if err != nil {
 		return false, err

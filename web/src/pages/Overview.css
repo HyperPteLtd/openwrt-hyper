@@ -22,11 +22,6 @@
 .overview-content-column .node-list { min-width: 0; }
 .overview-content-column .node-list .empty { min-height: 150px; }
 .overview-content-column .node-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 342px; }
-.network-section .embedded-settings > .row > .card { padding: 0; border: 0; border-radius: 0; background: transparent; }
-.network-section .embedded-settings > .row { gap: 20px; }
-.network-section .settings-row { padding: 10px 0; min-height: 56px; gap: 8px 16px; }
-.network-section .card h2 { font-size: 14px; }
-.network-section > .card-header h2 { font-size: 16px; }
 @media (max-width: 1000px) {
   .overview-content-column .node-actions .btn { flex: 1; }
   .overview-content-column .node-search { flex-basis: 100%; }
@@ -38,8 +33,6 @@
   .overview-dashboard .card { min-width: 0; padding: 16px; }
   .overview-dashboard .connection-card { order: 0; }
   .overview-dashboard .node-section { order: 1; }
-  .overview-dashboard .network-custom { order: 2; }
-  .overview-dashboard .network-rules { order: 3; }
   .overview-dashboard .network-dns { order: 4; }
   .overview-dashboard .network-devices { order: 5; }
   .overview-control-column .connection-heading p { min-height: 3em; }
@@ -56,8 +49,4 @@
 .connection-mode-section { padding-top: 4px; display: flex; flex-direction: column; gap: 8px; }
 .overview-control-column .connection-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .overview-control-column .connection-modes .option { justify-content: center; text-align: center; }
-.connection-runtime-mode .settings-row { flex-wrap: nowrap; align-items: center; gap: 12px; }
-.connection-runtime-mode .settings-row-copy { flex-basis: auto; }
-.connection-runtime-mode .settings-row-control { flex: 0 1 auto; max-width: 65%; }
-.connection-runtime-mode select { width: 100%; }
 .domain-lists { display: flex; flex-direction: column; gap: 8px; }

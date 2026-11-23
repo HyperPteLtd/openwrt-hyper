@@ -70,7 +70,6 @@ function newer(a: string, b: string): boolean {
 const config: Record<string, string> = {
   "control.proxy_router_self": "1",
   "config.log_level": "warn",
-  "config.proxy_mode": "tproxy",
   "config.dns_server": "https://1.1.1.1/dns-query",
   "config.china_dns_server": "223.5.5.5",
   "subscription.auto_update": "1",

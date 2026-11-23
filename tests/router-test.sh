@@ -86,8 +86,8 @@ v="$("$BIN/hyperd" version)" && ok "hyperd $v" || bad "bundled hyperd does not r
 echo "== first boot"
 [ -n "$(uci -q get hyper.account.device_id)" ] && ok "device id generated" || bad "device id missing"
 gid=$(awk -F: '$1 == "hyper" { print $3 }' /etc/group); [ -n "$gid" ] && [ "$gid" != 0 ] && ok "core group hyper exists" || bad "core group hyper missing"
-[ "$(uci -q get hyper.config.proxy_mode)" = tproxy ] && [ "$(uci -q get hyper.config.routing_mode)" = smart ] &&
-	ok "defaults: smart routing over TProxy" || bad "unexpected defaults"
+[ "$(uci -q get hyper.config.routing_mode)" = smart ] && [ -z "$(uci -q get hyper.config.proxy_mode)" ] &&
+	ok "defaults: smart routing, capture method picked at start" || bad "unexpected defaults"
 [ -f /etc/hyper/rule-set/geoip-cn.mrs ] && [ -f /etc/hyper/rule-set/geosite-cn.mrs ] && ok "bundled rule sets" || bad "rule sets missing"
 
 echo "== rpcd and hyperd"
@@ -104,14 +104,16 @@ if ubus -t 10 wait_for luci.hyper; then
 		ok "checkin_status: $(echo $res)" || bad "checkin_status: $res"
 	base="$(ubus call luci.hyper get_config | jsonfilter -e '@.api_base')"
 	[ "$base" = 'https://api.cloudcdnhyper.com' ] && ok "API address is selected automatically" || bad "api_base $base"
-	[ "$(ubus call luci.hyper get_config | jsonfilter -e '@.config["config.proxy_mode"]')" = tproxy ] &&
-		ok "get_config reports tproxy" || bad "get_config proxy_mode"
+	# This firewall's nft takes the helper's TProxy rule in check mode: what a start picks.
+	printf '%s\n' 'table inet hyper_probe {' 'chain pre {' 'type filter hook prerouting priority mangle; policy accept;' \
+		'meta l4proto { tcp, udp } meta mark set 0x1 tproxy to :1 accept' '}' '}' > /tmp/tproxy-probe.nft
+	nft -c -f /tmp/tproxy-probe.nft && ok "nft accepts the TProxy check" || bad "nft refuses the TProxy check: a start would pick TUN"
 
 	# hyperd writes /etc/config/hyper itself: the firmware's uci must read it back.
 	ubus call luci.hyper set_mode '{"mode":"dns"}' >/dev/null
 	ubus call luci.hyper set_access_control '{"mode":"pick","direct_macs":["AA:BB:CC:DD:EE:01","00:d9:d1:8b:33:e2"]}' >/dev/null
-	ubus call luci.hyper set_config '{"values":{"config.proxy_mode":"tun","subscription.auto_update_time":"6"}}' >/dev/null
-	[ "$(uci -q get hyper.config.dns_only)" = 1 ] && [ "$(uci -q get hyper.config.proxy_mode)" = tun ] &&
+	ubus call luci.hyper set_config '{"values":{"config.log_level":"debug","subscription.auto_update_time":"6"}}' >/dev/null
+	[ "$(uci -q get hyper.config.dns_only)" = 1 ] && [ "$(uci -q get hyper.config.log_level)" = debug ] &&
 	[ "$(uci -q get hyper.subscription.auto_update_time)" = 6 ] &&
 	[ "$(uci -q get hyper.control.lan_direct_mac_addrs)" = 'aa:bb:cc:dd:ee:01 00:d9:d1:8b:33:e2' ] &&
 		ok "uci reads what hyperd wrote" || { bad "uci disagrees with hyperd"; uci show hyper; }

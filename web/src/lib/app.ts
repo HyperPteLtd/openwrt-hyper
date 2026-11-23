@@ -3,10 +3,11 @@ import { createStore } from "./store";
 import type { Mode, ServiceOperation, Status } from "./types";
 import { onAccountChange } from "./account-epoch";
 
-export type Route = "overview" | "account" | "plans" | "diagnostics" | "settings";
+export type Route = "overview" | "rules" | "account" | "plans" | "diagnostics" | "settings";
 
 export const ROUTES: { id: Route; label: string }[] = [
   { id: "overview", label: tr("概览") },
+  { id: "rules", label: tr("规则") },
   { id: "account", label: tr("账户与订阅") },
   { id: "diagnostics", label: tr("诊断与日志") },
   { id: "settings", label: tr("设置") },

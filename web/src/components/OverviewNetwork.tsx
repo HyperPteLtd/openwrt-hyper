@@ -2,6 +2,7 @@ import { t as tr } from "../lib/i18n";
 import { Devices } from "../pages/Devices";
 import { Routing } from "../pages/Routing";
 import { Card, CardHeader } from "./ui";
+import "./OverviewNetwork.css";
 
 /** Network controls are edited directly on the overview with shared autosave. */
 export function OverviewNetwork({ section }: { section: "rules" | "custom" | "dns" | "devices" }) {

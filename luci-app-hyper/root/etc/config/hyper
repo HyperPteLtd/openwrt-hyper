@@ -31,8 +31,6 @@ config hyper 'config'
 	option routing_mode 'smart'
 	# 1 = DNS protection only: the core resolves DNS for dnsmasq, LAN traffic goes direct
 	option dns_only '0'
-	# tproxy or tun
-	option proxy_mode 'tproxy'
 	option github_token ''
 	option log_level 'warn'
 
