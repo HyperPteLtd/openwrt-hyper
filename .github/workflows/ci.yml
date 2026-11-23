@@ -1,0 +1,410 @@
+name: CI
+
+# Build and test OpenWrt packages. Release on qualifying main commits or v* tags.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'openwrt-main' || format('ci-{0}', github.run_id) }}
+
+jobs:
+  test:
+    name: Tests (hyperd, scripts, core renders)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      release_tag: ${{ steps.release-version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: ${{ github.ref == 'refs/heads/main' && '0' || '1' }}
+
+      - name: Validate the release tag
+        if: github.ref_type == 'tag'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: sh scripts/release/validate-tag.sh "$RELEASE_TAG"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: scripts/release/package-lock.json
+
+      - name: Determine the next release from commit messages
+        id: release-version
+        if: github.ref == 'refs/heads/main'
+        run: |
+          npm --prefix scripts/release ci --ignore-scripts
+          tag="$(node scripts/release/version.mjs)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      # Packages of a release carry its version; any other build the one in VERSION.
+      - name: Package version
+        id: version
+        env:
+          RELEASE_TAG: ${{ steps.release-version.outputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+        run: |
+          case "$RELEASE_TAG" in
+            v[0-9]*) version="${RELEASE_TAG#v}" ;;
+            *) version="$(cat VERSION)" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # GPL-2.0-only HomeProxy code is gone; nothing may bring it back. The bracket keeps
+      # this step from matching its own text.
+      - name: No HomeProxy-derived files
+        run: |
+          if git grep -nI 'ImmortalWrt[.]org' -- .; then
+            echo "::error::HomeProxy's copyright line found in the repository"; exit 1
+          fi
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: hyperd tests
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          go run ./cmd/hyper-release version "$VERSION"
+          test -z "$(gofmt -l cmd internal scripts)"
+          go vet ./...
+          go test -race ./...
+
+      - name: Router shell scripts
+        run: |
+          set -eu
+          curl -fsSL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum --check -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" --shell=busybox --severity=warning --external-sources --check-sourced \
+            --source-path=SCRIPTDIR files/usr/libexec/hyper/network \
+            files/usr/libexec/hyper/procd-delete files/usr/libexec/rpcd/hyper \
+            files/etc/init.d/hyper files/etc/hotplug.d/*/*-hyper \
+            packaging/openwrt/{activate-runtime,runtime-abi,package-update,package-recovery}
+          for script in packaging/openwrt/*.sh scripts/kernel/*.sh; do sh -n "$script"; done
+
+      # The core every package carries, on loopback: its controller contract and the router's
+      # use of it, then, as real root, its launch with every capability.
+      - name: The bundled core on loopback
+        run: |
+          set -eu
+          sh packaging/openwrt/fetch-core.sh amd64 "$RUNNER_TEMP/core"
+          gzip -dc "$RUNNER_TEMP"/core/core/*.gz > "$RUNNER_TEMP/mihomo"
+          chmod 755 "$RUNNER_TEMP/mihomo"
+          "$RUNNER_TEMP/mihomo" -v
+          go test -c -o "$RUNNER_TEMP/router.test" ./internal/router
+          go test -c -o "$RUNNER_TEMP/control.test" ./internal/control
+          sudo unshare --net sh -ec '
+            ip link set lo up
+            export HYPER_MIHOMO_TEST_CORE="$1/mihomo" HYPER_DIAGNOSTIC_CORE="$1/mihomo" HYPER_TEST_CORE="$1/mihomo"
+            "$1/control.test" -test.v -test.run "^TestMihomoController$"
+            "$1/router.test" -test.v -test.run "^Test(UpstreamCoreControl|WireSharedOutbound)$"
+            HYPER_CORE_FIXTURE=1 "$1/router.test" -test.v \
+              -test.run "^Test(CoreLaunchHoldsEveryCapability|ReclaimDirKeepsOwnStateAndDropsForeign|NFTableGoneAnswersOnlyForACertainlyMissingTable)$" \
+              > "$1/root.log" || { cat "$1/root.log"; exit 1; }
+            cat "$1/root.log"
+            for test in CoreLaunchHoldsEveryCapability ReclaimDirKeepsOwnStateAndDropsForeign; do
+              grep -q "^--- PASS: Test$test " "$1/root.log" || { echo "::error::Test$test did not run as root"; exit 1; }
+            done
+          ' sh "$RUNNER_TEMP"
+
+  web:
+    name: Build and test the web UI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # The pages are LuCI's own JavaScript, shipped as written: no build step.
+      - name: LuCI pages parse and their imports exist
+        run: node scripts/check-luci.mjs
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      # Every failure code the daemon reports has its words on the pages.
+      - name: Page texts
+        run: go test -run 'ReadInChinese' ./cmd/hyperd
+
+  cores:
+    name: Core ${{ matrix.abi }}
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # packaging/openwrt/runtime-abi: the CPU profiles every package architecture maps to.
+        abi: [amd64, '386', arm64, arm5, arm6, arm7, mips, mipsle, riscv64, loong64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build hyperd
+        env:
+          ABI: ${{ matrix.abi }}
+          VERSION: ${{ needs.test.outputs.version }}
+        run: packaging/openwrt/build-runtime.sh "$ABI" "$VERSION" dist/runtime
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/core-cache
+          key: core-${{ matrix.abi }}-${{ hashFiles('scripts/core.lock') }}
+
+      # The pinned release build, checked against scripts/core.lock (cached or downloaded).
+      - name: Fetch the core
+        env:
+          ABI: ${{ matrix.abi }}
+          HYPER_CORE_CACHE: ${{ runner.temp }}/core-cache
+        run: |
+          mkdir -p "dist/core/$ABI"
+          packaging/openwrt/fetch-core.sh "$ABI" "dist/core/$ABI"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runtime-${{ matrix.abi }}
+          path: dist/runtime/
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: core-${{ matrix.abi }}
+          path: dist/core/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    name: Build ${{ matrix.family }}
+    needs: [test, web, cores]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # One package per OpenWrt architecture and format, like 0.x's releases: the 24.10
+        # SDK packs the 23.05-24.10 .ipk, the 25.12 SDK the 25.12+ .apk. The packages are
+        # prebuilt programs, so one SDK of each release packs every architecture.
+        include:
+          - { format: ipk, family: 23.05-24.10, sdk: 24.10.8 }
+          - { format: apk, family: '25.12+', sdk: 25.12.6 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: runtime-*
+          merge-multiple: true
+          path: dist/runtime
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: core-*
+          merge-multiple: true
+          path: dist/core
+
+      # Each package with its upgrade fixture (0.0.0) for the install tests.
+      - name: Package every architecture
+        env:
+          FORMAT: ${{ matrix.format }}
+          SDK: ${{ matrix.sdk }}
+          VERSION: ${{ needs.test.outputs.version }}
+          HYPER_FEED_MODE: test
+          HYPER_RUNTIME_DIR: dist/runtime
+          HYPER_CORE_DIR: dist/core
+        run: |
+          arches=$(go run ./cmd/hyper-release arches "$FORMAT")
+          . packaging/openwrt/retry.sh
+          retry bounded 180 docker pull --quiet "ghcr.io/openwrt/sdk:x86_64-$SDK"
+          logs=$RUNNER_TEMP/package-logs
+          mkdir -p "$logs"
+          status=0
+          printf '%s\n' $arches | xargs -P 4 -I '{}' sh -c \
+            'HYPER_PACKAGE_ARCH=$1 packaging/openwrt/build.sh "$2" x86_64 "$3" "dist/feed/$1" >"$4/$1.log" 2>&1 || { echo "::error::$1 package build failed"; exit 1; }' \
+            sh '{}' "$SDK" "$VERSION" "$logs" || status=$?
+          for arch in $arches; do
+            echo "::group::$arch"
+            cat "$logs/$arch.log" 2>/dev/null || echo "no log"
+            echo "::endgroup::"
+          done
+          exit "$status"
+
+      - name: Collect
+        env:
+          FORMAT: ${{ matrix.format }}
+          VERSION: ${{ needs.test.outputs.version }}
+        run: |
+          set -eu
+          mkdir -p dist/release
+          for arch in $(go run ./cmd/hyper-release arches "$FORMAT"); do
+            sh packaging/openwrt/release-names.sh "dist/feed/$arch" "$VERSION" "$FORMAT" "$arch"
+            name=$(go run ./cmd/hyper-release package-name "$VERSION" "$FORMAT" "$arch")
+            (cd "dist/feed/$arch" && sha256sum --check SHA256SUMS)
+            # Each package carries its CPU's core.
+            [ "$(stat -c %s "dist/feed/$arch/$name")" -gt 15000000 ] || { echo "::error::$name is too small to carry the core"; exit 1; }
+            cp "dist/feed/$arch/$name" dist/release/
+          done
+          ls -la dist/release
+          [ "$(ls dist/release | wc -l)" -eq "$(go run ./cmd/hyper-release arches "$FORMAT" | wc -w)" ]
+          # The install tests' architectures only: every feed is large.
+          mkdir -p dist/tested
+          for arch in x86_64 aarch64_generic mipsel_24kc; do mv "dist/feed/$arch" dist/tested/; done
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-feed-${{ matrix.format }}
+          path: dist/tested/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages-${{ matrix.format }}
+          path: dist/release/*
+          compression-level: 0
+          if-no-files-found: error
+
+  # Install each package offline in the firmware's own userland (official rootfs images; MIPS
+  # and Arm through QEMU), serve LuCI and its RPC, update through the router's updater with
+  # every release check, upgrade from the latest published release and remove it again.
+  install-test:
+    name: Install on OpenWrt ${{ matrix.release }} (${{ matrix.cpu }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { release: 23.05.6, cpu: x86_64, format: ipk }
+          - { release: 24.10.8, cpu: x86_64, format: ipk }
+          - { release: 25.12.6, cpu: x86_64, format: apk }
+          - { release: 23.05.6, cpu: aarch64_generic, format: ipk }
+          - { release: 24.10.8, cpu: aarch64_generic, format: ipk }
+          - { release: 25.12.6, cpu: aarch64_generic, format: apk }
+          - { release: 24.10.8, cpu: mipsel_24kc, format: ipk }
+          - { release: 25.12.6, cpu: mipsel_24kc, format: apk }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-feed-${{ matrix.format }}
+          path: dist/feed
+
+      - name: Run other CPUs' programs
+        if: matrix.cpu != 'x86_64'
+        run: |
+          . packaging/openwrt/retry.sh
+          apt_install() { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends qemu-user-binfmt; }
+          retry apt_install
+          sudo systemctl restart systemd-binfmt
+          for arch in aarch64 mipsel; do
+            grep -Eq '^flags: [A-Z]*F' "/proc/sys/fs/binfmt_misc/qemu-$arch"
+          done
+
+      - name: Install offline, update, upgrade and remove
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: ${{ matrix.release }}
+          CPU: ${{ matrix.cpu }}
+        run: packaging/openwrt/install-test.sh "$RELEASE" "$CPU" "dist/feed/$CPU"
+
+  release:
+    name: GitHub Release
+    if: needs.test.outputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
+    needs: [test, build, install-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: openwrt-release-${{ needs.test.outputs.release_tag || github.ref_name }}
+    env:
+      RELEASE_TAG: ${{ needs.test.outputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the release target
+        id: release-target
+        run: sh scripts/release/check-target.sh
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.release-target.outputs.publish == 'true'
+        with:
+          path: built
+          pattern: packages-*
+
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        if: steps.release-target.outputs.publish == 'true'
+        with:
+          go-version-file: go.mod
+
+      # Exactly the release's names (internal/release ReleaseNames), which the routers'
+      # updaters, 0.x's included, look for.
+      - name: Collect and checksum
+        if: steps.release-target.outputs.publish == 'true'
+        run: |
+          set -eu
+          version="${RELEASE_TAG#v}"
+          mkdir -p artifacts
+          find built -type f \( -name '*.ipk' -o -name '*.apk' \) -exec cp {} artifacts/ \;
+          for format in ipk apk; do
+            for arch in $(go run ./cmd/hyper-release arches "$format"); do
+              test -f "artifacts/$(go run ./cmd/hyper-release package-name "$version" "$format" "$arch")"
+            done
+          done
+          count="$(find artifacts -type f | wc -l)"
+          [ "$count" -eq "$(( $(go run ./cmd/hyper-release arches ipk | wc -w) + $(go run ./cmd/hyper-release arches apk | wc -w) ))" ] ||
+            { echo "::error::unexpected packages: $count"; exit 1; }
+          cd artifacts
+          ls -la
+          sha256sum -- *.ipk *.apk > sha256sums
+          cat sha256sums
+
+      - name: Recheck main before publishing
+        id: publish-target
+        if: steps.release-target.outputs.publish == 'true'
+        run: sh scripts/release/check-target.sh
+
+      - uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
+        if: steps.publish-target.outputs.publish == 'true'
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ steps.publish-target.outputs.commit }}
+          files: |
+            artifacts/*.ipk
+            artifacts/*.apk
+            artifacts/sha256sums
+          generate_release_notes: true
+          fail_on_unmatched_files: true
