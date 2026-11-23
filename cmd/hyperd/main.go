@@ -481,15 +481,32 @@ func (s *app) dispatch(ctx context.Context, method string, r request) (any, erro
 	lane := method
 	switch method {
 	case "subscription_read":
-		if !slices.Contains([]string{"list", "status", "url", "profile", "nodes", "groups", "rules", "agents", "set_match"}, r.Action) {
+		if !slices.Contains([]string{"list", "status", "url", "profile", "nodes", "groups", "rules", "agents", "set_match", "account", "catalog", "checkin_status"}, r.Action) {
 			return nil, errors.New("unknown read operation")
 		}
 		return child(ctx, bin, arg, body)
 	case "subscription_write":
-		if !slices.Contains([]string{"login", "configure", "preferences", "refresh", "rollback", "revoke", "logout", "site"}, r.Action) {
+		if !slices.Contains([]string{"login", "configure", "preferences", "refresh", "rollback", "revoke", "logout", "site", "send_code", "api", "checkin", "rule_toggle"}, r.Action) {
 			return nil, errors.New("unknown subscription operation")
 		}
 		lane = ""
+		// Signing in and turning a server rule list on or off take effect by reading the
+		// account again: the refresh follows as soon as the helper reports success.
+		if r.Action == "login" || r.Action == "rule_toggle" {
+			return s.runJob(lane, method+"/"+r.Action, func(ctx context.Context) (json.RawMessage, error) {
+				out, e := child(ctx, bin, arg, body)
+				var res struct {
+					OK   bool `json:"ok"`
+					Data struct {
+						Result bool `json:"result"`
+					} `json:"data"`
+				}
+				if e == nil && json.Unmarshal(out, &res) == nil && res.OK && res.Data.Result {
+					s.refreshHyper()
+				}
+				return out, e
+			})
+		}
 		if r.Action == "refresh" {
 			guarded, e := protectReferences(body, s.m.Status().Intent)
 			if e != nil {

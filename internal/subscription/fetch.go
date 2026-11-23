@@ -38,6 +38,8 @@ type Source struct {
 	AllowLocalFallback bool              `json:"allow_local_fallback,omitempty"`
 	// Rules is the source's routing choice: RoutingOwn or RoutingTemplate.
 	Rules string `json:"rules,omitempty"`
+	// Disabled names the Hyper catalog's lists the administrator turned off (hyper sources).
+	Disabled []string `json:"disabled,omitempty"`
 }
 
 const defaultSubscriptionUserAgent = "clash"
@@ -96,6 +98,8 @@ func (s Source) validate() error {
 		return errors.New("invalid_source")
 	}
 	switch s.Kind {
+	case HyperSource:
+		return s.validateHyper()
 	case "external":
 		if s.Token != "" || s.Origin != "" || s.PlanID != 0 || s.UserID != "" {
 			return errors.New("invalid_external_source")
@@ -579,6 +583,9 @@ func (inventory nodeInventory) reportOmissions(p *Profile) {
 }
 
 func (f Fetcher) readProfile(ctx context.Context, s Source, file []byte, usage **Usage) (Profile, error) {
+	if s.Kind == HyperSource {
+		return f.readHyper(ctx, s, usage)
+	}
 	get := func(raw string) (response, error) {
 		authenticated := s.Kind == "platform"
 		token := ""
@@ -871,7 +878,8 @@ func (f Fetcher) Refresh(ctx context.Context, store *Store, id string, file []by
 			}
 			return Candidate{}, &AccountWithdrawal{Sources: ids}
 		}
-		if src.Kind == "platform" && errors.Is(e, ErrSuspended) {
+		account := src.Kind == "platform" || src.Kind == HyperSource
+		if account && errors.Is(e, ErrSuspended) {
 			if err := store.Suspend(t); err != nil {
 				return Candidate{}, err
 			}
@@ -881,7 +889,7 @@ func (f Fetcher) Refresh(ctx context.Context, store *Store, id string, file []by
 				return Candidate{}, err
 			}
 		}
-		if src.Kind == "platform" && errors.Is(e, ErrLoginRequired) {
+		if account && errors.Is(e, ErrLoginRequired) {
 			if err := store.RequireLogin(t); err != nil {
 				return Candidate{}, err
 			}

@@ -183,10 +183,12 @@ func retryDelay(attempts int, interval time.Duration) time.Duration {
 func transientFailure(code string) bool {
 	switch code {
 	case "subscription_request_failed", "subscription_incomplete", "subscription_link_unreachable",
-		"provider_timeout", "provider_dns_failed", "provider_connection_refused", "provider_unreachable", "provider_incomplete":
+		"provider_timeout", "provider_dns_failed", "provider_connection_refused", "provider_unreachable", "provider_incomplete",
+		// The Hyper account's reads (hypersync): no answer, or every country failed.
+		"subscription_token_unreachable", "locations_unreachable", "nodes":
 		return true
 	}
-	for _, prefix := range []string{"subscription_http_", "provider_http_"} {
+	for _, prefix := range []string{"subscription_http_", "provider_http_", "subscription_token_http_", "locations_http_"} {
 		if status, ok := strings.CutPrefix(code, prefix); ok {
 			n, err := strconv.Atoi(status)
 			return err == nil && (n == http.StatusRequestTimeout || n == http.StatusTooManyRequests || n >= 500 && n <= 599)
@@ -225,7 +227,7 @@ func dueForRefresh(src subscription.Status, now, attempt time.Time, interval tim
 
 func recoveredClock(src subscription.Status, now time.Time) bool {
 	return src.RetryAfterClock && !src.Revoked && !src.Suspended && !src.LoginRequired &&
-		(src.Kind == "platform" || src.Kind == "external") && src.LastTLS.Recheck(now)
+		(src.Kind == "platform" || src.Kind == "external" || src.Kind == subscription.HyperSource) && src.LastTLS.Recheck(now)
 }
 
 func (s *app) schedule(ctx context.Context) {
@@ -300,4 +302,15 @@ func (s *app) schedule(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// refreshHyper reads the signed-in Hyper account again, keeping the router's selections as a
+// requested refresh does.
+func (s *app) refreshHyper() {
+	body, _ := json.Marshal(map[string]string{"source": subscription.HyperSource})
+	guarded, err := protectReferences(body, s.m.Status().Intent)
+	if err != nil {
+		return
+	}
+	_, _ = s.runRefresh(guarded, false)
 }

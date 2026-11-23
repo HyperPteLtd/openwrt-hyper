@@ -41,6 +41,18 @@ type input struct {
 	Password             string            `json:"password,omitempty"`
 	Offset               int               `json:"offset"`
 	Limit                int               `json:"limit"`
+	// Hyper account methods (hyper.go)
+	Code           string          `json:"code,omitempty"`
+	Invite         string          `json:"invite,omitempty"`
+	CfToken        string          `json:"cf_token,omitempty"`
+	APIMethod      string          `json:"api_method,omitempty"`
+	Path           string          `json:"path,omitempty"`
+	APIQuery       map[string]any  `json:"api_query,omitempty"`
+	Body           json.RawMessage `json:"body,omitempty"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	Date           string          `json:"date,omitempty"`
+	Key            string          `json:"key,omitempty"`
+	Enabled        *bool           `json:"enabled,omitempty"`
 }
 type result struct {
 	TLS            *tlsdiag.Diagnostic     `json:"tls,omitempty"`
@@ -96,6 +108,9 @@ func nodeAvailability(ctx context.Context, nodes []sub.Member) []sub.Notice {
 	return notices
 }
 func run(ctx context.Context, store *sub.Store, method string, in input, f sub.Fetcher) (any, []string, error) {
+	if data, changed, err, ok := hyperRun(ctx, store, method, in, f); ok {
+		return data, changed, err
+	}
 	switch method {
 	case "list":
 		v, e := store.List()
@@ -286,6 +301,9 @@ func Main() {
 	defer cancel()
 	store := sub.OpenStore(*state)
 	f := sub.Fetcher{Fallback: true}
+	if *state == storeDir {
+		sub.HyperAccount = hyperAccount()
+	}
 	if *state == storeDir {
 		f.BeforeCommit = validate
 	}

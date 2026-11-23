@@ -105,6 +105,11 @@ type Profile struct {
 	// which the commit records and a rollback restores with the profile. Profiles stored
 	// before it was recorded have none: a rollback to one leaves the source's choice.
 	RoutingChoice *string `json:"routing_choice,omitempty"`
+	// Countries are a Hyper profile's node IDs by country, so that a read where a country
+	// fails keeps that country's nodes.
+	Countries map[string][]string `json:"countries,omitempty"`
+	// Lists summarise a Hyper profile's rule catalog for the rules page.
+	Lists []HyperList `json:"lists,omitempty"`
 }
 
 type Policy struct {
@@ -139,7 +144,7 @@ func (c Candidate) Unchanged() bool { return c.unchanged }
 // router's copy served. A new template version whose rules and rule sets are the same leaves
 // the router's configuration as it is.
 func (p Profile) routing() Profile {
-	p.Notices, p.Title, p.Format, p.RoutingChoice = nil, "", "", nil
+	p.Notices, p.Title, p.Format, p.RoutingChoice, p.Countries, p.Lists = nil, "", "", nil, nil, nil
 	if p.Template != nil {
 		p.Template = &TemplateUse{}
 	}
@@ -222,7 +227,13 @@ func (p *Profile) addProxy(name, kind string, out map[string]any) error {
 	}
 	out["port"] = port
 	out["server"] = strings.ToLower(host)
-	id := ref("node", []any{p.Source, kind, out})
+	// A Hyper node keeps its ID while the server rotates its credentials, so the router's
+	// selection and failover history stay with it.
+	key := []any{p.Source, kind, out}
+	if p.Format == HyperSource {
+		key = []any{p.Source, kind, out["server"], port, name}
+	}
+	id := ref("node", key)
 	p.Nodes = append(p.Nodes, Node{id, name, kind, host, port, out, kind == "mtproxy"})
 	return nil
 }
