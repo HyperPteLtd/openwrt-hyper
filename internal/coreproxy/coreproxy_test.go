@@ -69,8 +69,10 @@ func TestDial(t *testing.T) {
 	}
 }
 
-// A connection still waiting in the listener's queue is listed as root with inode 0: not
-// yet the core's, however long it waits.
+// A connection still waiting in the listener's queue has no file (inode 0): not yet the
+// core's, however long it waits. Some kernels list it as root, others as the listener's
+// account, so a foreign listener may be refused before the wait runs out; the core's own
+// listener is waited for.
 func TestDialWaitsForAccept(t *testing.T) {
 	if _, err := os.Stat(procTCP); err != nil {
 		t.Skip("no /proc/net/tcp")
@@ -90,7 +92,7 @@ func TestDialWaitsForAccept(t *testing.T) {
 		if _, err := Dial(context.Background(), "tcp", l.Addr().String()); !errors.Is(err, ErrNotCore) {
 			t.Fatalf("owner %s: never accepted, yet trusted: %v", uid, err)
 		}
-		if time.Since(start) < 900*time.Millisecond {
+		if uid == me.Uid && time.Since(start) < 900*time.Millisecond {
 			t.Fatalf("owner %s: refused before the wait ran out", uid)
 		}
 	}

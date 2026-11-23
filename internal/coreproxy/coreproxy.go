@@ -36,8 +36,8 @@ func procAddr(ap netip.AddrPort) string {
 }
 
 // owner is the account and inode /proc/net/tcp lists for the socket at local whose peer is
-// remote. The kernel takes both from the socket's file: a connection not yet accepted has
-// none, so it is listed as root with inode 0, then as the account that accepted it.
+// remote. A connection not yet accepted has no file, so it is listed with inode 0 (as root,
+// or on some kernels as the listener's account), then as the account that accepted it.
 func owner(local, remote netip.AddrPort) (uid, inode string) {
 	b, err := os.ReadFile(procTCP)
 	if err != nil {
@@ -55,7 +55,8 @@ func owner(local, remote netip.AddrPort) (uid, inode string) {
 // Dial connects to the core's listener at addr (an IPv4 loopback address) and returns the
 // connection once the core has accepted it: listed as Owner (root) with a file (inode).
 // An account other than root cannot be listed as root, so a foreign listener is refused as
-// soon as it accepts, and one that never accepts within a second.
+// soon as it is listed under its own account (once it accepts, or on some kernels at once),
+// and within a second at the latest.
 func Dial(ctx context.Context, _, addr string) (net.Conn, error) {
 	ap, err := netip.ParseAddrPort(addr)
 	if err != nil || !ap.Addr().Unmap().IsLoopback() || !ap.Addr().Unmap().Is4() {
