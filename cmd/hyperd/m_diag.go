@@ -5,11 +5,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -142,12 +145,12 @@ func (m *manager) registerDiag() {
 		case "nslookup":
 			name, argv = "nslookup", []string{a.Target, "127.0.0.1"}
 		case "http":
-			name, argv = "curl", []string{"-o", "/dev/null", "-sS", "-m", "10", "-w",
-				"HTTP %{http_code} | connect %{time_connect}s | tls %{time_appconnect}s | ttfb %{time_starttransfer}s\n"}
+			proxy := ""
 			if a.Via != "direct" && m.svc.isRunning() {
-				argv = append(argv, "-x", fmt.Sprintf("socks5h://127.0.0.1:%d", s.MixedPort))
+				proxy = fmt.Sprintf("socks5://127.0.0.1:%d", s.MixedPort)
 			}
-			argv = append(argv, "--", "https://"+a.Target)
+			out, ok := httpCheck(ctx, m.sys.HTTP(proxy), a.Target)
+			return map[string]any{"result": ok, "output": out}, nil
 		default:
 			return map[string]any{"result": false, "error": "illegal type"}, nil
 		}
@@ -516,4 +519,45 @@ func installUpdateMain(ctx context.Context, dir string) error {
 		_ = exec.Command("/etc/init.d/rpcd", "reload").Run()
 	}
 	return nil
+}
+
+// httpCheck fetches https://target once (no redirects followed) and reports the status and
+// when the connection, the TLS handshake and the first response byte were done, as curl's
+// -w timings read, so the router needs no curl. Through the core, the hostname goes to it
+// unresolved; the connect time is then the core's. Failures read as their cause.
+func httpCheck(ctx context.Context, client *http.Client, target string) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	start := time.Now()
+	var connect, handshake, first atomic.Int64 // dial attempts may race
+	since := func(v *atomic.Int64) { v.CompareAndSwap(0, int64(time.Since(start))) }
+	trace := &httptrace.ClientTrace{
+		ConnectDone: func(_, _ string, err error) {
+			if err == nil {
+				since(&connect)
+			}
+		},
+		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+			if err == nil {
+				since(&handshake)
+			}
+		},
+		GotFirstResponseByte: func() { since(&first) },
+	}
+	req, err := http.NewRequestWithContext(httptrace.WithClientTrace(ctx, trace), http.MethodGet, "https://"+target, nil)
+	if err != nil {
+		return err.Error() + "\n", false
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return err.Error() + "\n", false
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
+	res.Body.Close()
+	sec := func(v *atomic.Int64) string { return fmt.Sprintf("%.3fs", time.Duration(v.Load()).Seconds()) }
+	return fmt.Sprintf("HTTP %d | connect %s | tls %s | ttfb %s\n", res.StatusCode, sec(&connect), sec(&handshake), sec(&first)), true
 }

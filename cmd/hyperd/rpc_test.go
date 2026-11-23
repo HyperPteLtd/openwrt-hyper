@@ -171,7 +171,7 @@ repair) [ ! -e %[5]s/repair-fails ] || exit 1; echo repaired ;; esac
 				return []byte("2400:3200::1 from :: via fe80::1 dev pppoe-wan"), nil
 			}
 			return []byte(e.neigh), nil
-		case "nslookup", "ping", "traceroute", "curl":
+		case "nslookup", "ping", "traceroute":
 			return []byte(name + " " + strings.Join(args, " ")), nil
 		}
 		return real(ctx, name, args...)

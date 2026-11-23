@@ -10,8 +10,10 @@ LUCI_TITLE:=Hyper for OpenWrt
 # app without a src/Makefile "all" (LUCI_PKGARCH?=...all), so the arch is set here.
 LUCI_PKGARCH:=$(ARCH_PACKAGES)
 # rpcd runs `hyperd` as the luci.hyper exec plugin; the network helper needs fw4 with
-# TProxy, the TUN driver, full iproute2 (policy rules), flock and jsonfilter. All exist
-# from OpenWrt 23.05 on. dnsmasq (or dnsmasq-full) ships with every image.
+# TProxy, the TUN driver, full iproute2 (policy rules) and jsonfilter. All exist from
+# OpenWrt 23.05 on. dnsmasq (or dnsmasq-full) ships with every image, and so does flock:
+# busybox's, which fw4 itself locks with, so no flock package is asked for (some
+# firmwares' feeds have none). hyperd makes its own HTTPS requests, diagnostics too.
 LUCI_DEPENDS:= \
 	+luci-base \
 	+rpcd \
@@ -20,8 +22,6 @@ LUCI_DEPENDS:= \
 	+kmod-nft-tproxy \
 	+kmod-tun \
 	+ip-full \
-	+flock \
-	+curl \
 	+ca-bundle
 
 PKG_NAME:=luci-app-hyper
