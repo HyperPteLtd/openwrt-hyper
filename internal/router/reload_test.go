@@ -17,9 +17,6 @@ func TestSwitchingRoutingRulesResetsConnectionsButRefreshesDoNot(t *testing.T) {
 	group := []subscription.Group{{ID: "group:proxy", Name: "Proxy", Kind: "selector", Members: []string{"node:a.example"}}}
 	own := subscription.Profile{Source: "s", Format: "clash", Nodes: []subscription.Node{node("a.example")}, Groups: group,
 		Rules: []subscription.Rule{{Match: map[string]any{"domain_suffix": []any{"example.com"}}, Target: "group:proxy"}}, Final: "group:proxy"}
-	template := own
-	template.Rules = []subscription.Rule{{Match: map[string]any{"domain_suffix": []any{"google.com"}}, Target: "group:proxy"}}
-	template.Template = &subscription.TemplateUse{Version: 1700000000, Reason: "requested"}
 	local := own
 	local.Local, local.Rules, local.Groups, local.Final = true, nil, nil, ""
 
@@ -27,15 +24,10 @@ func TestSwitchingRoutingRulesResetsConnectionsButRefreshesDoNot(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		from, to subscription.Profile
-	}{{"own to template", own, template}, {"template to own", template, own}, {"own to local", own, local}, {"template to local", template, local}} {
+	}{{"own to local", own, local}, {"local to own", local, own}} {
 		if routingKey(i, c.from) == routingKey(i, c.to) {
 			t.Errorf("%s kept open connections on the old route", c.name)
 		}
-	}
-	newer := template
-	newer.Template = &subscription.TemplateUse{Version: 1700086400, Reason: "requested"}
-	if routingKey(i, template) == routingKey(i, newer) {
-		t.Error("a new template version kept open connections on the old route")
 	}
 
 	// Same rules in effect, nodes, plan and counters refreshed.
@@ -46,13 +38,9 @@ func TestSwitchingRoutingRulesResetsConnectionsButRefreshesDoNot(t *testing.T) {
 		}
 		p.Notices = []subscription.Notice{{Code: "unsupported_node"}}
 		p.Title = "1 GB left"
-		if p.Template != nil {
-			// The same template, from the router's copy this time and for another reason.
-			p.Template = &subscription.TemplateUse{Version: p.Template.Version, Reason: "dropped_rules", Cached: true, Dropped: 12, Total: 100}
-		}
 		return p
 	}
-	for name, p := range map[string]subscription.Profile{"own": own, "template": template, "local": local} {
+	for name, p := range map[string]subscription.Profile{"own": own, "local": local} {
 		if routingKey(i, p) != routingKey(i, refresh(p)) {
 			t.Errorf("refreshing a subscription on its %s rules closed open connections", name)
 		}

@@ -1,5 +1,5 @@
-// The only command-line argument is the RPC method. URL, bearer, passwords and
-// profile data are read from stdin and are never echoed.
+// The only command-line argument is the RPC method. Passwords, codes and API bodies are read
+// from stdin and are never echoed.
 package subscriptioncli
 
 import (
@@ -25,18 +25,12 @@ const storeDir = "/etc/hyper/sources"
 type input struct {
 	ClockRetryGeneration uint64            `json:"clock_retry_generation,omitempty"`
 	Scheduled            bool              `json:"scheduled,omitempty"`
-	ReplacementURL       string            `json:"replacement_url,omitempty"`
-	Rules                *string           `json:"rules,omitempty"`
 	RuleSet              string            `json:"rule_set,omitempty"`
 	Query                string            `json:"query,omitempty"`
 	Source               string            `json:"source"`
-	Config               *sub.Source       `json:"config,omitempty"`
-	Preferences          *sub.Preferences  `json:"preferences,omitempty"`
-	Content              string            `json:"content,omitempty"`
 	Confirm              string            `json:"confirm,omitempty"`
 	ActiveIDs            []string          `json:"active_ids,omitempty"`
 	Choices              map[string]string `json:"choices,omitempty"`
-	Origin               string            `json:"origin,omitempty"`
 	Email                string            `json:"email,omitempty"`
 	Password             string            `json:"password,omitempty"`
 	Offset               int               `json:"offset"`
@@ -55,12 +49,11 @@ type input struct {
 	Enabled        *bool           `json:"enabled,omitempty"`
 }
 type result struct {
-	TLS            *tlsdiag.Diagnostic     `json:"tls,omitempty"`
-	OK             bool                    `json:"ok"`
-	Data           any                     `json:"data,omitempty"`
-	Error          string                  `json:"error,omitempty"`
-	Provider       *sub.ProviderDiagnostic `json:"provider,omitempty"`
-	ManagerPending bool                    `json:"manager_pending,omitempty"`
+	TLS            *tlsdiag.Diagnostic `json:"tls,omitempty"`
+	OK             bool                `json:"ok"`
+	Data           any                 `json:"data,omitempty"`
+	Error          string              `json:"error,omitempty"`
+	ManagerPending bool                `json:"manager_pending,omitempty"`
 }
 
 func notify(id string) bool {
@@ -118,9 +111,6 @@ func run(ctx context.Context, store *sub.Store, method string, in input, f sub.F
 	case "status":
 		v, e := store.Status(in.Source)
 		return v, nil, e
-	case "url":
-		v, e := store.SourceURL(in.Source)
-		return map[string]string{"url": v}, nil, e
 	case "set_match":
 		return setMatch(store, in)
 	case "profile", "nodes", "groups", "rules":
@@ -174,49 +164,9 @@ func run(ctx context.Context, store *sub.Store, method string, in input, f sub.F
 			v.Rules = paginate(v.Rules, in.Offset, in.Limit)
 			return v, nil, nil
 		}
-	case "agents":
-		return sub.UserAgents, nil, nil
-	case "site":
-		v, e := f.Site(ctx, in.Origin)
-		return v, nil, e
-	case "login":
-		intent, e := store.BeginLogin(in.Origin)
-		if e != nil {
-			return nil, nil, e
-		}
-		a, e := f.Login(ctx, in.Origin, in.Email, in.Password)
-		if e != nil {
-			return nil, nil, e
-		}
-		changed, e := store.SaveAccount(a, intent)
-		if e != nil {
-			return nil, changed, e
-		}
-		var ids []string
-		for _, plan := range a.Plans {
-			ids = append(ids, a.Source(plan).ID)
-		}
-		return map[string]any{"site": a.Site, "plans": a.Plans, "sources": ids}, changed, nil
-	case "configure":
-		if in.Config == nil {
-			return nil, nil, errors.New("source_config_required")
-		}
-		e := store.Configure(*in.Config)
-		return nil, []string{in.Config.ID}, e
-	case "preferences":
-		if in.Preferences == nil {
-			return nil, nil, errors.New("source_preferences_required")
-		}
-		e := store.Preferences(in.Source, *in.Preferences)
-		return nil, []string{in.Source}, e
 	case "refresh":
-		f.ReplacementURL, f.Routing = in.ReplacementURL, in.Rules
-		c, e := f.Refresh(ctx, store, in.Source, []byte(in.Content), sub.Policy{ClockRetryGeneration: in.ClockRetryGeneration, Scheduled: in.Scheduled, ActiveIDs: in.ActiveIDs, Choices: in.Choices, Confirm: in.Confirm})
+		c, e := f.Refresh(ctx, store, in.Source, sub.Policy{ClockRetryGeneration: in.ClockRetryGeneration, Scheduled: in.Scheduled, ActiveIDs: in.ActiveIDs, Choices: in.Choices, Confirm: in.Confirm})
 		if e != nil {
-			var withdrawn *sub.AccountWithdrawal
-			if errors.As(e, &withdrawn) {
-				return nil, withdrawn.Sources, e
-			}
 			if errors.Is(e, sub.ErrRevoked) || errors.Is(e, sub.ErrSuspended) {
 				return nil, []string{in.Source}, e
 			}
@@ -239,9 +189,6 @@ func run(ctx context.Context, store *sub.Store, method string, in input, f sub.F
 	case "revoke":
 		e := store.Revoke(in.Source)
 		return nil, []string{in.Source}, e
-	case "logout":
-		ids, e := store.Logout(in.Source)
-		return nil, ids, e
 	default:
 		return nil, nil, errors.New("unknown_method")
 	}
@@ -335,7 +282,7 @@ func Main() {
 	if e != nil {
 		data = nil
 	}
-	json.NewEncoder(os.Stdout).Encode(result{TLS: tlsdiag.From(e), OK: e == nil, Data: data, Error: code(e), Provider: sub.FailureProvider(e), ManagerPending: pending})
+	json.NewEncoder(os.Stdout).Encode(result{TLS: tlsdiag.From(e), OK: e == nil, Data: data, Error: code(e), ManagerPending: pending})
 	if e != nil {
 		os.Exit(1)
 	}

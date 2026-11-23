@@ -1,8 +1,9 @@
-// Package subscription normalizes private subscription inputs without performing network I/O.
+// Package subscription reads the router's subscription, the Hyper account's nodes and rule
+// catalog, into the profile the router checks and compiles, and keeps it.
 package subscription
 
 import (
-	"context"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"go.yaml.in/yaml/v3"
+
+	"github.com/HyperPteLtd/openwrt-hyper/internal/links"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/proxyspec"
 )
 
@@ -99,12 +103,6 @@ type Profile struct {
 	Notices       []Notice    `json:"notices,omitempty"`
 	Local         bool        `json:"local"`
 	Title         string      `json:"title,omitempty"`
-	// Template is set when the profile routes by subconv's template instead of its own rules.
-	Template *TemplateUse `json:"template,omitempty"`
-	// RoutingChoice is the source's routing choice (Source.Rules) the profile was read with,
-	// which the commit records and a rollback restores with the profile. Profiles stored
-	// before it was recorded have none: a rollback to one leaves the source's choice.
-	RoutingChoice *string `json:"routing_choice,omitempty"`
 	// Countries are a Hyper profile's node IDs by country, so that a read where a country
 	// fails keeps that country's nodes.
 	Countries map[string][]string `json:"countries,omitempty"`
@@ -123,7 +121,6 @@ type Policy struct {
 	Choices map[string]string
 }
 type Candidate struct {
-	receipt        *providerReceipt
 	RetainsRouting bool
 	unchanged      bool
 	Usage          *Usage
@@ -139,15 +136,9 @@ type Candidate struct {
 func (c Candidate) Unchanged() bool { return c.unchanged }
 
 // routing is what of a profile makes the router's configuration: all of it but what it only
-// shows (notices, title, format), the routing choice it was read with and the bookkeeping of
-// the template it routes by: the template's version, why it was chosen and whether the
-// router's copy served. A new template version whose rules and rule sets are the same leaves
-// the router's configuration as it is.
+// shows (notices, title, format) and a Hyper profile's bookkeeping of its countries and lists.
 func (p Profile) routing() Profile {
-	p.Notices, p.Title, p.Format, p.RoutingChoice, p.Countries, p.Lists = nil, "", "", nil, nil, nil
-	if p.Template != nil {
-		p.Template = &TemplateUse{}
-	}
+	p.Notices, p.Title, p.Format, p.Countries, p.Lists = nil, "", "", nil, nil
 	return p
 }
 
@@ -208,9 +199,11 @@ func (p *Profile) notice(code, at string, danger bool) {
 	p.Notices = append(p.Notices, Notice{Code: code, At: publicLabel(at, "configuration entry"), Dangerous: danger})
 }
 
+// credentialIssue is why a subscription has no node the router can use when it is that the
+// router lacks their protocol, which blocks the update (Assess).
 func (p Profile) credentialIssue() string {
 	for _, n := range p.Notices {
-		if n.Code == errSnellCredential.Error() || n.Code == errInvalidCredential.Error() || len(p.Nodes) == 0 && n.Code == "mihomo_protocol_unsupported" {
+		if len(p.Nodes) == 0 && n.Code == "mihomo_protocol_unsupported" {
 			return n.Code
 		}
 	}
@@ -238,34 +231,37 @@ func (p *Profile) addProxy(name, kind string, out map[string]any) error {
 	return nil
 }
 
-// Parse converts a subscription body with its own routing, without downloading anything.
+// Parse reads a Clash document, YAML or JSON, or a list of share links (internal/links) as the
+// router reads a subscription, without downloading anything.
 func Parse(sourceID string, body []byte) (Profile, error) {
-	c, err := convert(context.Background(), body, RoutingOwn, nil)
-	if err != nil {
-		p := Profile{SchemaVersion: SchemaVersion, Source: sourceID}
-		p.converted(c)
-		return p, err
-	}
-	return parseVerified(sourceID, c, nil)
-}
-
-// converted records the original format and the converter's and providers' notices.
-func (p *Profile) converted(c conversion, notices ...Notice) {
-	if c.format != "" {
-		p.Format = c.format
-	}
-	p.Template = c.template
-	p.Notices = slices.Concat(c.notices, notices, p.Notices)
-}
-
-// parseVerified reads a converted subscription whose providers were expanded into it (sets).
-func parseVerified(sourceID string, c conversion, sets []BinarySet, notices ...Notice) (p Profile, err error) {
-	p = Profile{SchemaVersion: SchemaVersion, Source: sourceID, BinarySets: sets}
-	defer func() { p.converted(c, notices...) }()
+	p := Profile{SchemaVersion: SchemaVersion, Source: sourceID}
 	if !safeLabel(sourceID) {
 		return p, errors.New("invalid_subscription")
 	}
-	if err := parseClash(&p, c.doc); err != nil {
+	if len(body) > MaxBody {
+		return p, errors.New("subscription_size_limit")
+	}
+	body = bytes.TrimPrefix(body, []byte("\uFEFF"))
+	var doc map[string]any
+	if yaml.Unmarshal(body, &doc) == nil && doc != nil {
+		p.Format = "clash"
+	} else if links.Is(body) {
+		res, err := links.Convert(body)
+		if err != nil {
+			return p, errors.New("unsupported_format")
+		}
+		p.Format = "uri"
+		for _, w := range res.Warnings {
+			p.Notices = append(p.Notices, Notice{Code: "link_" + w.Code})
+		}
+		b, err := res.YAML()
+		if doc = nil; err != nil || yaml.Unmarshal(b, &doc) != nil {
+			return p, errors.New("invalid_subscription")
+		}
+	} else {
+		return p, errors.New("unsupported_format")
+	}
+	if err := parseClash(&p, doc); err != nil {
 		return p, err
 	}
 	if len(p.Nodes) == 0 {
@@ -280,7 +276,7 @@ func parseVerified(sourceID string, c conversion, sets []BinarySet, notices ...N
 }
 
 // Notices of rules a profile goes without while keeping the rest of its routing.
-var partialNotices = set("mihomo_unsupported_rule mihomo_unsupported_rule_set subconv_unsupported_rule subconv_unsupported_rule_set rule_provider_reference_unavailable rule_provider_custom_geo rejection_removed")
+var partialNotices = set("mihomo_unsupported_rule mihomo_unsupported_rule_set rule_provider_reference_unavailable rule_provider_custom_geo rejection_removed")
 
 func Assess(p Profile, previous *Profile, policy Policy) Candidate {
 	if previous != nil && previous.Source != p.Source {
@@ -345,19 +341,13 @@ func Assess(p Profile, previous *Profile, policy Policy) Candidate {
 	fallback, partial, danger := false, false, false
 	for _, n := range p.Notices {
 		switch n.Code {
-		case "nonstandard_snell_credential", "invalid_credential":
-			continue
-		case "mihomo_router_field_ignored", "mihomo_protocol_unsupported", "mihomo_unavailable_member", "unsupported_node", "invalid_endpoint", "node_missing_credential", "platform_routing_warnings", "unavailable_inventory",
-			"dialer_proxy_unavailable", "dialer_proxy_cycle", "provider_option_ignored", "provider_option_unsafe", "template_cache_write_failed":
+		case "mihomo_protocol_unsupported", "mihomo_unavailable_member", "unsupported_node", "invalid_endpoint",
+			"dialer_proxy_unavailable", "dialer_proxy_cycle":
 			continue
 		}
-		switch {
-		case partialNotices[n.Code]:
+		if partialNotices[n.Code] {
 			partial = true
-		case strings.HasPrefix(n.Code, "subconv_"):
-			// The converter's other warnings cost a node, group or option, not the routing.
-			continue
-		default:
+		} else {
 			fallback = true
 		}
 		danger = danger || n.Dangerous
@@ -401,7 +391,6 @@ func Assess(p Profile, previous *Profile, policy Policy) Candidate {
 		c.Profile.Rules = nil
 		c.Profile.Groups = nil
 		c.Profile.BinarySets = nil
-		c.Profile.Template = nil
 		c.Changes = changes(previous, c.Profile, refs)
 	}
 	return c

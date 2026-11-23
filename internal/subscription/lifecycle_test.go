@@ -16,14 +16,9 @@ import (
 
 func TestRevocationRetainsSharedRuleProviderUntilLastSourceRemoved(t *testing.T) {
 	raw := []byte("example.test\n")
-	c := mustConvert(t, "proxies: [{name: Edge, type: http, server: edge.example, port: 8080}]\nproxy-groups: [{name: Streaming, type: select, proxies: [Edge, DIRECT]}]\nrule-providers: {region: {type: inline, behavior: domain, payload: [example.test]}}\nrules: ['RULE-SET,region,Streaming', 'MATCH,DIRECT']")
-	s := providers{ctx: t.Context(), cache: map[string][]byte{}}
-	if e := s.clash(c.doc); e != nil {
-		t.Fatal(e)
-	}
-	p, e := parseVerified("source", c, s.binary)
-	if e != nil || len(p.Notices) != 0 || p.Rules[0].RuleSet != "region" || len(p.BinarySets) != 1 || !bytes.Equal(p.BinarySets[0].Data, raw) {
-		t.Fatal(e, p.Notices)
+	p := parseWithSets(t, "source", "proxies: [{name: Edge, type: http, server: edge.example, port: 8080}]\nproxy-groups: [{name: Streaming, type: select, proxies: [Edge, DIRECT]}]\nrules: ['RULE-SET,region,Streaming', 'MATCH,DIRECT']", textSet("region", "domain", string(raw)))
+	if len(p.Notices) != 0 || p.Rules[0].RuleSet != "region" || len(p.BinarySets) != 1 || !bytes.Equal(p.BinarySets[0].Data, raw) {
+		t.Fatal(p.Notices)
 	}
 	set := p.BinarySets[0]
 	if public, _ := json.Marshal(p.Summary()); bytes.Contains(public, []byte(set.SHA256)) || bytes.Contains(public, []byte(base64.StdEncoding.EncodeToString(raw))) {
@@ -42,7 +37,7 @@ func TestRevocationRetainsSharedRuleProviderUntilLastSourceRemoved(t *testing.T)
 			t.Fatal(e)
 		}
 	}
-	if e = MaterializeSets(p, dir); e != nil {
+	if e := MaterializeSets(p, dir); e != nil {
 		t.Fatal(e)
 	}
 	f := filepath.Join(dir, set.Filename())
@@ -71,64 +66,6 @@ func TestRevocationRetainsSharedRuleProviderUntilLastSourceRemoved(t *testing.T)
 	p.BinarySets[0].SHA256 = hex.EncodeToString(make([]byte, 32))
 	if e = MaterializeSets(p, dir); e == nil {
 		t.Fatal("accepted changed data")
-	}
-}
-func TestLoginFenceAcrossAllPlans(t *testing.T) {
-	a := Account{origin: "https://platform.example", userID: "user", token: "private-bearer", Site: Site{Name: "Platform"}, Plans: []Plan{{ID: 1, Name: "One", Usable: true, Status: "active"}, {ID: 2, Name: "Two", Usable: true, Status: "active"}}}
-	s := OpenStore(t.TempDir())
-	t1, e := s.BeginLogin(a.origin)
-	if e != nil {
-		t.Fatal(e)
-	}
-	ids, e := s.SaveAccount(a, t1)
-	if e != nil || len(ids) != 2 {
-		t.Fatal(e)
-	}
-	for _, id := range ids {
-		ticket, e := s.Begin(id)
-		if e != nil {
-			t.Fatal(e)
-		}
-		p := mustParse(t, basic)
-		p.Source = id
-		if e = s.Commit(ticket, Candidate{Profile: p, Decision: "ready"}); e != nil {
-			t.Fatal(e)
-		}
-	}
-	intent, _ := s.BeginLogin(a.origin)
-	changed, e := s.Logout(ids[0])
-	if e != nil || len(changed) != 2 {
-		t.Fatal(changed, e)
-	}
-	if _, e = s.SaveAccount(a, intent); !errors.Is(e, ErrSuperseded) {
-		t.Fatal("late login resurrected account", e)
-	}
-	for _, id := range ids {
-		if _, e = s.Load(id); !errors.Is(e, ErrRevoked) {
-			t.Fatal(e)
-		}
-		b, _ := os.ReadFile(s.path(id))
-		if bytes.Contains(b, []byte(a.token)) || bytes.Contains(b, []byte("fixture-only-password")) {
-			t.Fatal("credentials retained")
-		}
-	}
-	intent, _ = s.BeginLogin(a.origin)
-	if _, e = s.SaveAccount(a, intent); e != nil {
-		t.Fatal(e)
-	}
-	for _, id := range ids {
-		if _, e = s.Load(id); !errors.Is(e, ErrNotReady) {
-			t.Fatal("old snapshots returned")
-		}
-	}
-	a.Plans = a.Plans[:1]
-	intent, _ = s.BeginLogin(a.origin)
-	_, e = s.SaveAccount(a, intent)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = s.Load(ids[1]); !errors.Is(e, ErrRevoked) {
-		t.Fatal("new login restored withdrawn plan", e)
 	}
 }
 func TestVersionedSnellAndMieruStandard(t *testing.T) {
@@ -166,12 +103,9 @@ func TestAutomaticLocalFallbackCannotRemovePreviouslyRetainedReject(t *testing.T
 	}
 }
 func TestValidationFenceKeepsRunningSnapshot(t *testing.T) {
-	s := OpenStore(t.TempDir())
-	if e := s.Configure(Source{ID: "source", Name: "Source", Kind: "file"}); e != nil {
-		t.Fatal(e)
-	}
+	s, fd := fixtureSource(t, "source", basic)
 	f := Fetcher{}
-	if _, e := f.Refresh(t.Context(), s, "source", []byte(basic), Policy{}); e != nil {
+	if _, e := f.Refresh(t.Context(), s, "source", Policy{}); e != nil {
 		t.Fatal(e)
 	}
 	f.BeforeCommit = func(_ context.Context, p Profile) (func() error, error) {
@@ -180,7 +114,8 @@ func TestValidationFenceKeepsRunningSnapshot(t *testing.T) {
 		}
 		return func() error { return errors.New("stale_policy") }, nil
 	}
-	_, e := f.Refresh(t.Context(), s, "source", []byte("http://new.example:8080"), Policy{})
+	fd.body = "http://new.example:8080"
+	_, e := f.Refresh(t.Context(), s, "source", Policy{})
 	if e == nil {
 		t.Fatal("failed validation committed")
 	}
@@ -190,29 +125,9 @@ func TestValidationFenceKeepsRunningSnapshot(t *testing.T) {
 	}
 }
 
-func TestInlineRuleAndNodeProvidersKeepGroupAndSet(t *testing.T) {
-	source := Source{ID: "fixture", Name: "Fixture", Kind: "file"}
-	store := OpenStore(t.TempDir())
-	if err := store.Configure(source); err != nil {
-		t.Fatal(err)
-	}
-	body := []byte("proxy-providers:\n  rem:\n    type: inline\n    payload: [{type: http, name: HK, server: hk.example.org, port: 80}]\nproxy-groups: [{name: Media, type: select, use: [rem]}]\nrule-providers:\n  local:\n    type: inline\n    behavior: domain\n    payload: [example.org, +.office.example.org]\nrules: [\"RULE-SET,local,Media\", \"MATCH,DIRECT\"]")
-	c, err := (Fetcher{}).Refresh(context.Background(), store, source.ID, body, Policy{})
-	if err != nil || c.Decision != "ready" || len(c.Profile.Nodes) != 1 || len(c.Profile.Groups) != 1 || len(c.Profile.Rules) != 1 || len(c.Profile.BinarySets) != 1 || c.Profile.BinarySets[0].Entries != 2 {
-		t.Fatalf("%v, decision %s, notices %v", err, c.Decision, c.Notices)
-	}
-	for _, rule := range c.Profile.Rules {
-		if rule.RuleSet != "local" || rule.Target != c.Profile.Groups[0].ID {
-			t.Fatal("provider identity or target lost")
-		}
-	}
-}
-
-func TestSnellV5TLSObfuscationParsesInEveryForm(t *testing.T) {
-	for _, raw := range []string{"snell://strong-password@host.example:443?version=5&plugin=obfs-local;obfs%3Dtls", "[Proxy]\nExample = snell, host.example, 443, psk=strong-password, version=5, obfs=tls"} {
-		p := mustParse(t, raw)
-		if object(p.Nodes[0].Outbound["obfs-opts"])["mode"] != "tls" {
-			t.Fatal("missing TLS obfuscation", raw)
-		}
+func TestSnellV5TLSObfuscationParses(t *testing.T) {
+	p := mustParse(t, "snell://strong-password@host.example:443?version=5&plugin=obfs-local;obfs%3Dtls")
+	if object(p.Nodes[0].Outbound["obfs-opts"])["mode"] != "tls" {
+		t.Fatal("missing TLS obfuscation")
 	}
 }

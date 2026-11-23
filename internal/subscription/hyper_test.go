@@ -4,6 +4,7 @@
 package subscription
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -132,10 +133,15 @@ func TestHyperUsage(t *testing.T) {
 }
 
 func TestHyperSourceValidation(t *testing.T) {
+	many := make([]string, maxDisabled+1)
+	for i := range many {
+		many[i] = fmt.Sprint("list", i)
+	}
 	for _, s := range []Source{
-		{ID: "other", Kind: HyperSource, Rules: RoutingOwn, Name: "x"},
-		func() Source { s := NewHyperSource(nil); s.URL = "https://x.example/"; return s }(),
+		{ID: "other", Kind: HyperSource, Name: "x"},
+		func() Source { s := NewHyperSource(nil); s.Name = "bad\nname"; return s }(),
 		NewHyperSource([]string{"bad\nkey"}),
+		NewHyperSource(many),
 	} {
 		if s.validate() == nil {
 			t.Errorf("accepted %+v", s)

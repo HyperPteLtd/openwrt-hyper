@@ -3,7 +3,6 @@ package subscriptioncli
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 
@@ -11,19 +10,30 @@ import (
 	sub "github.com/HyperPteLtd/openwrt-hyper/internal/subscription"
 )
 
-// The tests stay off the network: no subscription fetches subconv's routing template.
-func TestMain(m *testing.M) {
-	sub.TemplateHosts = nil
-	os.Exit(m.Run())
+// fixtures configures the test-only fixture sources ids in st, each serving its document of the
+// returned map, which the test changes between refreshes.
+func fixtures(t *testing.T, st *sub.Store, ids ...string) map[string]string {
+	t.Helper()
+	docs := map[string]string{}
+	previous := sub.Fixture
+	sub.Fixture = func(_ context.Context, id string) ([]byte, error) { return []byte(docs[id]), nil }
+	t.Cleanup(func() { sub.Fixture = previous })
+	for _, id := range ids {
+		if err := st.Configure(sub.Source{ID: id, Kind: sub.FixtureSource, Name: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return docs
 }
 
 func TestPublicMethodsDoNotExposeRawSubscription(t *testing.T) {
 	st := sub.OpenStore(t.TempDir())
+	fixtures(t, st, "file")["file"] = "http://user:do-not-leak@private.example:8080#Edge"
 	ctx := context.Background()
 	for _, v := range []struct {
 		method string
 		in     input
-	}{{"configure", input{Config: &sub.Source{ID: "file", Kind: "file", Name: "File"}}}, {"refresh", input{Source: "file", Content: "http://user:do-not-leak@private.example:8080#Edge"}}, {"list", input{}}, {"profile", input{Source: "file"}}, {"nodes", input{Source: "file"}}, {"groups", input{Source: "file"}}, {"rules", input{Source: "file"}}, {"status", input{Source: "file"}}} {
+	}{{"refresh", input{Source: "file"}}, {"list", input{}}, {"profile", input{Source: "file"}}, {"nodes", input{Source: "file"}}, {"groups", input{Source: "file"}}, {"rules", input{Source: "file"}}, {"status", input{Source: "file"}}} {
 		out, _, e := run(ctx, st, v.method, v.in, sub.Fetcher{})
 		if e != nil {
 			t.Fatal(v.method, e)
@@ -41,7 +51,7 @@ func TestPublicMethodsDoNotExposeRawSubscription(t *testing.T) {
 }
 
 func TestProviderNamesCannotReExposeCredentials(t *testing.T) {
-	p, e := sub.Parse("source", []byte(`{"outbounds":[{"tag":"https://feed.example/sub?token=private-value","type":"http","server":"example.org","server_port":80},{"tag":"Bearer private-value","type":"selector","outbounds":["https://feed.example/sub?token=private-value"]}],"route":{"final":"Bearer private-value"}}`))
+	p, e := sub.Parse("source", []byte(`{"proxies":[{"name":"https://feed.example/sub?token=private-value","type":"http","server":"example.org","port":80}],"proxy-groups":[{"name":"Bearer private-value","type":"select","proxies":["https://feed.example/sub?token=private-value"]}],"rules":["MATCH,Bearer private-value"]}`))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -54,9 +64,7 @@ func TestProviderNamesCannotReExposeCredentials(t *testing.T) {
 func TestOnlyChangedProfilesNotifyRouter(t *testing.T) {
 	st := sub.OpenStore(t.TempDir())
 	ctx := t.Context()
-	if err := st.Configure(sub.Source{ID: "file", Kind: "file", Name: "File"}); err != nil {
-		t.Fatal(err)
-	}
+	docs := fixtures(t, st, "file")
 	checks := 0
 	f := sub.Fetcher{BeforeCommit: func(context.Context, sub.Profile) (func() error, error) {
 		checks++
@@ -65,7 +73,8 @@ func TestOnlyChangedProfilesNotifyRouter(t *testing.T) {
 	first := "http://old.example:81#Edge"
 	next := "http://new.example:81#Edge"
 	for i, text := range []string{first, next, next} {
-		_, changes, err := run(ctx, st, "refresh", input{Source: "file", Content: text}, f)
+		docs["file"] = text
+		_, changes, err := run(ctx, st, "refresh", input{Source: "file"}, f)
 		wantNotify := i < 2
 		if err != nil || (len(changes) == 1) != wantNotify || len(changes) > 1 {
 			t.Fatalf("refresh %d: %v, notified %v", i, err, changes)
@@ -87,63 +96,15 @@ func TestOnlyChangedProfilesNotifyRouter(t *testing.T) {
 // The daemon logs a refresh whose update was not applied by the code it returns.
 func TestRefreshReturnsPendingUpdate(t *testing.T) {
 	st := sub.OpenStore(t.TempDir())
-	if err := st.Configure(sub.Source{ID: "file", Kind: "file", Name: "File"}); err != nil {
-		t.Fatal(err)
-	}
+	docs := fixtures(t, st, "file")
 	const feed = "proxies: [{name: Edge, type: http, server: edge.example, port: 8080}]\nrules: ['DOMAIN,ads.example,REJECT', 'MATCH,DIRECT']"
 	for i, text := range []string{feed, strings.Replace(feed, "REJECT", "DIRECT", 1)} {
-		out, _, err := run(t.Context(), st, "refresh", input{Source: "file", Content: text, Scheduled: true}, sub.Fetcher{})
+		docs["file"] = text
+		out, _, err := run(t.Context(), st, "refresh", input{Source: "file", Scheduled: true}, sub.Fetcher{})
 		raw, _ := json.Marshal(out)
 		if pending := strings.Contains(string(raw), `"pending_update":{"code":"confirmation_required","notices":["rejection_removed"]}`); err != nil || pending != (i == 1) {
 			t.Fatal(err, string(raw))
 		}
-	}
-}
-
-// decode reads a request as Main does, refusing fields the helper does not know.
-func decode(raw string) (input, error) {
-	var in input
-	d := json.NewDecoder(strings.NewReader(raw))
-	d.DisallowUnknownFields()
-	return in, d.Decode(&in)
-}
-
-// A routing choice comes with the refresh request and is saved with the update it commits.
-func TestRefreshCarriesRoutingChoice(t *testing.T) {
-	st := sub.OpenStore(t.TempDir())
-	if err := st.Configure(sub.Source{ID: "file", Kind: "file", Name: "File"}); err != nil {
-		t.Fatal(err)
-	}
-	in, err := decode(`{"source":"file","content":"http://edge.example:81#Edge","rules":"template"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := run(t.Context(), st, "refresh", in, sub.Fetcher{}); err != nil {
-		t.Fatal(err)
-	}
-	if s, err := st.Status("file"); err != nil || s.Rules != sub.RoutingTemplate {
-		t.Fatal("routing choice not saved with its update", err, s.Rules)
-	}
-}
-
-// A LuCI tab open from before the upgrade still sends the routing choice with the other
-// preferences. The save goes through, and the choice is ignored rather than saved ahead of
-// the update read with it.
-func TestPreferencesIgnoreARoutingChoice(t *testing.T) {
-	st := sub.OpenStore(t.TempDir())
-	if err := st.Configure(sub.Source{ID: "link", Kind: "external", Name: "Link", URL: "https://feed.example/sub"}); err != nil {
-		t.Fatal(err)
-	}
-	in, err := decode(`{"source":"link","preferences":{"name":"Renamed","user_agent":"sing-box","filters":null,"allow_local_fallback":true,"rules":"template"}}`)
-	if err != nil {
-		t.Fatal("preferences with a routing choice refused", err)
-	}
-	if _, _, err := run(t.Context(), st, "preferences", in, sub.Fetcher{}); err != nil {
-		t.Fatal(err)
-	}
-	s, err := st.Status("link")
-	if err != nil || s.Rules != sub.RoutingOwn || s.Name != "Renamed" || s.Agent != "sing-box" || !s.LocalFallback {
-		t.Fatal("preferences with a routing choice", err, s.Rules, s.Name, s.Agent, s.LocalFallback)
 	}
 }
 
@@ -154,14 +115,11 @@ func TestMainlandSetsMatchTheRoutersLists(t *testing.T) {
 	t.Cleanup(func() { cnlist.Packaged = saved })
 	cnlist.Packaged = "../../../files/usr/share/hyper/rules"
 	st := sub.OpenStore(t.TempDir())
-	for source, content := range map[string]string{
-		"own":   "proxies: [{name: Edge, type: http, server: edge.example, port: 8080}]\nrules: ['GEOSITE,CN,DIRECT', 'GEOIP,CN,DIRECT,no-resolve', 'MATCH,Edge']",
-		"local": "http://edge.example:81#Edge",
-	} {
-		if err := st.Configure(sub.Source{ID: source, Kind: "file", Name: source}); err != nil {
-			t.Fatal(err)
-		}
-		if _, _, err := run(t.Context(), st, "refresh", input{Source: source, Content: content}, sub.Fetcher{}); err != nil {
+	docs := fixtures(t, st, "own", "local")
+	docs["own"] = "proxies: [{name: Edge, type: http, server: edge.example, port: 8080}]\nrules: ['GEOSITE,CN,DIRECT', 'GEOIP,CN,DIRECT,no-resolve', 'MATCH,Edge']"
+	docs["local"] = "http://edge.example:81#Edge"
+	for source := range docs {
+		if _, _, err := run(t.Context(), st, "refresh", input{Source: source}, sub.Fetcher{}); err != nil {
 			t.Fatal(err)
 		}
 		for _, q := range []struct {

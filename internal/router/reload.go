@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/netip"
 	"slices"
-	"strconv"
 
 	"github.com/HyperPteLtd/openwrt-hyper/internal/control"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/kernel"
@@ -44,18 +43,12 @@ func routingKey(i Intent, p subscription.Profile) string {
 	return string(b)
 }
 
-// profileRouting names the rules a profile routes by: the router's own default, the built-in
-// template at its version, or the subscription's own. Switching a subscription's 分流规则
-// changes it whenever the rules in effect change; a refresh changes it only with a new
-// template version, since a provider updates its own rules along with its nodes. A version
-// whose rules and rule sets are the same is no update: the stored profile keeps the version it
-// was committed with (subscription.Fetcher.Refresh), so the key and open connections stay.
+// profileRouting names the rules a profile routes by: the router's own default or the
+// subscription's own. Falling back to local routing changes it; a refresh does not, since the
+// subscription updates its own rules along with its nodes.
 func profileRouting(p subscription.Profile) string {
-	switch {
-	case p.Local:
+	if p.Local {
 		return "local"
-	case p.Template != nil:
-		return "template " + strconv.FormatInt(p.Template.Version, 10)
 	}
 	return "subscription"
 }

@@ -14,8 +14,8 @@ func TestPurgeDeletesWhatHyperKeeps(t *testing.T) {
 	for _, want := range []string{
 		"/etc/hyper/kernel", "/etc/hyper/mihomo-kernel", "/tmp/hyper/kernel", "/tmp/hyper/mihomo-kernel",
 		"/etc/hyper/sources", "/etc/hyper/private", "/etc/hyper/rulesets", "/etc/hyper/cnlists",
-		// The routing template cache, geodata (up to 64 MiB a file) and the user's imported files.
-		"/etc/hyper/template", "/etc/hyper/geodata", "/etc/hyper/imports",
+		// Geodata, up to 64 MiB a file.
+		"/etc/hyper/geodata",
 	} {
 		if !slices.Contains(paths, want) {
 			t.Error("purge keeps", want)

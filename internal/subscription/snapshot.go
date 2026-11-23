@@ -3,14 +3,12 @@ package subscription
 import (
 	"bytes"
 	"crypto/sha256"
-	"errors"
 	"io"
-	"os"
 )
 
 type sourceSnapshot struct {
-	path, withdrawal string
-	digest           []byte
+	path   string
+	digest []byte
 }
 
 // SnapshotReader records the exact source files read for one startup. It stores
@@ -27,13 +25,13 @@ func (s *SnapshotReader) Load(id string) (Profile, error) {
 	r, err := s.store.readWithChecksum(id, hash)
 	profile, err := currentProfile(r, err)
 	if err == nil {
-		s.files = append(s.files, sourceSnapshot{s.store.path(id), s.store.withdrawalPath(r), hash.Sum(nil)})
+		s.files = append(s.files, sourceSnapshot{s.store.path(id), hash.Sum(nil)})
 	}
 	return profile, err
 }
 
 // Unchanged rechecks the bytes that were decoded, including credentials and
-// authorization state. Account withdrawal can precede any write to plan files.
+// authorization state.
 func (s *SnapshotReader) Unchanged() bool {
 	if len(s.files) == 0 {
 		return false
@@ -50,13 +48,6 @@ func (s *SnapshotReader) Unchanged() bool {
 		f.Close()
 		if err != nil || n > maxRecord || !bytes.Equal(hash.Sum(nil), entry.digest) {
 			return false
-		}
-	}
-	for _, entry := range s.files {
-		if entry.withdrawal != "" {
-			if _, err := os.Stat(entry.withdrawal); !errors.Is(err, os.ErrNotExist) {
-				return false
-			}
 		}
 	}
 	return true

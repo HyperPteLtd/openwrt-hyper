@@ -43,11 +43,11 @@ var HyperAccount *account.Client
 // NewHyperSource is the configuration of the hyper source; disabled names catalog lists the
 // administrator turned off.
 func NewHyperSource(disabled []string) Source {
-	return Source{ID: HyperSource, Name: HyperGroup, Kind: HyperSource, Rules: RoutingOwn, Disabled: disabled}
+	return Source{ID: HyperSource, Name: HyperGroup, Kind: HyperSource, Disabled: disabled}
 }
 
 func (s Source) validateHyper() error {
-	if s.ID != HyperSource || s.URL != "" || s.Token != "" || s.Origin != "" || s.UserID != "" || s.PlanID != 0 || len(s.Filters) > 0 || len(s.Disabled) > maxDisabled {
+	if s.ID != HyperSource || len(s.Disabled) > maxDisabled {
 		return errors.New("invalid_hyper_source")
 	}
 	for _, k := range s.Disabled {
@@ -108,7 +108,7 @@ func (f Fetcher) HyperClient() (client *account.Client, alt string) {
 	acct := *HyperAccount
 	acct.HTTP = func(way string) *http.Client {
 		if way != "" && other != nil {
-			return other.client(base, false)
+			return other.client(base)
 		}
 		c := base
 		return &c

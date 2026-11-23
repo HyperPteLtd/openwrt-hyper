@@ -91,7 +91,7 @@ func PrepareGeodata(ctx context.Context, rules []string, dir, manifest string) e
 	if e = os.MkdirAll(dir, 0755); e != nil {
 		return e
 	}
-	tr := publicProviderTransport()
+	tr := publicTransport()
 	defer tr.CloseIdleConnections()
 	client := &http.Client{Transport: tr, Timeout: 60 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, name := range []string{"GeoIP.dat", "GeoSite.dat", "country.mmdb", "ASN.mmdb"} {

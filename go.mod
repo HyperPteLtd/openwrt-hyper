@@ -9,10 +9,7 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
-require github.com/dlclark/regexp2 v1.12.0 // indirect
-
 require (
-	github.com/openweir/subconv v0.5.0
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/crypto v0.13.0 // indirect
 )

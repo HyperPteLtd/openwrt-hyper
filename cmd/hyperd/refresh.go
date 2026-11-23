@@ -174,21 +174,17 @@ func retryDelay(attempts int, interval time.Duration) time.Duration {
 	return min(15*time.Minute<<min(max(attempts-1, 0), 5), limit)
 }
 
-// transientFailure reports a refresh that failed on the way to the subscription or a file it
-// references rather than on what came back: no internet, a name that did not resolve, a host
-// that timed out, refused or broke off the connection, even in the middle of the download, or
-// answered 408, 429 or 5xx, a plan's issued link included. A later attempt can succeed with
-// nothing changed on the router. Credentials, other HTTP answers, refused redirects, content the
-// router cannot use and certificates (left to the clock retry) are not transient.
+// transientFailure reports a refresh that failed on the way to the Hyper account's service
+// rather than on what came back (hypersync): no answer, every country failed, or an answer of
+// 408, 429 or 5xx. A later attempt can succeed with nothing changed on the router. Credentials,
+// other HTTP answers, content the router cannot use and certificates (left to the clock retry)
+// are not transient.
 func transientFailure(code string) bool {
 	switch code {
-	case "subscription_request_failed", "subscription_incomplete", "subscription_link_unreachable",
-		"provider_timeout", "provider_dns_failed", "provider_connection_refused", "provider_unreachable", "provider_incomplete",
-		// The Hyper account's reads (hypersync): no answer, or every country failed.
-		"subscription_token_unreachable", "locations_unreachable", "nodes":
+	case "subscription_token_unreachable", "locations_unreachable", "nodes":
 		return true
 	}
-	for _, prefix := range []string{"subscription_http_", "provider_http_", "subscription_token_http_", "locations_http_"} {
+	for _, prefix := range []string{"subscription_token_http_", "locations_http_"} {
 		if status, ok := strings.CutPrefix(code, prefix); ok {
 			n, err := strconv.Atoi(status)
 			return err == nil && (n == http.StatusRequestTimeout || n == http.StatusTooManyRequests || n >= 500 && n <= 599)
@@ -197,8 +193,10 @@ func transientFailure(code string) bool {
 	return false
 }
 
+// dueForRefresh reports whether the scheduler reads a source again: only the Hyper account's
+// is read, never one a sign-out revoked, needing a sign-in or suspended.
 func dueForRefresh(src subscription.Status, now, attempt time.Time, interval time.Duration) bool {
-	if src.Kind == "file" || src.LoginRequired || src.Revoked || src.Suspended || now.Sub(attempt) < 15*time.Minute {
+	if src.Kind != subscription.HyperSource || src.LoginRequired || src.Revoked || src.Suspended || now.Sub(attempt) < 15*time.Minute {
 		return false
 	}
 	// The record's start date also covers manual attempts and daemon restarts. A date after
@@ -209,9 +207,9 @@ func dueForRefresh(src subscription.Status, now, attempt time.Time, interval tim
 	if src.NeedsRefresh {
 		return true
 	}
-	// A link that never became ready, such as one added while the router had no internet,
-	// completes its import once the subscription can be reached, even with automatic updates
-	// off: the administrator asked for it. A source never imported waits for its first import.
+	// A source that never became ready, such as one signed in to while the service could not be
+	// reached, completes its first read once it can be, even with automatic updates off: the
+	// administrator asked for it. A source never read waits for its first read.
 	if !src.Ready {
 		return transientFailure(src.LastFailure)
 	}
@@ -227,7 +225,7 @@ func dueForRefresh(src subscription.Status, now, attempt time.Time, interval tim
 
 func recoveredClock(src subscription.Status, now time.Time) bool {
 	return src.RetryAfterClock && !src.Revoked && !src.Suspended && !src.LoginRequired &&
-		(src.Kind == "platform" || src.Kind == "external" || src.Kind == subscription.HyperSource) && src.LastTLS.Recheck(now)
+		src.Kind == subscription.HyperSource && src.LastTLS.Recheck(now)
 }
 
 func (s *app) schedule(ctx context.Context) {

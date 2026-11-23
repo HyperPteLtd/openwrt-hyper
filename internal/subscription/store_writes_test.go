@@ -3,11 +3,7 @@ package subscription
 import (
 	"bytes"
 	"encoding/json"
-	"io"
-	"net/http"
 	"os"
-	"strconv"
-	"strings"
 	"testing"
 )
 
@@ -45,30 +41,19 @@ func nodeNames(p *Profile) []string {
 // hundred bytes, and leaves the record file with its profiles alone. A real update writes the
 // record file once, the profile it replaces becoming the rollback snapshot.
 func TestUnchangedRefreshWritesOnlyTheStatus(t *testing.T) {
-	store := OpenStore(t.TempDir())
-	src := Source{ID: "sub", Name: "sub", Kind: "external", URL: "https://example.com/feed"}
-	if err := store.Configure(src); err != nil {
-		t.Fatal(err)
-	}
-	body, reachable, download := "http://edge.example:8080#Edge", true, 0
-	f := Fetcher{Client: &http.Client{Transport: setFixtureTransport(func(*http.Request) (*http.Response, error) {
-		if !reachable {
-			return nil, errReset
-		}
-		download++
-		h := http.Header{"Subscription-Userinfo": {"upload=1; download=" + strconv.Itoa(download) + "; total=100"}}
-		return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})}}
+	store, fd := fixtureSource(t, "sub", "http://edge.example:8080#Edge")
+	src := Source{ID: "sub"}
+	f := Fetcher{}
 	refresh := func(want bool) Candidate {
 		t.Helper()
-		c, err := f.Refresh(t.Context(), store, src.ID, nil, Policy{Scheduled: true})
-		if (err == nil) != reachable || reachable && c.Decision != "ready" || reachable && c.Unchanged() != want {
+		c, err := f.Refresh(t.Context(), store, src.ID, Policy{Scheduled: true})
+		if (err == nil) != fd.reachable || fd.reachable && c.Decision != "ready" || fd.reachable && c.Unchanged() != want {
 			t.Fatal(err, c.Decision, c.Unchanged())
 		}
 		return c
 	}
 	refresh(false)
-	body = "http://edge.example:8080#Edge\nhttp://edge2.example:8080#Edge 2"
+	fd.body = "http://edge.example:8080#Edge\nhttp://edge2.example:8080#Edge 2"
 	refresh(false)
 	before, err := os.ReadFile(store.path(src.ID))
 	if err != nil {
@@ -88,7 +73,8 @@ func TestUnchangedRefreshWritesOnlyTheStatus(t *testing.T) {
 		t.Fatal("unchanged refresh wrote", n)
 	}
 	st, err := store.Status(src.ID)
-	if err != nil || !st.Ready || !st.HasHistory || st.Attempts != 0 || st.UpdatedAt == "" || st.Usage == nil || st.Usage.Download == first.Usage.Download || st.NodeCount != 2 {
+	// The status tells of the refresh: no change this time.
+	if err != nil || !st.Ready || !st.HasHistory || st.Attempts != 0 || st.UpdatedAt == "" || first.LastChange == nil || first.LastChange.Added != 1 || st.LastChange == nil || *st.LastChange != (ChangeCounts{}) || st.NodeCount != 2 {
 		t.Fatal(err, st)
 	}
 	status, _ := os.Stat(store.statusPath(src.ID))
@@ -101,18 +87,18 @@ func TestUnchangedRefreshWritesOnlyTheStatus(t *testing.T) {
 	}
 
 	// A failed attempt is bookkeeping too.
-	reachable = false
+	fd.reachable = false
 	clear(n)
 	refresh(false)
 	if n["record"] != 0 || n["status"] != 2 {
 		t.Fatal("failed refresh wrote", n)
 	}
-	if st, _ := store.Status(src.ID); st.LastFailure != "subscription_request_failed" || st.Attempts != 1 {
+	if st, _ := store.Status(src.ID); st.LastFailure != "locations_unreachable" || st.Attempts != 1 {
 		t.Fatal(st.LastFailure, st.Attempts)
 	}
 
 	// A real update.
-	reachable, body = true, "http://edge3.example:8080#Edge 3"
+	fd.reachable, fd.body = true, "http://edge3.example:8080#Edge 3"
 	clear(n)
 	refresh(false)
 	if n["record"] != 1 || n["status"] != 2 {
@@ -127,109 +113,29 @@ func TestUnchangedRefreshWritesOnlyTheStatus(t *testing.T) {
 	}
 }
 
-// What a refresh finds of the template beside its rules and rule sets (the version, whether the
-// router's copy served) is no update: the record file and the rollback snapshot stay, and the
-// status shows it. The profile keeps the version it was committed with, which the router reads
-// for its routing key, until the template's rules change.
-func TestTemplateBookkeepingIsNoUpdate(t *testing.T) {
-	b := serveBranch(t, 42)
-	store, id := fileSource(t, RoutingTemplate)
-	refresh := func(body string, want bool) Candidate {
-		t.Helper()
-		c, err := b.fetcher().Refresh(t.Context(), store, id, []byte(body), Policy{Scheduled: true})
-		if err != nil || c.Decision != "ready" || c.Unchanged() != want || c.Profile.Template == nil {
-			t.Fatal(err, c.Decision, c.Unchanged(), c.Notices)
-		}
-		return c
-	}
-	refresh(twoLinks, false)
-	refresh(twoLinks+jpLink, false)
-	before, _ := os.ReadFile(store.path(id))
-	stored := func() (current, previous *Profile, st Status) {
-		t.Helper()
-		r, err := store.read(id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return r.Current, r.Previous, statusOf(r)
-	}
-	unchanged := func(what string) {
-		t.Helper()
-		if after, _ := os.ReadFile(store.path(id)); !bytes.Equal(before, after) {
-			t.Fatal(what, "rewrote the record file")
-		}
-		// The router's routing key reads the version of the profile it loads.
-		current, previous, _ := stored()
-		loaded, err := store.Load(id)
-		if err != nil || loaded.Template.Version != 42 || current.Template.Cached || len(previous.Nodes) != len(current.Nodes)-1 {
-			t.Fatal(what, "changed the profiles", err, loaded.Template, len(previous.Nodes))
-		}
-	}
-
-	// No host answers: the router's copy serves.
-	n := writes(t, store, id)
-	b.down.Store(true)
-	if c := refresh(twoLinks+jpLink, true); !c.Profile.Template.Cached {
-		t.Fatal(c.Profile.Template)
-	}
-	unchanged("an offline refresh")
-	if _, _, st := stored(); st.Template == nil || !st.Template.Cached || st.Template.Version != 42 || n["record"] != 0 || n["status"] != 2 {
-		t.Fatal(st.Template, n)
-	}
-
-	// A new version of the same rules and rule sets.
-	b.down.Store(false)
-	b.version = 43
-	clear(n)
-	refresh(twoLinks+jpLink, true)
-	unchanged("a new version of the same rules")
-	if _, _, st := stored(); *st.Template != (TemplateUse{Version: 43, Reason: st.Template.Reason}) || n["record"] != 0 {
-		t.Fatal(st.Template, n)
-	}
-
-	// The template's rule set changes: an update, the profile taking the version.
-	b.version, b.set = 44, branchLAN+"DOMAIN-SUFFIX,new.example\n"
-	clear(n)
-	refresh(twoLinks+jpLink, false)
-	current, previous, st := stored()
-	if n["record"] != 1 || current.Template.Version != 44 || previous.Template.Version != 42 || *st.Template != *current.Template {
-		t.Fatal(n, current.Template, previous.Template, st.Template)
-	}
-	if r, _ := store.read(id); r.CheckedTemplate != nil {
-		t.Fatal("status kept the template of the profile replaced", r.CheckedTemplate)
-	}
-}
-
-// A display change (here the subscription's title) reaches the profile without counting as an
-// update: the rollback snapshot stays and nobody needs telling.
+// A display change (here the subscription's format: the same nodes as share links, then in a
+// Clash document) reaches the profile without counting as an update: the rollback snapshot
+// stays and nobody needs telling.
 func TestShownChangeKeepsTheSnapshot(t *testing.T) {
-	store := OpenStore(t.TempDir())
-	src := Source{ID: "sub", Name: "sub", Kind: "external", URL: "https://example.com/feed"}
-	if err := store.Configure(src); err != nil {
-		t.Fatal(err)
-	}
-	body, title := "http://edge.example:8080#Edge", ""
-	f := Fetcher{Client: &http.Client{Transport: setFixtureTransport(func(*http.Request) (*http.Response, error) {
-		h := http.Header{}
-		if title != "" {
-			h.Set("Profile-Title", title)
-		}
-		return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})}}
-	for _, b := range []string{body, body + "\nhttp://edge2.example:8080#Edge 2"} {
-		body = b
-		if _, err := f.Refresh(t.Context(), store, src.ID, nil, Policy{}); err != nil {
+	store, fd := fixtureSource(t, "sub", basic)
+	f := Fetcher{}
+	for _, b := range []string{basic, basic + "\nhttp://edge2.example:8080#Edge 2"} {
+		fd.body = b
+		if _, err := f.Refresh(t.Context(), store, "sub", Policy{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	title = "Renamed"
-	c, err := f.Refresh(t.Context(), store, src.ID, nil, Policy{})
+	fd.body = `proxies:
+ - {name: Edge, type: http, server: edge.example, port: 8080, username: demo, password: fixture-only-password}
+ - {name: Edge 2, type: http, server: edge2.example, port: 8080}
+`
+	c, err := f.Refresh(t.Context(), store, "sub", Policy{})
 	if err != nil || !c.Unchanged() {
 		t.Fatal(err, c.Unchanged())
 	}
-	r, _ := store.read(src.ID)
-	if r.Current.Title != "Renamed" || len(r.Previous.Nodes) != 1 {
-		t.Fatal(r.Current.Title, len(r.Previous.Nodes))
+	r, _ := store.read("sub")
+	if r.Current.Format != "clash" || r.Previous.Format != "uri" || len(r.Previous.Nodes) != 1 {
+		t.Fatal(r.Current.Format, len(r.Previous.Nodes))
 	}
 }
 
@@ -255,7 +161,7 @@ func TestRecordFileOfTheEarlierFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The earlier format: one file, without a status file.
-	r.LastFailure, r.Attempts, r.AttemptedAt, r.UpdatedAt = "subscription_request_failed", 2, "2026-11-20T10:00:00Z", "2026-11-19T10:00:00Z"
+	r.LastFailure, r.Attempts, r.AttemptedAt, r.UpdatedAt = "locations_unreachable", 2, "2026-11-20T10:00:00Z", "2026-11-19T10:00:00Z"
 	r.Generation = 9
 	old, _ := json.Marshal(r)
 	if err := os.WriteFile(store.path(ticket.Source), old, 0600); err != nil {
@@ -265,7 +171,7 @@ func TestRecordFileOfTheEarlierFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, err := store.Status(ticket.Source)
-	if err != nil || !st.Ready || st.LastFailure != "subscription_request_failed" || st.Attempts != 2 || st.UpdatedAt != "2026-11-19T10:00:00Z" || st.Generation != 9 {
+	if err != nil || !st.Ready || st.LastFailure != "locations_unreachable" || st.Attempts != 2 || st.UpdatedAt != "2026-11-19T10:00:00Z" || st.Generation != 9 {
 		t.Fatal(err, st)
 	}
 	n := writes(t, store, ticket.Source)
@@ -276,7 +182,7 @@ func TestRecordFileOfTheEarlierFormat(t *testing.T) {
 	if b, _ := os.ReadFile(store.path(ticket.Source)); !bytes.Contains(b, []byte(`"last_failure"`)) || !bytes.Contains(b, []byte(`"attempts":3`)) {
 		t.Fatal("bookkeeping left only to the status file")
 	}
-	if st, _ := store.Status(ticket.Source); st.LastFailure != "subscription_request_failed" || st.Attempts != 3 || st.UpdatedAt != "2026-11-19T10:00:00Z" || st.Generation != 10 {
+	if st, _ := store.Status(ticket.Source); st.LastFailure != "locations_unreachable" || st.Attempts != 3 || st.UpdatedAt != "2026-11-19T10:00:00Z" || st.Generation != 10 {
 		t.Fatal(st)
 	}
 	// The next update moves it out; later ones leave the record file.
@@ -308,7 +214,7 @@ func TestRecordFileOfTheEarlierFormat(t *testing.T) {
 	if err := os.WriteFile(store.statusPath(ticket.Source), stale, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := store.Status(ticket.Source); st.Generation != 20 || st.Attempts != 5 || st.LastFailure != "subscription_request_failed" || st.UpdatedAt != "2026-11-19T10:00:00Z" || !st.Ready {
+	if st, _ := store.Status(ticket.Source); st.Generation != 20 || st.Attempts != 5 || st.LastFailure != "locations_unreachable" || st.UpdatedAt != "2026-11-19T10:00:00Z" || !st.Ready {
 		t.Fatal("stale status", st)
 	}
 	// A broken status file leaves the record file's.

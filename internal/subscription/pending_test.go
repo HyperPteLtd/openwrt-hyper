@@ -1,8 +1,7 @@
 package subscription
 
 import (
-	"io"
-	"net/http"
+	"context"
 	"os"
 	"slices"
 	"strings"
@@ -19,24 +18,15 @@ const (
 // instead of passing for done, and keeps counting attempts so that the scheduler's back-off
 // goes on. A commit or the administrator's own refresh settles it.
 func TestScheduledRefreshKeepsUpdateItCannotApply(t *testing.T) {
-	store := OpenStore(t.TempDir())
-	src := Source{ID: "sub", Name: "sub", Kind: "external", URL: "https://example.com/feed"}
-	if err := store.Configure(src); err != nil {
-		t.Fatal(err)
-	}
-	body, reachable := rejectingFeed, true
+	store, fd := fixtureSource(t, "sub", rejectingFeed)
+	src := Source{ID: "sub"}
 	var afterBegin os.FileInfo
-	f := Fetcher{Client: &http.Client{Transport: setFixtureTransport(func(*http.Request) (*http.Response, error) {
-		afterBegin, _ = os.Stat(store.statusPath(src.ID))
-		if !reachable {
-			return nil, errReset
-		}
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})}}
+	fd.onRead = func(context.Context) { afterBegin, _ = os.Stat(store.statusPath(src.ID)) }
+	f := Fetcher{}
 	refresh := func(policy Policy, decision string) (Candidate, Status) {
 		t.Helper()
-		c, err := f.Refresh(t.Context(), store, src.ID, nil, policy)
-		if (err == nil) != reachable || c.Decision != decision {
+		c, err := f.Refresh(t.Context(), store, src.ID, policy)
+		if (err == nil) != fd.reachable || c.Decision != decision {
 			t.Fatal(err, c.Decision, c.Notices)
 		}
 		st, err := store.Status(src.ID)
@@ -46,12 +36,12 @@ func TestScheduledRefreshKeepsUpdateItCannotApply(t *testing.T) {
 		return c, st
 	}
 	refresh(Policy{}, "ready")
-	reachable = false
-	if _, st := refresh(Policy{Scheduled: true}, ""); st.LastFailure != "subscription_request_failed" || st.Attempts != 1 {
+	fd.reachable = false
+	if _, st := refresh(Policy{Scheduled: true}, ""); st.LastFailure != "locations_unreachable" || st.Attempts != 1 {
 		t.Fatal(st.LastFailure, st.Attempts)
 	}
 
-	reachable, body = true, permissiveFeed
+	fd.reachable, fd.body = true, permissiveFeed
 	c, st := refresh(Policy{Scheduled: true}, "confirmation_required")
 	if p := st.PendingUpdate; p == nil || p.Code != PendingConfirmation || !slices.Equal(p.Notices, []string{"rejection_removed"}) {
 		t.Fatal("scheduled refresh left no pending update", p)
@@ -94,12 +84,12 @@ func TestPendingUpdateKeepsNoticeCodes(t *testing.T) {
 		t.Fatal("ready candidate pending")
 	}
 	c := Candidate{Decision: "confirmation_required", Notices: []Notice{
-		{Code: "subconv_unsupported_rule", At: "https://feed.example/?token=secret"},
+		{Code: "mihomo_unsupported_rule", At: "https://feed.example/?token=secret"},
 		{Code: "rejection_removed", Dangerous: true},
-		{Code: "subconv_unsupported_rule", At: "rule 2"},
+		{Code: "mihomo_unsupported_rule", At: "rule 2"},
 		{Code: "Not A Code"},
 	}}
-	if p := c.Pending(); p.Code != PendingConfirmation || !slices.Equal(p.Notices, []string{"rejection_removed", "subconv_unsupported_rule"}) {
+	if p := c.Pending(); p.Code != PendingConfirmation || !slices.Equal(p.Notices, []string{"rejection_removed", "mihomo_unsupported_rule"}) {
 		t.Fatal(p)
 	}
 	for range 20 {
@@ -123,23 +113,17 @@ func TestConfirmedUpdateIsNotHeldAgain(t *testing.T) {
 		"sub-rule":         proxies + "rules: ['SUB-RULE,(NETWORK,tcp),REJECT', " + routes + "]",
 		"missing rule set": proxies + "rules: ['RULE-SET,missing,REJECT', " + routes + "]",
 		"process name":     proxies + "rules: ['PROCESS-NAME,ads,REJECT', " + routes + "]",
-		"local routing":    proxies + "script: {code: 'def main(ctx, md): return \"DIRECT\"'}\nrules: [" + routes + "]",
+		"local routing":    proxies + "proxy-groups: [{name: Chain, type: relay, proxies: [Edge]}]\nrules: [" + routes + "]",
 	} {
 		t.Run(name, func(t *testing.T) {
-			store := OpenStore(t.TempDir())
-			src := Source{ID: "sub", Name: "sub", Kind: "external", URL: "https://example.com/feed"}
-			if err := store.Configure(src); err != nil {
-				t.Fatal(err)
-			}
-			body := feed
-			f := Fetcher{Client: &http.Client{Transport: setFixtureTransport(func(*http.Request) (*http.Response, error) {
-				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-			})}}
-			c, err := f.Refresh(t.Context(), store, src.ID, nil, Policy{})
+			store, fd := fixtureSource(t, "sub", feed)
+			src := Source{ID: "sub"}
+			f := Fetcher{}
+			c, err := f.Refresh(t.Context(), store, src.ID, Policy{})
 			if err != nil || c.Decision != "confirmation_required" {
 				t.Fatal(err, c.Decision, c.Notices)
 			}
-			if c, err = f.Refresh(t.Context(), store, src.ID, nil, Policy{Confirm: c.ConfirmationID}); err != nil || c.Decision != "ready" || c.Unchanged() {
+			if c, err = f.Refresh(t.Context(), store, src.ID, Policy{Confirm: c.ConfirmationID}); err != nil || c.Decision != "ready" || c.Unchanged() {
 				t.Fatal(err, c.Decision)
 			}
 			confirmed, err := store.Load(src.ID)
@@ -154,7 +138,7 @@ func TestConfirmedUpdateIsNotHeldAgain(t *testing.T) {
 				}); err != nil {
 					t.Fatal(err)
 				}
-				c, err := f.Refresh(t.Context(), store, src.ID, nil, Policy{Scheduled: true})
+				c, err := f.Refresh(t.Context(), store, src.ID, Policy{Scheduled: true})
 				if err != nil || c.Decision != "ready" || !c.Unchanged() || len(c.Notices) == 0 {
 					t.Fatal(err, c.Decision, c.Unchanged(), c.Notices)
 				}
@@ -170,7 +154,7 @@ func TestConfirmedUpdateIsNotHeldAgain(t *testing.T) {
 			if _, st := scheduledRefresh(t, f, store, src.ID, Policy{Scheduled: true, ActiveIDs: []string{"node:gone"}}, "blocked"); st.PendingUpdate == nil || st.PendingUpdate.Code != PendingBlocked {
 				t.Fatal("identical update with a missing target not blocked", st.PendingUpdate)
 			}
-			body = strings.Replace(feed, "edge.example", "edge2.example", 1)
+			fd.body = strings.Replace(feed, "edge.example", "edge2.example", 1)
 			if _, st := scheduledRefresh(t, f, store, src.ID, Policy{Scheduled: true}, "confirmation_required"); st.PendingUpdate == nil || st.PendingUpdate.Code != PendingConfirmation || st.Attempts != 2 {
 				t.Fatal("changed update not held", st.PendingUpdate, st.Attempts)
 			}
@@ -180,7 +164,7 @@ func TestConfirmedUpdateIsNotHeldAgain(t *testing.T) {
 
 func scheduledRefresh(t *testing.T, f Fetcher, store *Store, id string, policy Policy, decision string) (Candidate, Status) {
 	t.Helper()
-	c, err := f.Refresh(t.Context(), store, id, nil, policy)
+	c, err := f.Refresh(t.Context(), store, id, policy)
 	if err != nil || c.Decision != decision {
 		t.Fatal(err, c.Decision, c.Notices)
 	}

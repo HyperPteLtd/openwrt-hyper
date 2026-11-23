@@ -7,12 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
-	"net/http"
 	"os"
-	"strings"
 	"testing"
-	"time"
 )
 
 // killedAfterRecordFile runs an update that stops right after it replaced the record file of
@@ -71,38 +67,20 @@ func boundTo(t *testing.T, s *Store, id string) bool {
 
 func feedSource(t *testing.T) (*Store, string, *string, *bool, Fetcher) {
 	t.Helper()
-	store := OpenStore(t.TempDir())
-	src := Source{ID: "sub", Name: "sub", Kind: "external", URL: "https://example.com/feed"}
-	if err := store.Configure(src); err != nil {
-		t.Fatal(err)
-	}
-	body, reachable := "http://edge.example:8080#Edge", true
-	f := Fetcher{Client: &http.Client{Transport: setFixtureTransport(func(*http.Request) (*http.Response, error) {
-		if !reachable {
-			return nil, errReset
-		}
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})}}
-	if c, err := f.Refresh(t.Context(), store, src.ID, nil, Policy{Scheduled: true}); err != nil || c.Decision != "ready" {
+	store, fd := fixtureSource(t, "sub", "http://edge.example:8080#Edge")
+	f := Fetcher{}
+	if c, err := f.Refresh(t.Context(), store, "sub", Policy{Scheduled: true}); err != nil || c.Decision != "ready" {
 		t.Fatal(err, c.Decision)
 	}
-	return store, src.ID, &body, &reachable, f
+	return store, "sub", &fd.body, &fd.reachable, f
 }
 
 // An update stopped between its record file and its status file leaves a record file that the
 // status file does not name. The status still dates the source's last update and counts its
 // attempts, so the scheduler keeps refreshing it; what it held of the profile replaced (the
-// provider receipt, the template last found, the change counts) does not reach the new one.
+// change counts) does not reach the new one.
 func TestUpdateKilledBeforeItsStatusFile(t *testing.T) {
 	store, id, body, _, f := feedSource(t)
-	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.update(id, func(r *record) error {
-		r.Providers = &providerReceipt{Key: "edge", Checked: now, Expires: now.Add(time.Hour)}
-		r.CheckedTemplate = &TemplateUse{Version: 7}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
 	before, _ := store.Status(id)
 	if before.UpdatedAt == "" || before.LastChange == nil || !boundTo(t, store, id) {
 		t.Fatal(before)
@@ -110,7 +88,7 @@ func TestUpdateKilledBeforeItsStatusFile(t *testing.T) {
 
 	*body = "http://edge.example:8080#Edge\nhttp://edge2.example:8080#Edge 2"
 	killedAfterRecordFile(t, store, id, func() {
-		f.Refresh(t.Context(), store, id, nil, Policy{Scheduled: true})
+		f.Refresh(t.Context(), store, id, Policy{Scheduled: true})
 	})
 	if boundTo(t, store, id) {
 		t.Fatal("status file written")
@@ -126,8 +104,8 @@ func TestUpdateKilledBeforeItsStatusFile(t *testing.T) {
 	if st.UpdatedAt != before.UpdatedAt || st.Attempts != 1 || st.AttemptedAt == "" {
 		t.Fatal("update date or attempts lost", st.UpdatedAt, st.Attempts, st.AttemptedAt)
 	}
-	if r.Providers != nil || r.CheckedTemplate != nil || r.LastChange != nil {
-		t.Fatal("bookkeeping of the profile replaced", r.Providers, r.CheckedTemplate, r.LastChange)
+	if r.LastChange != nil {
+		t.Fatal("bookkeeping of the profile replaced", r.LastChange)
 	}
 	if names := nodeNames(r.Previous); len(names) != 1 || names[0] != "Edge" {
 		t.Fatal("rollback snapshot", names)
@@ -135,7 +113,7 @@ func TestUpdateKilledBeforeItsStatusFile(t *testing.T) {
 
 	// The next refresh finds the profile as it is and writes its status file again.
 	n := writes(t, store, id)
-	if c, err := f.Refresh(t.Context(), store, id, nil, Policy{Scheduled: true}); err != nil || c.Decision != "ready" || !c.Unchanged() {
+	if c, err := f.Refresh(t.Context(), store, id, Policy{Scheduled: true}); err != nil || c.Decision != "ready" || !c.Unchanged() {
 		t.Fatal(err, c.Decision, c.Unchanged())
 	}
 	st, _ = store.Status(id)
@@ -155,7 +133,7 @@ func TestMigrationKilledBeforeItsStatusFile(t *testing.T) {
 	}
 	updated := r.UpdatedAt
 	r.PendingUpdate = &PendingUpdate{Code: PendingConfirmation}
-	r.LastFailure, r.Attempts, r.AttemptedAt = "subscription_request_failed", 3, "2026-11-22T00:00:00Z"
+	r.LastFailure, r.Attempts, r.AttemptedAt = "locations_unreachable", 3, "2026-11-22T00:00:00Z"
 	// As an earlier version wrote it: one file, encoded its own way.
 	old, _ := json.MarshalIndent(r, "", " ")
 	if err := os.WriteFile(store.path(id), old, 0600); err != nil {
@@ -167,13 +145,13 @@ func TestMigrationKilledBeforeItsStatusFile(t *testing.T) {
 
 	*reachable = false
 	killedAfterRecordFile(t, store, id, func() {
-		f.Refresh(t.Context(), store, id, nil, Policy{Scheduled: true})
+		f.Refresh(t.Context(), store, id, Policy{Scheduled: true})
 	})
 	if _, err := os.Stat(store.statusPath(id)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("status file written", err)
 	}
 	st, err := store.Status(id)
-	if err != nil || !st.Ready || st.Attempts != 4 || st.AttemptedAt == "2026-11-22T00:00:00Z" || st.LastFailure != "subscription_request_failed" ||
+	if err != nil || !st.Ready || st.Attempts != 4 || st.AttemptedAt == "2026-11-22T00:00:00Z" || st.LastFailure != "locations_unreachable" ||
 		st.PendingUpdate == nil || st.PendingUpdate.Code != PendingConfirmation || st.UpdatedAt != updated {
 		t.Fatal("bookkeeping lost", err, st)
 	}
@@ -181,14 +159,14 @@ func TestMigrationKilledBeforeItsStatusFile(t *testing.T) {
 	// The refresh again, to its end, and the next one: the record file ends without the
 	// bookkeeping, and the status file holds it.
 	for range 2 {
-		if _, err := f.Refresh(t.Context(), store, id, nil, Policy{Scheduled: true}); err == nil {
+		if _, err := f.Refresh(t.Context(), store, id, Policy{Scheduled: true}); err == nil {
 			t.Fatal("refresh of an unreachable link succeeded")
 		}
 	}
 	if b, _ := os.ReadFile(store.path(id)); bytes.Contains(b, []byte(`"attempts"`)) || bytes.Contains(b, []byte(`"last_failure"`)) || !boundTo(t, store, id) {
 		t.Fatal("bookkeeping left in the record file")
 	}
-	if st, _ := store.Status(id); st.Attempts != 6 || st.LastFailure != "subscription_request_failed" || st.PendingUpdate == nil || st.UpdatedAt != updated {
+	if st, _ := store.Status(id); st.Attempts != 6 || st.LastFailure != "locations_unreachable" || st.PendingUpdate == nil || st.UpdatedAt != updated {
 		t.Fatal(st)
 	}
 }
@@ -198,17 +176,15 @@ func TestMigrationKilledBeforeItsStatusFile(t *testing.T) {
 // file counts: none of what the status file held comes back.
 func TestStatusFileLeftByADowngrade(t *testing.T) {
 	store, id, _, reachable, f := feedSource(t)
-	now := time.Now().UTC().Truncate(time.Second)
 	if err := store.update(id, func(r *record) error {
-		r.Providers = &providerReceipt{Key: "abandoned", Checked: now, Expires: now.Add(time.Hour)}
-		r.CheckedTemplate = &TemplateUse{Version: 7}
+		r.LastChange = &ChangeCounts{Added: 7}
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 	*reachable = false
 	for range 4 {
-		f.Refresh(t.Context(), store, id, nil, Policy{Scheduled: true})
+		f.Refresh(t.Context(), store, id, Policy{Scheduled: true})
 	}
 	raw, _ := os.ReadFile(store.path(id))
 	var old record
@@ -224,7 +200,7 @@ func TestStatusFileLeftByADowngrade(t *testing.T) {
 	old.Generation += 2
 	old.LastFailure, old.Attempts, old.AttemptedAt = "", 0, ""
 	old.UpdatedAt = "2026-11-22T12:00:00Z"
-	old.Providers = &providerReceipt{Key: "earlier", Checked: now, Expires: now.Add(time.Hour)}
+	old.LastChange = &ChangeCounts{Added: 9}
 	b, _ := json.Marshal(&old)
 	if err := os.WriteFile(store.path(id), b, 0600); err != nil {
 		t.Fatal(err)
@@ -238,8 +214,8 @@ func TestStatusFileLeftByADowngrade(t *testing.T) {
 	if !st.Ready || st.Generation != old.Generation || st.UpdatedAt != "2026-11-22T12:00:00Z" || st.Attempts != 0 || st.LastFailure != "" {
 		t.Fatal("abandoned status read", st)
 	}
-	if r.Providers == nil || r.Providers.Key != "earlier" || r.CheckedTemplate != nil {
-		t.Fatal("abandoned receipt read", r.Providers, r.CheckedTemplate)
+	if r.LastChange == nil || r.LastChange.Added != 9 {
+		t.Fatal("abandoned change counts read", r.LastChange)
 	}
 	// The next update carries on from the record file.
 	if _, err := store.Begin(id); err != nil {
@@ -254,9 +230,8 @@ func TestStatusFileLeftByADowngrade(t *testing.T) {
 // record file is read as before; the next update names the record file in it.
 func TestStatusFileOfThePreviousVersion(t *testing.T) {
 	store, id, _, _, _ := feedSource(t)
-	now := time.Now().UTC().Truncate(time.Second)
 	if err := store.update(id, func(r *record) error {
-		r.Providers = &providerReceipt{Key: "edge", Checked: now, Expires: now.Add(time.Hour)}
+		r.Usage = &Usage{Download: 5}
 		r.Attempts = 2
 		return nil
 	}); err != nil {
@@ -274,14 +249,14 @@ func TestStatusFileOfThePreviousVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err := store.read(id)
-	if err != nil || r.Providers == nil || r.Providers.Key != "edge" || r.Attempts != 2 || r.disk.status == nil {
-		t.Fatal(err, r.Providers, r.Attempts)
+	if err != nil || r.Usage == nil || r.Usage.Download != 5 || r.Attempts != 2 || r.disk.status == nil {
+		t.Fatal(err, r.Usage, r.Attempts)
 	}
 	if _, err := store.Begin(id); err != nil || !boundTo(t, store, id) {
 		t.Fatal(err)
 	}
-	if r, _ := store.read(id); r.Providers == nil || r.Attempts != 1 {
-		t.Fatal(r.Providers, r.Attempts)
+	if r, _ := store.read(id); r.Usage == nil || r.Attempts != 1 {
+		t.Fatal(r.Usage, r.Attempts)
 	}
 
 	// One older than the record file is not read, as before.
@@ -295,8 +270,8 @@ func TestStatusFileOfThePreviousVersion(t *testing.T) {
 	if err := os.WriteFile(store.statusPath(id), previous, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := store.read(id); r.Providers != nil || r.Attempts != 0 || r.UpdatedAt != "" {
-		t.Fatal("older status file of the previous version read", r.Providers, r.Attempts)
+	if r, _ := store.read(id); r.Usage != nil || r.Attempts != 0 || r.UpdatedAt != "" {
+		t.Fatal("older status file of the previous version read", r.Usage, r.Attempts)
 	}
 }
 

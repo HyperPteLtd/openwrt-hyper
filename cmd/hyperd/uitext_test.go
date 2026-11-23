@@ -21,7 +21,6 @@ import (
 
 	"github.com/HyperPteLtd/openwrt-hyper/internal/subscription"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/tlsdiag"
-	"github.com/openweir/subconv"
 )
 
 // The LuCI pages read the router's codes and errors in Chinese: dom.js through diagnosticMessage
@@ -68,8 +67,7 @@ var emitters = []emitter{
 	{"internal/router", "Records.LogDetail", 0, "source"}, {"internal/router", "Records.LogDetail", 2, "log"},
 	{"internal/router", "Manager.phase", 0, "log"}, // "<phase> <error>", the error checked as all are
 	{"internal/netguard", "dnsIssue", 1, "log"},
-	{"internal/subscription", "Profile.notice", 0, "notice"}, {"internal/subscription", "providers.notice", 0, "notice"},
-	{"internal/subscription", "classifyRequestFailure", 1, "failure"},
+	{"internal/subscription", "Profile.notice", 0, "notice"},
 	// "<action> <stage> <task>[ <code>]", checked by TestTaskNamesReadInChinese.
 	{"cmd/hyperd", "app.runJob", 1, "action"},
 }
@@ -92,15 +90,51 @@ var unshown = []string{
 	"expected serve, guard, uninstall, purge, notify-clock, notify-network, notify-source SOURCE or call METHOD",
 }
 
-// The values of another module's fields that become codes: subconv's warnings, as
-// subconv_<code> notices. Its invalid_credential becomes one of the credential notices, and
-// template_applied is recorded on the profile instead.
-var external = map[string][]string{
-	"github.com/openweir/subconv.Warning.Code": {subconv.WarnUnsupportedProxy, subconv.WarnUnsupportedOption,
-		subconv.WarnInvalidProxy, subconv.WarnIgnoredOption, subconv.WarnUnsupportedRule, subconv.WarnUnsupportedRuleSet,
-		subconv.WarnUnsupportedProvider, subconv.WarnUnsupportedGroup, subconv.WarnUnknownReference,
-		subconv.WarnCyclicReference, subconv.WarnEmptyGroup, subconv.WarnRenamed, subconv.WarnLocalProvider,
-		subconv.WarnTemplateUnavailable},
+// The codes and task steps of the imports this version removed: subscriptions by link, by file
+// and by another panel's account, with their conversion, templates, providers and request
+// diagnostics. Nothing emits them any more; the pages may keep their texts until they drop them.
+var retired = func() map[string]bool {
+	out := map[string]bool{}
+	for _, code := range strings.Fields(`
+		authenticated_redirect_refused entitlement_check_failed expanded_subscription_limit
+		external_source_required invalid_external_source invalid_file_source invalid_login
+		invalid_login_response invalid_login_token invalid_node_inventory invalid_origin
+		invalid_plan_detail invalid_plan_list invalid_platform_site invalid_platform_source
+		invalid_provider_choice invalid_request invalid_response_size invalid_template_filter
+		not_external platform_account_revoked redirect_refused rule_file_size_exceeds_limit
+		source_config_required source_preferences_required subscription_app_disabled
+		subscription_empty subscription_incomplete subscription_link_unavailable
+		subscription_link_unreachable subscription_message subscription_redirect_refused
+		subscription_request_failed subscription_tls_untrusted subscription_web_page
+		template_cache_write_failed template_rule_set_unavailable verified_login_required
+		invalid_credential mihomo_router_field_ignored node_missing_credential
+		nonstandard_snell_credential script unavailable_inventory
+		provider_download_failed provider_option_ignored provider_option_unsafe
+		invalid_provider_url invalid_proxy_provider provider_cancelled provider_connection_refused
+		provider_dns_failed provider_incomplete provider_limit provider_redirect_refused
+		provider_timeout provider_tls_untrusted
+		configure preferences site`) {
+		out[code] = true
+	}
+	return out
+}()
+
+// The warnings of the converter the removed imports used, which the sources page read as
+// notices named after the converter: "<converter>_<warning>".
+var converterWarnings = map[string]bool{}
+
+func init() {
+	for _, w := range strings.Fields(`cyclic_reference empty_group ignored_option invalid_proxy local_provider renamed
+		template_unavailable unknown_reference unsupported_group unsupported_option unsupported_provider
+		unsupported_proxy unsupported_rule unsupported_rule_set`) {
+		converterWarnings[w] = true
+	}
+}
+
+// retiredText reports a text of the pages for a code of the removed imports.
+func retiredText(name, key string) bool {
+	_, warning, _ := strings.Cut(key, "_")
+	return retired[key] || name == "notices" && converterWarnings[warning]
 }
 
 // Emission points whose value is computed at run time, by package directory and function: the
@@ -184,7 +218,7 @@ func TestEmittedCodesReadInChinese(t *testing.T) {
 			}
 		}
 		for key := range keys {
-			if len(kinds) == 0 || slices.ContainsFunc(kinds, func(kind string) bool { _, ok := found.codes[kind][key]; return ok }) {
+			if len(kinds) == 0 || retiredText(name, key) || slices.ContainsFunc(kinds, func(kind string) bool { _, ok := found.codes[kind][key]; return ok }) {
 				continue
 			}
 			// An English error of the kernel helper or a shell helper, which reach the page in
@@ -227,7 +261,7 @@ func TestTaskNamesReadInChinese(t *testing.T) {
 		}
 	}
 	for key := range maps["taskStep"] {
-		if !steps[key] {
+		if !steps[key] && !retired[key] {
 			problems = append(problems, fmt.Sprintf("taskStep names %q, which no job runs", key))
 		}
 	}
@@ -609,19 +643,6 @@ func (s *routerSource) emitted(t *testing.T) found {
 	// runJob logs a held refresh with its pending update's code (heldUpdate).
 	for _, code := range []string{subscription.PendingConfirmation, subscription.PendingBlocked} {
 		w.add("log", code, "cmd/hyperd:heldUpdate")
-	}
-	// The codes a referenced file's download reports (providerFailure), and the certificate
-	// failures a subscription's download reports alike (classifyRequestFailure).
-	providerCodes := s.pkgs["internal/subscription"].vars["providerCodes"]
-	if providerCodes == nil {
-		t.Fatal("providerCodes not found")
-	}
-	v, _ := strconv.Unquote(providerCodes.Values[0].(*ast.CallExpr).Args[0].(*ast.BasicLit).Value)
-	for _, code := range strings.Fields(v) {
-		w.add("failure", code, "internal/subscription:providerCodes")
-		if reason, ok := strings.CutPrefix(code, "provider_tls_"); ok {
-			w.add("failure", "subscription_tls_"+reason, "internal/subscription:classifyRequestFailure")
-		}
 	}
 	// A task the manager's restart interrupted, which the kernel page shows for the bootstrap job.
 	interrupted := false
@@ -1258,9 +1279,6 @@ func (s *routerSource) valuesOf(c scope, e ast.Expr, depth int) ([]string, bool)
 	case *ast.SelectorExpr:
 		if dir, spec, ok := s.packageVar(c, e); ok && dir != c.dir {
 			return s.specValue(dir, spec, e.Sel.Name, depth)
-		}
-		if t := s.typeOf(c, e.X, 0); t.dir == "" && external[t.name+"."+e.Sel.Name] != nil {
-			return external[t.name+"."+e.Sel.Name], true
 		}
 		if v, ok := s.tableField(c, e, depth); ok {
 			return v, true

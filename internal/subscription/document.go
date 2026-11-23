@@ -253,9 +253,9 @@ func (p *Profile) chains(names map[string]string, bad func(string) bool, special
 	}
 }
 
-// parseClash reads a document in the Hyper format whose providers were expanded into it.
-// subconv made each item one the core loads; the router checks what is its own concern: the
-// safety of each proxy (proxyspec.Safe), its limits, and the groups and rules it compiles.
+// parseClash reads a Clash document. The router checks what is its own concern: the safety of
+// each proxy (proxyspec.Safe), its limits, and the groups and rules it compiles. Providers are
+// not read: a profile's rule sets are its own (BinarySets).
 func parseClash(p *Profile, m map[string]any) error {
 	for _, k := range []string{"proxy-providers", "rule-providers"} {
 		if len(object(m[k])) > 0 {

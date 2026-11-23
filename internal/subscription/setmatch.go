@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
-	"github.com/openweir/subconv"
+	"go.yaml.in/yaml/v3"
 )
 
 // ErrSetQuery reports a lookup that is neither a domain name nor an IP address.
@@ -27,16 +27,23 @@ func SetMatch(set BinarySet, query string) (bool, error) {
 	if set.Format == "mrs" {
 		return mrsMatch(set.Data, set.Behavior, q)
 	}
-	// Sets stored before subconv converted them may still be YAML payloads.
-	content, err := subconv.ConvertRuleSet(set.Data, set.Behavior, set.Format)
-	if errors.Is(err, subconv.ErrNoRules) {
-		return false, nil
-	}
-	if err != nil {
+	var lines []string
+	switch set.Format {
+	case "text":
+		lines = strings.Split(string(set.Data), "\n")
+	case "yaml":
+		var v struct {
+			Payload []string `yaml:"payload"`
+		}
+		if yaml.Unmarshal(set.Data, &v) != nil {
+			return false, errRulePayload
+		}
+		lines = v.Payload
+	default:
 		return false, errRulePayload
 	}
-	for line := range strings.Lines(string(content.Body)) {
-		if lineMatch(content.Behavior, line, q) {
+	for _, line := range lines {
+		if lineMatch(set.Behavior, line, q) {
 			return true, nil
 		}
 	}

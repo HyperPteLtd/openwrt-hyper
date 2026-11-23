@@ -7,17 +7,15 @@ import (
 	"testing"
 )
 
-func TestStartupSnapshotHonorsAccountWithdrawalBeforePurge(t *testing.T) {
+// A source revoked after the startup read its snapshot, as by a sign-out, is no longer the one
+// the startup checked.
+func TestStartupSnapshotHonorsRevocation(t *testing.T) {
 	store := OpenStore(t.TempDir())
-	src := Source{ID: "plan", Name: "Plan", Kind: "platform", Origin: "https://example.test", UserID: "user", PlanID: 7, Token: "synthetic"}
-	if err := store.configure(src, true); err != nil {
-		t.Fatal(err)
-	}
-	ticket, err := store.Begin(src.ID)
+	ticket, err := store.Begin(HyperSource)
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, err := Parse(src.ID, []byte("http://node.example:8080#one"))
+	profile, err := Parse(HyperSource, []byte("http://node.example:8080#one"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,17 +23,20 @@ func TestStartupSnapshotHonorsAccountWithdrawalBeforePurge(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := store.SnapshotReader()
-	if _, err := snapshot.Load(src.ID); err != nil || !snapshot.Unchanged() {
+	if _, err := snapshot.Load(HyperSource); err != nil || !snapshot.Unchanged() {
 		t.Fatal("failed to capture source", err)
 	}
-	if err := store.markAccount(&src); err != nil {
+	if err := store.Revoke(HyperSource); err != nil {
 		t.Fatal(err)
 	}
 	if snapshot.Unchanged() {
-		t.Fatal("account withdrawal accepted before source file was purged")
+		t.Fatal("revocation accepted after the snapshot")
 	}
-	if _, err := store.Load(src.ID); !errors.Is(err, ErrRevoked) {
-		t.Fatal("withdrawn account readable", err)
+	if _, err := store.Load(HyperSource); !errors.Is(err, ErrRevoked) {
+		t.Fatal("revoked source readable", err)
+	}
+	if _, err := store.SnapshotReader().Load(HyperSource); !errors.Is(err, ErrRevoked) {
+		t.Fatal("revoked source in a startup snapshot", err)
 	}
 }
 

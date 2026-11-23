@@ -11,12 +11,9 @@ import (
 	"net/netip"
 	"os"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/HyperPteLtd/openwrt-hyper/internal/coregroup"
-	"github.com/HyperPteLtd/openwrt-hyper/internal/tlsdiag"
 )
 
 // A request that fails in transit is retried once over the router's other way out, as
@@ -198,12 +195,9 @@ func dialMixed(ctx context.Context, _, address string) (net.Conn, error) {
 	return c, nil
 }
 
-// client is c over this route. Redirect policy, time limit and TLS settings stay, and
-// addresses a document chose keep the public-address check on every connection and are
-// dialed as checked. Through the core the tunnel goes to the checked address; the core's
-// sniffer skips loopback sources (skip-src-address in router/config.go), so it does not
-// send the tunnel on to the TLS server name instead.
-func (r *route) client(c http.Client, embedded bool) *http.Client {
+// client is c over this route. Redirect policy, time limit and TLS settings stay. Through the
+// core the core resolves the name; otherwise the route resolves it and dials what it found.
+func (r *route) client(c http.Client) *http.Client {
 	tr := http.DefaultTransport.(*http.Transport)
 	if base, ok := c.Transport.(*http.Transport); ok {
 		tr = base
@@ -212,81 +206,51 @@ func (r *route) client(c http.Client, embedded bool) *http.Client {
 	tr.Proxy = nil
 	tr.DisableKeepAlives = true
 	tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		if r.byName && !embedded {
+		if r.byName {
 			return r.dial(ctx, network, address)
 		}
-		return dialResolved(ctx, network, address, r.lookup, r.dial, embedded)
+		return dialResolved(ctx, network, address, r.lookup, r.dial, false)
 	}
 	c.Transport = tr
 	return &c
 }
 
-// egress is shared by the requests of one refresh or sign-in: once the other route worked
-// where the usual one failed, it goes first, and the remaining downloads do not wait for
-// the failing path.
-type egress struct {
-	once    sync.Once
-	other   *route
-	swapped atomic.Bool
+// publicTransport dials only public addresses, which it resolved itself.
+func publicTransport() *http.Transport {
+	lookup, dial := net.DefaultResolver.LookupIPAddr, (&net.Dialer{Timeout: 5 * time.Second}).DialContext
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
+	tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		return dialResolved(ctx, network, address, lookup, dial, true)
+	}
+	return tr
 }
 
-func (g *egress) route() *route {
-	g.once.Do(func() { g.other = fallbackRoute() })
-	return g.other
-}
-
-func (g *egress) send(ctx context.Context, c *http.Client, embedded, secure bool, send func(*http.Client) (response, error)) (response, error) {
-	if g == nil {
-		g = new(egress)
+// dialResolved dials the addresses it resolved itself. With public, a host with any
+// address outside the public internet is refused before anything is dialed.
+func dialResolved(ctx context.Context, network, address string, lookup lookupFunc, dial dialFunc, public bool) (net.Conn, error) {
+	h, p, e := net.SplitHostPort(address)
+	if e != nil {
+		return nil, e
 	}
-	usable := func() *route {
-		if r := g.route(); r != nil && (secure || !r.tlsOnly) {
-			return r
-		}
-		return nil
+	ips, e := lookup(ctx, h)
+	if e != nil {
+		return nil, e
 	}
-	other := g.swapped.Load() && usable() != nil
-	var failure error
-	for range 2 {
-		client := c
-		if other {
-			r := usable()
-			if r == nil {
-				break
-			}
-			client = r.client(*c, embedded)
+	for _, ip := range ips {
+		if public && (!ip.IP.IsGlobalUnicast() || ip.IP.IsPrivate() || ip.IP.IsLoopback() || ip.IP.IsLinkLocalUnicast() || ip.IP.IsLinkLocalMulticast() || ip.IP.IsUnspecified() || ip.IP.To4() != nil && ip.IP.To4()[0] == 100 && (ip.IP.To4()[1]&192) == 64) {
+			return nil, errors.New("private_provider_address")
 		}
-		res, err := send(client)
+	}
+	for _, ip := range ips {
+		c, err := dial(ctx, network, net.JoinHostPort(ip.IP.String(), p))
+		e = err
 		if err == nil {
-			if failure != nil {
-				g.swapped.Store(other)
-			}
-			return res, nil
+			return c, nil
 		}
-		// The retry's verdict stands if it got further than transit. Otherwise the usual
-		// path's error does, but a certificate verdict from either feeds the TLS and clock
-		// diagnostics.
-		if failure == nil || !transient(ctx, err) || tlsdiag.From(failure) == nil && tlsdiag.From(err) != nil {
-			failure = err
-		}
-		if !transient(ctx, err) {
-			break
-		}
-		other = !other
 	}
-	return response{}, failure
-}
-
-// transient reports a failure in transit. A server's answer, a size limit or a refused
-// redirect or address would be the same over either path.
-func transient(ctx context.Context, err error) bool {
-	var failed *requestFailure
-	if ctx.Err() != nil || !errors.As(err, &failed) {
-		return false
+	if e != nil {
+		return nil, e
 	}
-	switch failed.providerCode {
-	case "provider_cancelled", "provider_redirect_refused", "private_provider_address":
-		return false
-	}
-	return true
+	return nil, errors.New("provider_unreachable")
 }

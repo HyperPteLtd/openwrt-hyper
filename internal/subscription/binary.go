@@ -24,6 +24,9 @@ type BinarySet struct {
 
 const maxExpandedSet = 16 << 20
 
+// maxBinarySets bounds the rule sets of one profile.
+const maxBinarySets = 96
+
 func (s BinarySet) FileFormat() string { return s.Format }
 func (s BinarySet) Filename() string {
 	if s.Format == "text" {
@@ -75,7 +78,7 @@ func MaterializeSets(p Profile, dir string) error {
 	if len(p.BinarySets) == 0 {
 		return nil
 	}
-	if len(p.BinarySets) > maxProviders {
+	if len(p.BinarySets) > maxBinarySets {
 		return errors.New("invalid_binary_set_config")
 	}
 	lock, e := lockSets(dir)

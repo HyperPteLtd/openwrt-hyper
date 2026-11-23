@@ -27,6 +27,7 @@ type setFixtureTransport func(*http.Request) (*http.Response, error)
 
 func (f setFixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// platformFixtureYAML is a complete Clash configuration, the router's own settings included.
 const platformFixtureYAML = `mixed-port: 9347
 dns: {enable: true}
 proxies:
@@ -39,54 +40,47 @@ rules:
  - MATCH,DIRECT
 `
 
-func TestMihomoProviderConvertsRemoteSetsAndKeepsRouting(t *testing.T) {
-	data := []byte("payload:\n  - DOMAIN-SUFFIX,example.org\n  - IP-ASN,132203,no-resolve\n")
-	converted := []byte("DOMAIN-SUFFIX,example.org\nIP-ASN,132203,no-resolve\n")
-	h := sha256.Sum256(converted)
-	const name = "Streaming"
-	doc := []byte(`proxies:
+// A profile's own rule sets keep their order and targets among the rules, reach the core's
+// directory as they are and tell which geodata their rules need.
+func TestRuleSetsKeepRoutingAndMaterialize(t *testing.T) {
+	set := textSet("Streaming", "classical", "DOMAIN-SUFFIX,example.org\nIP-ASN,132203,no-resolve\n")
+	p := parseWithSets(t, "account", `proxies:
  - {name: edge, type: http, server: edge.example, port: 443, tls: true}
 proxy-groups:
  - {name: Download, type: fallback, proxies: [edge, DIRECT], url: https://example.org/test, interval: 180}
-rule-providers:
-  Streaming: {type: http, behavior: classical, format: yaml, path: ../../overwrite, url: 'https://public.example/Media.YAML?Case=Sensitive'}
 rules:
  - DOMAIN,first.example,REJECT
  - RULE-SET,Streaming,Download
  - GEOSITE,CN,DIRECT
  - MATCH,Download
-`)
-	c := mustConvert(t, string(doc))
-	s := providers{ctx: t.Context(), cache: map[string][]byte{}, f: Fetcher{Client: &http.Client{Transport: setFixtureTransport(func(r *http.Request) (*http.Response, error) {
-		if r.URL.RequestURI() != "/Media.YAML?Case=Sensitive" || r.Header.Get("Authorization") != "" {
-			t.Fatal("request modified or credential leaked")
-		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(data)), Header: http.Header{}}, nil
-	})}}}
-	if err := s.clash(c.doc); err != nil {
-		t.Fatal(err)
+`, set)
+	if len(p.Notices) > 0 || len(p.Rules) != 3 || len(p.Groups) != 1 || p.Groups[0].Kind != "fallback" || p.Final != p.Groups[0].ID {
+		t.Fatal(p.Notices)
 	}
-	p, e := parseVerified("account", c, s.binary)
-	if e != nil || len(p.Notices) > 0 || len(p.Rules) != 3 || len(p.Groups) != 1 || p.Groups[0].Kind != "fallback" || p.Final != p.Groups[0].ID {
-		t.Fatal(e, p.Notices)
+	if p.Rules[0].Target != Reject || p.Rules[1].RuleSet != "Streaming" || p.Rules[1].Target != p.Groups[0].ID || p.Rules[2].RuleSet != DomesticDomainSet {
+		t.Fatal("rule set order or target changed")
 	}
-	if p.Rules[0].Target != Reject || p.Rules[1].RuleSet != name || p.Rules[1].Target != p.Groups[0].ID || p.Rules[2].RuleSet != DomesticDomainSet {
-		t.Fatal("provider order or target changed")
-	}
-	set := p.BinarySets[0]
-	if set.Filename() != hex.EncodeToString(h[:])+".list" || !bytes.Equal(set.Data, converted) || set.Entries != 2 || set.Behavior != "classical" {
-		t.Fatal("provider content or path changed", string(set.Data))
+	if set.Filename() != set.SHA256+".list" || set.Entries != 2 {
+		t.Fatal("set content or path changed", set.Filename())
 	}
 	if !slices.Contains(GeoRules(p), "IP-ASN,_") {
-		t.Fatal("rule-provider ASN dependency omitted")
+		t.Fatal("rule set ASN dependency omitted")
 	}
 	dir := filepath.Join(t.TempDir(), "sets")
 	if err := MaterializeSets(p, dir); err != nil {
 		t.Fatal(err)
 	}
-	set.Data[0] ^= 1
-	if _, e := set.contents(); e == nil {
+	if b, err := os.ReadFile(filepath.Join(dir, set.Filename())); err != nil || !bytes.Equal(b, set.Data) {
+		t.Fatal(err)
+	}
+	p.BinarySets[0].Data[0] ^= 1
+	if _, e := p.BinarySets[0].contents(); e == nil {
 		t.Fatal("damaged snapshot accepted")
+	}
+	// A rule set the profile does not have costs its rules, not the others.
+	missing, err := Parse("account", []byte("proxies: [{name: edge, type: http, server: edge.example, port: 443}]\nrules: ['RULE-SET,Streaming,edge', 'MATCH,edge']"))
+	if err != nil || len(missing.Rules) != 0 || missing.Final == "" || len(missing.Notices) != 1 || missing.Notices[0].Code != "rule_provider_reference_unavailable" {
+		t.Fatal(err, missing.Notices)
 	}
 }
 
@@ -96,62 +90,33 @@ func TestOfflineCNAndMRSFraming(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		set, e := ruleSet("cn", "mrs", tt.behavior, data)
-		if e != nil || set.Entries < 500 {
-			t.Fatal(tt.family, set.Entries, e)
+		entries, e := MRSEntries(data, tt.behavior)
+		if e != nil || entries < 500 {
+			t.Fatal(tt.family, entries, e)
 		}
 		other := "domain"
 		if tt.behavior == "domain" {
 			other = "ipcidr"
 		}
 		for _, bad := range [][]byte{data[:len(data)/2], []byte("SRS\x02")} {
-			if _, e := ruleSet("bad", "mrs", tt.behavior, bad); e == nil {
+			if _, e := MRSEntries(bad, tt.behavior); e == nil {
 				t.Fatal("bad MRS accepted")
 			}
 		}
-		if _, e := ruleSet("bad", "mrs", other, data); e == nil {
+		if _, e := MRSEntries(data, other); e == nil {
 			t.Fatal("wrong MRS behavior accepted")
 		}
 	}
 }
 
-func TestLocalNativeRuleFilesAreSourceScoped(t *testing.T) {
-	f := Fetcher{ruleImportRoot: t.TempDir(), sourceID: "owner"}
-	dir := filepath.Join(f.ruleImportRoot, "source-owner")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	data := []byte("example.org\n")
-	outside := filepath.Join(t.TempDir(), "list.txt")
-	os.WriteFile(outside, data, 0600)
-	if _, err := f.localClashSet(outside); err == nil {
-		t.Fatal("template selected local filesystem content")
-	}
-	safe := filepath.Join(dir, "list.txt")
-	if err := os.Symlink(outside, safe); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.localClashSet(outside); err == nil {
-		t.Fatal("sidecar symlink followed")
-	}
-	os.Remove(safe)
-	os.WriteFile(safe, data, 0600)
-	got, err := f.localClashSet("./sets/list.txt")
-	if err != nil || !bytes.Equal(got, data) {
-		t.Fatal(err)
-	}
-	f.sourceID = "neighbor"
-	if _, err := f.localClashSet(outside); err == nil {
-		t.Fatal("read sidecar from other source")
-	}
-}
-
-func TestOldSnapshotsInvalidateButPlanAndTicketSurvive(t *testing.T) {
+// Records of schema 1 keep their source and its authority, but not their profiles: the source
+// needs a refresh, which completes the migration.
+func TestOldSnapshotsInvalidateButSourceAndTicketSurvive(t *testing.T) {
 	s := OpenStore(t.TempDir())
-	id := "account"
-	src := Source{ID: id, Kind: "platform", Origin: "https://example.org", Token: "fixture", UserID: "u", PlanID: 7}
+	id := HyperSource
+	src := NewHyperSource([]string{"streaming"})
 	old := Profile{SchemaVersion: 1, Source: id, Nodes: []Node{{Name: "stale-node", Outbound: map[string]any{"password": "stale-password"}}}}
-	legacy := record{SchemaVersion: 1, Epoch: 1, Generation: 3, Source: id, Current: &old, Previous: &old, Config: &src, bookkeeping: bookkeeping{Providers: &providerReceipt{Key: "old-cache"}}}
+	legacy := record{SchemaVersion: 1, Epoch: 1, Generation: 3, Source: id, Current: &old, Previous: &old, Config: &src, bookkeeping: bookkeeping{LastChange: &ChangeCounts{Added: 1}, LastFailure: "nodes"}}
 	raw, _ := json.Marshal(legacy)
 	os.WriteFile(s.path(id), raw, 0600)
 	sts, e := s.List()
@@ -162,8 +127,8 @@ func TestOldSnapshotsInvalidateButPlanAndTicketSurvive(t *testing.T) {
 		t.Fatal(e)
 	}
 	after, e := s.raw(id)
-	if e != nil || after.Config.Token != "fixture" || after.SchemaVersion != SchemaVersion || after.Epoch <= legacy.Epoch || after.Providers != nil {
-		t.Fatal("source migration lost account or authorization fence")
+	if e != nil || after.Config == nil || !slices.Equal(after.Config.Disabled, src.Disabled) || after.SchemaVersion != SchemaVersion || after.Epoch <= legacy.Epoch || after.LastChange != nil || after.LastFailure != "" {
+		t.Fatal("source migration lost the source or its authorization fence")
 	}
 	raw, _ = os.ReadFile(s.path(id))
 	if bytes.Contains(raw, []byte("stale-password")) {
@@ -210,14 +175,18 @@ func TestGeodataPinnedOfflineAndInterruptedDownload(t *testing.T) {
 	}
 }
 
-func TestMihomoDropsUnsupportedSRSAndPreservesNeighborRules(t *testing.T) {
-	body := []byte(`{"outbounds":[{"type":"http","tag":"n","server":"n.example","server_port":80}],"route":{"rule_set":[{"tag":"unavailable","type":"remote","format":"binary","url":"https://127.0.0.1/private.srs"}],"rules":[{"domain":"kept.example","outbound":"n"},{"rule_set":"unavailable","action":"reject"}],"final":"n"}}`)
-	p, e := Parse("s", body)
+// Rule providers are not read: the rules that use them go, their neighbours stay, and dropping
+// a rejection needs the administrator's confirmation.
+func TestUnreadProvidersDropOnlyTheirRules(t *testing.T) {
+	p, e := Parse("s", []byte(`proxies: [{name: n, type: http, server: n.example, port: 80}]
+rule-providers:
+  unavailable: {type: http, behavior: domain, format: mrs, url: 'https://127.0.0.1/private.mrs'}
+rules: ['DOMAIN,kept.example,n', 'RULE-SET,unavailable,REJECT', 'MATCH,n']`))
 	if e != nil || len(p.Rules) != 1 || len(p.BinarySets) != 0 {
 		t.Fatal(e, p.Rules)
 	}
 	c := Assess(p, nil, Policy{AllowLocalFallback: true})
-	if c.Decision != "confirmation_required" || !c.RetainsRouting || len(c.Notices) != 2 || c.Notices[0].Code != "subconv_unsupported_rule_set" || c.Notices[1].Code != "subconv_unsupported_rule" {
+	if c.Decision != "confirmation_required" || !c.RetainsRouting || len(c.Notices) != 2 || c.Notices[0].Code != "mihomo_unsupported_rule_set" || c.Notices[1].Code != "rule_provider_reference_unavailable" || !c.Notices[1].Dangerous {
 		t.Fatal(c.Decision, c.Notices)
 	}
 }

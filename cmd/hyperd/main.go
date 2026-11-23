@@ -481,12 +481,12 @@ func (s *app) dispatch(ctx context.Context, method string, r request) (any, erro
 	lane := method
 	switch method {
 	case "subscription_read":
-		if !slices.Contains([]string{"list", "status", "url", "profile", "nodes", "groups", "rules", "agents", "set_match", "account", "catalog", "checkin_status"}, r.Action) {
+		if !slices.Contains([]string{"list", "status", "profile", "nodes", "groups", "rules", "set_match", "account", "catalog", "checkin_status"}, r.Action) {
 			return nil, errors.New("unknown read operation")
 		}
 		return child(ctx, bin, arg, body)
 	case "subscription_write":
-		if !slices.Contains([]string{"login", "configure", "preferences", "refresh", "rollback", "revoke", "logout", "site", "send_code", "api", "checkin", "rule_toggle"}, r.Action) {
+		if !slices.Contains([]string{"login", "refresh", "rollback", "revoke", "logout", "send_code", "api", "checkin", "rule_toggle"}, r.Action) {
 			return nil, errors.New("unknown subscription operation")
 		}
 		lane = ""
@@ -685,11 +685,10 @@ func uninstall(ctx context.Context) error {
 }
 
 // purgePaths lists what `hyperd purge` deletes once the network is direct again: the
-// kernels, subscriptions and accounts, private state, rule sets, CN lists, the routing
-// template cache, geodata and the files the user imported.
+// kernels, subscriptions and accounts, private state, rule sets, CN lists and geodata.
 func purgePaths() []string {
 	return []string{router.Root + "/kernel", "/tmp/hyper/kernel", router.Root + "/mihomo-kernel", router.Root + "/sources", router.Root + "/private", router.Root + "/rulesets", cnlist.Dir, "/tmp/hyper/mihomo-kernel",
-		subscription.TemplateDir, router.GeodataDir, subscription.ImportDir}
+		router.GeodataDir}
 }
 
 func runDaemon() {

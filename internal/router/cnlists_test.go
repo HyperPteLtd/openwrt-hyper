@@ -88,9 +88,9 @@ func TestChinaListMoveDuringStartReloadsOnceRunning(t *testing.T) {
 }
 
 // Mihomo loads every rule provider on its own, so each mainland list has one provider: a
-// subscription's GEOSITE,CN and GEOIP,CN rules, a template's GEOIP,CN, a rule stored before
-// subconv and a local profile's mainland routes all use the built-in sets, with the targets
-// and no-resolve they had. Every set a rule, the fake-ip filter or the DNS policy names is
+// subscription's GEOSITE,CN and GEOIP,CN rules, those of a profile with rule sets of its own,
+// a rule stored as a rule_set match and a local profile's mainland routes all use the built-in
+// sets, with the targets and no-resolve they had. Every set a rule, the fake-ip filter or the DNS policy names is
 // provided, in either mode and with the China shortcut on or off.
 func TestEachChinaListLoadsOnce(t *testing.T) {
 	own, err := subscription.Parse("own", []byte(`proxies:
@@ -113,10 +113,9 @@ rules:
 	if own.Rules[1].RuleSet != subscription.DomesticDomainSet || own.Rules[2].RuleSet != subscription.DomesticIPSet || own.Rules[3].RuleSet != subscription.DomesticIPSet {
 		t.Fatal(own.Rules)
 	}
-	// The template's own mainland sets are other lists; its GEOIP,CN goes to its 🎯 Domestic group.
+	// A profile's own mainland sets are other lists; its GEOIP,CN goes to its Domestic group.
 	template := own
 	template.Source = "template"
-	template.Template = &subscription.TemplateUse{Version: 1}
 	template.BinarySets = []subscription.BinarySet{
 		{Tag: "AdBlock", Format: "text", Behavior: "classical", SHA256: strings.Repeat("a", 64)},
 		{Tag: "ChinaDomain", Format: "mrs", Behavior: "domain", SHA256: strings.Repeat("b", 64)},

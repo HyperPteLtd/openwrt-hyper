@@ -96,3 +96,17 @@ func parseMihomoRule(p *Profile, raw string, index int) {
 }
 
 var nativeRuleTypes = set("DOMAIN DOMAIN-SUFFIX DOMAIN-KEYWORD DOMAIN-REGEX DOMAIN-WILDCARD GEOSITE GEOIP SRC-GEOIP IP-ASN SRC-IP-ASN IP-CIDR IP-CIDR6 SRC-IP-CIDR IP-SUFFIX SRC-IP-SUFFIX DST-PORT SRC-PORT IN-PORT IN-TYPE NETWORK IP-VERSION DSCP RULE-SET AND OR NOT")
+
+// rejects reports whether a rule as written rejects traffic: whether its target, the last field
+// before any trailing options, is REJECT or a variant.
+func rejects(rule string) bool {
+	fields := strings.Split(rule, ",")
+	target := ""
+	for i := len(fields) - 1; i >= 0; i-- {
+		if target = strings.TrimSpace(fields[i]); !strings.EqualFold(target, "no-resolve") && !strings.EqualFold(target, "src") {
+			break
+		}
+	}
+	// REJECT and its variants: REJECT-DROP, Surge's REJECT-TINYGIF, Quantumult X's reject-200...
+	return strings.HasPrefix(strings.ToUpper(target), "REJECT")
+}

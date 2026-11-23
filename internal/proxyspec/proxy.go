@@ -1,6 +1,5 @@
-// Package proxyspec is the router-safety policy for mihomo proxies. github.com/openweir/subconv
-// converts every subscription and checks that each proxy loads; the router checks what only it
-// can decide: that a proxy runs nothing but its own connections.
+// Package proxyspec is the router-safety policy for mihomo proxies: the router checks what only
+// it can decide, that a proxy runs nothing but its own connections.
 package proxyspec
 
 import (
