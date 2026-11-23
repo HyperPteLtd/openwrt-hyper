@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"github.com/HyperPteLtd/openwrt-hyper/internal/crypt"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/mihomo"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/nodes"
+	"github.com/HyperPteLtd/openwrt-hyper/internal/rulekey"
 )
 
 func seal(t *testing.T, clientPub string, plain string) map[string]string {
@@ -89,7 +91,8 @@ func newFake(t *testing.T) *fakeAPI {
 			fmt.Fprintf(w, `{"code":200,"msg":"","data":[
 				{"key":"streaming","value":"%s/lists/streaming.yaml","policy":"proxy","sort":20},
 				{"key":"cn-direct","value":"DOMAIN-SUFFIX,baidu.com\nGEOIP,CN\nPROCESS-NAME,x","policy":"DIRECT","sort":10},
-				{"key":"bad key","value":"x","policy":"DIRECT"},
+				{"key":"bad\nkey","value":"x","policy":"DIRECT"},
+				{"key":"微信常用域名和 IP","value":"DOMAIN-SUFFIX,weixin.qq.com","policy":"DIRECT","sort":15},
 				{"key":"off","value":"+.off.example","policy":"PROXY","enabled":false,"sort":30}]}`, f.URL)
 		case "/lists/streaming.yaml":
 			f.ruleHits.Add(1)
@@ -123,7 +126,7 @@ func TestSync(t *testing.T) {
 	}
 	st := out.State
 	if st.Count != 2 || st.Added != 2 || st.Invalid+len(st.Unsupported) != 1 || !slices.Equal(st.Countries, []string{"JP", "SG"}) ||
-		st.Remarks != "Hyper" || st.TrafficUsed != "1.5 GB" || st.Expires != "2027-11-09" || st.Rules == nil || *st.Rules != 3 {
+		st.Remarks != "Hyper" || st.TrafficUsed != "1.5 GB" || st.Expires != "2027-11-09" || st.Rules == nil || *st.Rules != 4 {
 		t.Fatalf("%+v", st)
 	}
 	if !out.NodesChanged || !out.RulesChanged {
@@ -140,9 +143,17 @@ func TestSync(t *testing.T) {
 
 	// The renderer reads what the sync wrote.
 	rules, err := mihomo.LoadServerRules(s.RulesDir, nil)
-	if err != nil || len(rules) != 2 {
+	if err != nil || len(rules) != 3 {
 		t.Fatalf("%v %+v", err, rules)
 	}
+	// The server names lists in Chinese too: kept under that name, stored under an ASCII ID.
+	if wx := rules[1]; wx.Key != "微信常用域名和 IP" || !wx.Direct || !slices.Equal(wx.Suffix, []string{"weixin.qq.com"}) {
+		t.Fatalf("%+v", wx)
+	}
+	if _, err := os.Stat(filepath.Join(s.RulesDir, rulekey.ID("微信常用域名和 IP")+".domain.json")); err != nil {
+		t.Fatal(err)
+	}
+	rules = slices.Delete(rules, 1, 2)
 	if rules[0].Key != "cn-direct" || !rules[0].Direct || !rules[0].GeoIPCN || !slices.Equal(rules[0].Suffix, []string{"baidu.com"}) {
 		t.Fatalf("%+v", rules[0])
 	}
@@ -170,7 +181,7 @@ func TestSync(t *testing.T) {
 		t.Fatalf("%v %+v", labels, out.State)
 	}
 	rules, _ = mihomo.LoadServerRules(s.RulesDir, nil)
-	if len(rules) != 2 || rules[1].Key != "streaming" {
+	if len(rules) != 3 || rules[2].Key != "streaming" {
 		t.Fatalf("stale list dropped: %+v", rules)
 	}
 

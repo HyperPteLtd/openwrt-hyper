@@ -89,6 +89,14 @@ gid=$(awk -F: '$1 == "hyper" { print $3 }' /etc/group); [ -n "$gid" ] && [ "$gid
 [ "$(uci -q get hyper.config.routing_mode)" = smart ] && [ -z "$(uci -q get hyper.config.proxy_mode)" ] &&
 	ok "defaults: smart routing, capture method picked at start" || bad "unexpected defaults"
 [ -f /etc/hyper/rule-set/geoip-cn.mrs ] && [ -f /etc/hyper/rule-set/geosite-cn.mrs ] && ok "bundled rule sets" || bad "rule sets missing"
+# An upgrade keeps /etc/config/hyper: an older release's values are carried over.
+uci set hyper.config.routing_mode=bypass_mainland_china && uci set hyper.config.proxy_mode=redirect_tproxy && uci commit hyper
+sh /src/luci-app-hyper/root/etc/uci-defaults/luci-hyper
+[ "$(uci -q get hyper.config.routing_mode)" = smart ] && [ -z "$(uci -q get hyper.config.proxy_mode)" ] &&
+	ok "an older release's routing mode and capture method are migrated" || bad "older settings kept: $(uci -q show hyper.config)"
+uci set hyper.config.routing_mode=global && uci commit hyper && sh /src/luci-app-hyper/root/etc/uci-defaults/luci-hyper
+[ "$(uci -q get hyper.config.routing_mode)" = global ] && ok "global routing is kept" || bad "global routing changed"
+uci set hyper.config.routing_mode=smart && uci commit hyper
 
 echo "== rpcd and hyperd"
 /sbin/ubusd >/dev/null 2>&1 &

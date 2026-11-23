@@ -6,19 +6,20 @@ package subscription
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/HyperPteLtd/openwrt-hyper/internal/lazyre"
 	"net/netip"
 	"slices"
 	"strings"
+
+	"github.com/HyperPteLtd/openwrt-hyper/internal/lazyre"
+	"github.com/HyperPteLtd/openwrt-hyper/internal/rulekey"
 )
 
 // MaxRuleEntries bounds the server rule catalog.
 const MaxRuleEntries = 128
 
-var ruleKey = lazyre.New(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
-
 // CatalogEntry is one validated entry of GET <api>/api/subscribe/rules:
 // { key, value, policy: DIRECT|PROXY, enabled, sort }, where value is a list URL or the list.
+// Keys are readable names (rulekey.Valid); files take rulekey.ID.
 type CatalogEntry struct {
 	Key     string
 	Policy  string
@@ -61,7 +62,7 @@ func NormalizeCatalog(raw json.RawMessage) ([]CatalogEntry, []string) {
 			continue
 		}
 		key, _ := e.Key.(string)
-		if !ruleKey().MatchString(key) {
+		if !rulekey.Valid(key) {
 			errs = append(errs, fmt.Sprintf("invalid key: %v", e.Key))
 			continue
 		}

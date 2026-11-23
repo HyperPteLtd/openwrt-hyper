@@ -16,12 +16,18 @@ group_add_next hyper >/dev/null
 	uci -q commit hyper
 }
 
-# The capture method is picked at each start (TProxy where the firewall has it); an older
-# install's setting would be ignored, so it goes.
+# /etc/config/hyper is kept across upgrades, so an older release's values are carried over
+# here. The capture method is picked at each start (TProxy where the firewall has it): an
+# old setting would be ignored, so it goes. smart and global are the routing modes; older
+# names (bypass_mainland_china) mean smart, and the core would refuse to start with them.
 [ -z "$(uci -q get hyper.config.proxy_mode)" ] || {
 	uci -q delete hyper.config.proxy_mode
 	uci -q commit hyper
 }
+case "$(uci -q get hyper.config.routing_mode)" in
+	''|smart|global) ;;
+	*) uci -q set hyper.config.routing_mode=smart; uci -q commit hyper ;;
+esac
 
 rm -rf /tmp/luci-indexcache /tmp/luci-modulecache
 exit 0

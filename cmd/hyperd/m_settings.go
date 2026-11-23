@@ -15,12 +15,12 @@ import (
 
 	"github.com/HyperPteLtd/openwrt-hyper/internal/atomicfile"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/lazyre"
+	"github.com/HyperPteLtd/openwrt-hyper/internal/rulekey"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/subscription"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/update"
 )
 
 var (
-	ruleKeyRe = lazyre.New(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	listEntry = lazyre.New(`^[A-Za-z0-9._-]{1,253}$`)
 	apkPkg    = lazyre.New(update.Package + `-(\S+)`)
 )
@@ -68,7 +68,7 @@ func (m *manager) registerSettings() {
 			Enabled bool
 		}
 		_ = jsonArgs(args, &a)
-		if !ruleKeyRe().MatchString(a.Key) {
+		if !rulekey.Valid(a.Key) {
 			return map[string]any{"result": false, "error": "illegal key"}, nil
 		}
 		if err := m.edit(func(c *uciConfig) bool {

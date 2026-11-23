@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/HyperPteLtd/openwrt-hyper/internal/lazyre"
+	"github.com/HyperPteLtd/openwrt-hyper/internal/rulekey"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,8 +27,6 @@ type ServerRule struct {
 func (r ServerRule) empty() bool {
 	return len(r.Domain)+len(r.Suffix)+len(r.Keyword)+len(r.Regex)+len(r.CIDR) == 0 && !(r.Direct && r.GeoIPCN)
 }
-
-var ruleKey = lazyre.New(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 type ruleIndexEntry struct {
 	Key       string   `json:"key"`
@@ -67,7 +65,7 @@ func LoadServerRules(dir string, disabled []string) ([]ServerRule, error) {
 	}
 	var out []ServerRule
 	for _, e := range index {
-		if !e.Enabled || !ruleKey().MatchString(e.Key) || slices.Contains(disabled, e.Key) {
+		if !e.Enabled || !rulekey.Valid(e.Key) || slices.Contains(disabled, e.Key) {
 			continue
 		}
 		r := ServerRule{Key: e.Key, Direct: e.Policy == "DIRECT", GeoIPCN: slices.Contains(e.GeoIP, "cn")}
@@ -79,7 +77,7 @@ func LoadServerRules(dir string, disabled []string) ([]ServerRule, error) {
 				continue
 			}
 			var f ruleFile
-			raw, err := os.ReadFile(filepath.Join(dir, e.Key+part.name))
+			raw, err := os.ReadFile(filepath.Join(dir, rulekey.ID(e.Key)+part.name))
 			if err != nil {
 				return nil, err
 			}

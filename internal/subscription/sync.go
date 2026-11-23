@@ -34,6 +34,7 @@ import (
 	"github.com/HyperPteLtd/openwrt-hyper/internal/crypt"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/lazyre"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/nodes"
+	"github.com/HyperPteLtd/openwrt-hyper/internal/rulekey"
 )
 
 const (
@@ -495,7 +496,8 @@ func (r *run) rules() (changed bool, count int, err error) {
 		}
 		list := ParseRuleList(text)
 		domain, ip := list.Files()
-		for name, body := range map[string][]byte{e.Key + ".domain.json": domain, e.Key + ".ip.json": ip} {
+		id := rulekey.ID(e.Key)
+		for name, body := range map[string][]byte{id + ".domain.json": domain, id + ".ip.json": ip} {
 			if body != nil {
 				if err := publish(filepath.Join(r.RulesDir, name), body); err != nil {
 					r.logf("Rules: cannot publish a rule file, keeping the previous index.")
@@ -528,7 +530,8 @@ func (r *run) rules() (changed bool, count int, err error) {
 	}
 	keep := map[string]bool{"index.json": true}
 	for _, e := range index {
-		keep[e.Key+".domain.json"], keep[e.Key+".ip.json"] = true, true
+		id := rulekey.ID(e.Key)
+		keep[id+".domain.json"], keep[id+".ip.json"] = true, true
 	}
 	if list, err := os.ReadDir(r.RulesDir); err == nil {
 		for _, f := range list {

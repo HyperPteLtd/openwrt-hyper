@@ -23,6 +23,7 @@ import (
 
 	"github.com/HyperPteLtd/openwrt-hyper/internal/lazyre"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/nodes"
+	"github.com/HyperPteLtd/openwrt-hyper/internal/rulekey"
 )
 
 // MainGroup is the node selector every proxied route points at.
@@ -328,7 +329,7 @@ func Render(in Input) (*Output, error) {
 					rules, placed = append(rules, play), true
 				}
 			}
-			base := "hyper-rule-" + r.Key
+			base := "hyper-rule-" + rulekey.ID(r.Key)
 			if body := domainList(r.Domain, r.Suffix); len(body) > 0 {
 				tag := base + "-domain"
 				providers[tag] = obj{"type": "file", "format": "text", "behavior": "domain", "path": "./rules/" + tag + ".txt"}
