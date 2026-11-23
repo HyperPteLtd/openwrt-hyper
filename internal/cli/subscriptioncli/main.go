@@ -47,6 +47,8 @@ type input struct {
 	Date           string          `json:"date,omitempty"`
 	Key            string          `json:"key,omitempty"`
 	Enabled        *bool           `json:"enabled,omitempty"`
+	// adopt: the server lists a router upgraded from 0.x had switched off.
+	Disabled []string `json:"disabled,omitempty"`
 }
 type result struct {
 	TLS            *tlsdiag.Diagnostic `json:"tls,omitempty"`

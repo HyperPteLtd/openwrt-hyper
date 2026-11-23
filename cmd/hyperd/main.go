@@ -120,6 +120,14 @@ func serve(ctx context.Context) error {
 	defer stopJobs()
 	s := &app{clockEvents: make(chan struct{}, 1), m: m, sys: sys, ctx: jobsCtx, stopJobs: stopJobs, busy: map[string]bool{}, jobs: map[string]job{}}
 	s.journalError = s.loadJobs()
+	if e := ensureDeviceID(ctx); e != nil {
+		sys.Records().Log("service", "warn", "device_id_failed")
+	}
+	// A router upgraded from 0.x: its settings, before anything reads them.
+	legacyDisabled, e := migrateLegacy(ctx, m)
+	if e != nil {
+		sys.Records().Log("service", "warn", "legacy_settings_failed")
+	}
 	// The capture method follows the firewall; store it before the first takeover.
 	router.EnsureMethod(ctx)
 	// Read UCI only once per boot. Restarting the manager on the same boot retains
@@ -142,7 +150,7 @@ func serve(ctx context.Context) error {
 	}
 	s.queueFirstKernel()
 	s.useBundledKernel()
-	go s.adoptHyper()
+	go s.adoptHyper(legacyDisabled)
 	go s.schedule(jobsCtx)
 	go s.keepChinaLists(jobsCtx)
 	done := make(chan struct{})

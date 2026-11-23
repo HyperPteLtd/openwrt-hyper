@@ -47,6 +47,9 @@ func TestHyperProfile(t *testing.T) {
 	if len(p.Groups) != 1 || p.Groups[0].Name != HyperGroup || !slices.Equal(p.Groups[0].Members, []string{p.Nodes[0].ID, p.Nodes[1].ID}) || p.Final != p.Groups[0].ID {
 		t.Fatalf("groups %+v final %q", p.Groups, p.Final)
 	}
+	if p.Groups[0].ID != HyperGroupID() {
+		t.Fatal("the selector's route is not HyperGroupID:", p.Groups[0].ID)
+	}
 	if !slices.Equal(p.Countries["JP"], []string{p.Nodes[0].ID}) || !slices.Equal(p.Countries["SG"], []string{p.Nodes[1].ID}) {
 		t.Fatal(p.Countries)
 	}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/HyperPteLtd/openwrt-hyper/internal/account"
 	"github.com/HyperPteLtd/openwrt-hyper/internal/checkin"
+	"github.com/HyperPteLtd/openwrt-hyper/internal/rulekey"
 	sub "github.com/HyperPteLtd/openwrt-hyper/internal/subscription"
 )
 
@@ -81,7 +82,13 @@ func hyperRun(ctx context.Context, store *sub.Store, method string, in input, f 
 		if st, err := store.Status(sub.HyperSource); err == nil && st.Source != "" && !st.Revoked {
 			return map[string]any{"adopted": false}, nil, nil, true
 		}
-		if err := store.ConfigureHyper(store.HyperDisabled()); err != nil {
+		disabled := store.HyperDisabled()
+		for _, k := range in.Disabled {
+			if rulekey.Valid(k) && !slices.Contains(disabled, k) {
+				disabled = append(disabled, k)
+			}
+		}
+		if err := store.ConfigureHyper(disabled); err != nil {
 			return nil, nil, err, true
 		}
 		return map[string]any{"adopted": true}, []string{sub.HyperSource}, nil, true

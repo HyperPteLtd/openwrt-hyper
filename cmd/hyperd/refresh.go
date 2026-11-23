@@ -305,10 +305,11 @@ func (s *app) refreshHyper() {
 	_, _ = s.runRefresh(guarded, false)
 }
 
-// adoptHyper gives a router signed in without the account's source (one upgraded from the
-// manager before this one) its source, and reads the account.
-func (s *app) adoptHyper() {
-	out, err := child(s.ctx, "hyper-subscription", []string{"adopt"}, nil)
+// adoptHyper gives a signed-in router without the account's source that source, with the
+// server lists 0.x had switched off (disabled, from migrateLegacy).
+func (s *app) adoptHyper(disabled []string) {
+	body, _ := json.Marshal(map[string]any{"disabled": disabled})
+	out, err := child(s.ctx, "hyper-subscription", []string{"adopt"}, body)
 	var res struct {
 		OK   bool `json:"ok"`
 		Data struct {

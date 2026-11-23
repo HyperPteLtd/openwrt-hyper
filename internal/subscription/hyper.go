@@ -131,6 +131,9 @@ func (s *Store) ConfigureHyper(disabled []string) error {
 	return s.configure(NewHyperSource(disabled), true)
 }
 
+// HyperGroupID is the Hyper selector's route, as custom rules and devices name it.
+func HyperGroupID() string { return ref("group", []string{HyperSource, HyperGroup}) }
+
 // HyperDisabled is the hyper source's disabled lists; none without the source.
 func (s *Store) HyperDisabled() []string {
 	r, err := s.read(HyperSource)

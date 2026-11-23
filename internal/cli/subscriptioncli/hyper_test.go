@@ -192,7 +192,8 @@ func TestHyperAdopt(t *testing.T) {
 	store := sub.OpenStore(filepath.Join(dir, "sources"))
 	adopt := func() (any, []string) {
 		t.Helper()
-		data, changed, err := run(context.Background(), store, "adopt", input{}, sub.Fetcher{})
+		// The server lists a router upgraded from 0.x had switched off come along.
+		data, changed, err := run(context.Background(), store, "adopt", input{Disabled: []string{"streaming", "bad\"key"}}, sub.Fetcher{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,6 +210,9 @@ func TestHyperAdopt(t *testing.T) {
 	}
 	if st, err := store.Status(sub.HyperSource); err != nil || st.Revoked || st.Source != sub.HyperSource {
 		t.Fatal(err, st)
+	}
+	if d := store.HyperDisabled(); len(d) != 1 || d[0] != "streaming" {
+		t.Fatal("switched-off lists:", d)
 	}
 	if a, changed := adopt(); a != false || changed != nil {
 		t.Fatal("adopted twice", a, changed)

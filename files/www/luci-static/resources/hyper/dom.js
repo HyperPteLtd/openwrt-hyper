@@ -181,6 +181,8 @@ const diagnosticText = {
     confirmation_required: '节点有变更待确认，请到账户页查看并确认',
     update_blocked: '同步到的新版本无法使用，已保留上次的节点，可到账户页查看原因',
     initial_subscription_select_failed: '无法选择初始订阅',
+    device_id_failed: '无法生成本机设备标识',
+    legacy_settings_failed: '旧版本设置迁移失败，已使用默认设置',
     superseded: '已被更新的任务取代',
     task_journal_write_failed: '任务记录写入失败',
     china_lists_update_failed: '大陆域名与 IP 列表多次更新失败，继续使用现有列表',
