@@ -97,6 +97,11 @@ func run(args []string) error {
 		result, e = m.Bootstrap(ctx)
 	case "status":
 		result, e = m.Status()
+	case "bundled":
+		// The core the package carries, staged unless installed already; the daemon selects it.
+		var tag string
+		tag, e = m.InstallBundled(ctx, kernel.BundleDir)
+		result = map[string]string{"tag": tag}
 	case "capabilities":
 		result, e = m.Capabilities(*tag)
 	case "target-capabilities":

@@ -432,6 +432,15 @@ func (m *Manager) Bootstrap(ctx context.Context) (map[string]string, error) {
 			return map[string]string{"skipped": "existing_kernel"}, nil
 		}
 	}
+	// The package's own core first: no download, no network.
+	if tag, p, ok, err := ReadBundle(BundleDir, m.Target); err != nil {
+		return nil, err
+	} else if ok {
+		if err = m.installReserved(ctx, tag, "double", Source{Bundle: BundleDir}, true, &p); err != nil {
+			return nil, err
+		}
+		return map[string]string{"staged": tag}, nil
+	}
 	tag, verified, err := latestStable(ctx, m.Target)
 	if err != nil {
 		return nil, err

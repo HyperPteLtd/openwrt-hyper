@@ -80,6 +80,9 @@ func (b releaseBody) Read(p []byte) (int, error) {
 var errReleaseNotFound = errors.New("release file not found")
 
 func fetch(ctx context.Context, address string) (io.ReadCloser, error) {
+	if Repository == "" {
+		return nil, ErrOnlineUnavailable
+	}
 	u, e := trustedTransportURL(address)
 	if e != nil {
 		return nil, e

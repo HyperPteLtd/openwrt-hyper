@@ -67,37 +67,79 @@ func (s *app) kernelJob(r request) (any, error) {
 				return nil, errors.New("no retained version available")
 			}
 		}
-		token, intent, _, e := s.m.ReviewToken("")
-		if e != nil {
+		if e := s.selectKernel(ctx, initial, st, tag); e != nil {
 			return nil, e
-		}
-		if token != initial {
-			return nil, errors.New("router intent changed; version was not selected")
-		}
-		if intent.Source != "" {
-			if e := s.sys.Preflight(ctx, intent, nil, tag); e != nil {
-				return nil, e
-			}
-		} else if intent.Enabled && intent.Mode != "direct" {
-			return nil, errors.New("missing primary source for candidate validation")
-		}
-		phase, _, _ := s.m.RuntimeState()
-		reload := intent.Enabled && intent.Mode != "direct" && (st.Selected != tag || st.Active != tag || phase != "running")
-		e = s.m.SelectReviewed(initial, reload, func() error {
-			cli := []string{"select", "--tag", tag, "--expected", strconv.FormatUint(st.Revision, 10)}
-			_, e := child(ctx, "hyper-kernel", cli, nil)
-			return e
-		})
-		if e != nil {
-			return nil, e
-		}
-		if reload {
-			if e := waitForKernel(ctx, tag, st.Active, s.m.RuntimeState, kernelStatus); e != nil {
-				return nil, e
-			}
 		}
 		out, _ := json.Marshal(map[string]string{"selected": tag})
 		return out, nil
+	})
+}
+
+// selectKernel makes tag the selected core once the configuration checks against it, and
+// waits for the running core to be it when the router routes.
+func (s *app) selectKernel(ctx context.Context, initial string, st kernel.Status, tag string) error {
+	token, intent, _, e := s.m.ReviewToken("")
+	if e != nil {
+		return e
+	}
+	if token != initial {
+		return errors.New("router intent changed; version was not selected")
+	}
+	if intent.Source != "" {
+		if e := s.sys.Preflight(ctx, intent, nil, tag); e != nil {
+			return e
+		}
+	} else if intent.Enabled && intent.Mode != "direct" {
+		return errors.New("missing primary source for candidate validation")
+	}
+	phase, _, _ := s.m.RuntimeState()
+	reload := intent.Enabled && intent.Mode != "direct" && (st.Selected != tag || st.Active != tag || phase != "running")
+	e = s.m.SelectReviewed(initial, reload, func() error {
+		cli := []string{"select", "--tag", tag, "--expected", strconv.FormatUint(st.Revision, 10)}
+		_, e := child(ctx, "hyper-kernel", cli, nil)
+		return e
+	})
+	if e != nil {
+		return e
+	}
+	if reload {
+		return waitForKernel(ctx, tag, st.Active, s.m.RuntimeState, kernelStatus)
+	}
+	return nil
+}
+
+// useBundledKernel installs the core this package carries and selects it when the router
+// runs another (first boot, or an upgrade that brought a newer core). Without a bundled core,
+// or with it selected already, nothing changes.
+func (s *app) useBundledKernel() {
+	_, _ = s.runJob("kernel_write", "kernel/bundled", func(ctx context.Context) (json.RawMessage, error) {
+		if e := s.yieldFirstKernel(ctx); e != nil {
+			return nil, e
+		}
+		out, e := child(ctx, "hyper-kernel", []string{"bundled"}, nil)
+		if e != nil {
+			return nil, e
+		}
+		var bundled struct {
+			Tag string `json:"tag"`
+		}
+		if json.Unmarshal(out, &bundled) != nil || bundled.Tag == "" {
+			return json.RawMessage(`{}`), nil
+		}
+		st, e := kernelStatus(ctx)
+		if e != nil {
+			return nil, e
+		}
+		if st.Selected != bundled.Tag {
+			initial, _, _, e := s.m.ReviewToken("")
+			if e != nil {
+				return nil, e
+			}
+			if e := s.selectKernel(ctx, initial, st, bundled.Tag); e != nil {
+				return nil, e
+			}
+		}
+		return json.Marshal(map[string]string{"selected": bundled.Tag})
 	})
 }
 

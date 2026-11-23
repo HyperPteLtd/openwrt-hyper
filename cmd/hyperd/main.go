@@ -141,6 +141,7 @@ func serve(ctx context.Context) error {
 		sys.Records().Log("service", "warn", "initial_subscription_select_failed")
 	}
 	s.queueFirstKernel()
+	s.useBundledKernel()
 	go s.adoptHyper()
 	go s.schedule(jobsCtx)
 	go s.keepChinaLists(jobsCtx)

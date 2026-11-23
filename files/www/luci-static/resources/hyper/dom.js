@@ -358,6 +358,7 @@ const taskText = {
 const taskStep = {
     configure: '修改设置', login: '登录', logout: '退出登录', site: '获取站点信息',
     send_code: '发送验证码', api: '读取账户信息', checkin: '签到', rule_toggle: '切换服务端规则',
+    bundled: '安装随包内核',
     preferences: '修改偏好', rollback: '回滚', revoke: '撤销授权',
     url: 'URL 测速', tcp: 'TCP 测速', versions: '获取版本列表', 'install-json': '安装', select: '切换版本',
 };

@@ -18,8 +18,10 @@ import (
 // trusted plugin build. Never derive it from a download or user input.
 var PublicKey string
 
-// Repository can be overridden at build time with -X. It is never taken from a subscription.
-var Repository = "openweir/mihomo"
+// Repository names the GitHub repository online core releases come from; a build sets it with
+// -X to offer them. Empty here: the package carries its core (BundleDir) and the router never
+// downloads one. It is never taken from a subscription.
+var Repository = ""
 
 const Controller = "mihomo-rest-v1"
 const maxAsset int64 = 512 << 20
