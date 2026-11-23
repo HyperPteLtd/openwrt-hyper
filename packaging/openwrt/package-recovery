@@ -1,0 +1,94 @@
+#!/bin/sh
+# apk may unlink the package after a failed pre-deinstall hook. Keep the
+# restore tool and its runtime independent until the router is direct again.
+set -eu
+umask 077
+dir=/tmp/hyper-recovery
+manager=/usr/libexec/hyper/manager
+case "${1:-}" in
+ arm)
+  if ! mkdir -m 700 "$dir" 2>/dev/null; then
+   [ -d "$dir" ] && [ ! -L "$dir" ] && [ "$(ls -ldn "$dir" | awk '{print $1, $3}')" = "drwx------ 0" ] || exit 1
+  fi
+  if [ ! -f "$dir/pending" ]; then
+   cp "$0" "$dir/retry"
+   cp /usr/libexec/hyper/network /usr/libexec/hyper/firewall-backend /usr/libexec/hyper/fault-policy /usr/libexec/hyper/procd-delete "$dir/"
+   ls -di /usr/sbin/hyperd | awk '{print $1}' > "$dir/package-inode"
+   ls -di "$manager" | awk '{print $1}' > "$dir/manager-inode"
+   chmod 700 "$dir/retry" "$dir/network" "$dir/procd-delete"
+   mkdir -p "$dir/bin" "$dir/lib"
+   cp -L /usr/sbin/hyper-net "$dir/bin/hyper-net"
+   tools='flock ubus uci jsonfilter'
+   if command -v ip >/dev/null; then tools="$tools ip"; fi
+   if command -v nft >/dev/null; then tools="$tools nft"; fi
+   if [ -e /var/run/hyper/network/fw3.4 ] || [ -e /var/run/hyper/network/fw3.6 ] ||
+      [ -e /var/run/hyper/network/hold/fw3.4 ] || [ -e /var/run/hyper/network/hold/fw3.6 ]; then
+    . "$dir/firewall-backend"
+    mkdir -p "$dir/xtables"
+    for fam in 4 6; do
+     [ -e "/var/run/hyper/network/fw3.$fam" ] || [ -e "/var/run/hyper/network/hold/fw3.$fam" ] || continue
+     xt=$(legacy_tool "$fam") || exit 1
+     tools="$tools $xt $xt-restore"
+    done
+    for path in /usr/lib/iptables/*.so; do
+     [ ! -f "$path" ] || cp -L "$path" "$dir/xtables/"
+    done
+   fi
+   for tool in $tools; do
+    exe=$(command -v "$tool")
+    cp -L "$exe" "$dir/bin/$tool"
+    # musl's loader lists transitive libraries. Save the SONAMEs that
+    # package autoremove can take away from the still-running helper.
+    set -- /lib/ld-musl-*.so.1
+    "$1" --list "$exe" > "$dir/libs"
+    awk '$2=="=>" && $3 ~ /^\// && $1!="libc.so" {print $1, $3}' "$dir/libs" |
+     while read -r soname path; do
+      case "$soname" in */*|'') exit 1;; esac
+      [ -s "$dir/lib/$soname" ] || cp -L "$path" "$dir/lib/$soname"
+     done
+   done
+   rm -f "$dir/libs"
+   touch "$dir/pending"
+  fi
+  # The worker has its own lock and outlives the package-manager shell.
+  (trap '' HUP; exec /bin/sh "$dir/retry" run </dev/null >/dev/null 2>&1) &
+  ;;
+ run)
+  export PATH="$dir/bin:/usr/sbin:/usr/bin:/sbin:/bin" LD_LIBRARY_PATH="$dir/lib" XTABLES_LIBDIR="$dir/xtables"
+  exec 7>"$dir/worker.lock"
+  flock -n 7 || exit 0
+  echo $$ > "$dir/pid"
+  delay=1
+  stop_supervised() {
+   if [ "$(cat /proc/1/comm)" = procd ] || ubus -t 2 list service 2>/dev/null | grep -qx service; then
+    "$dir/procd-delete"
+   else
+    ! pidof hyperd >/dev/null
+   fi
+  }
+  while :; do
+   # An interrupted old uninstall must never tear down a later installation.
+   # Both controller and manager identities change when the package is replaced.
+   cli_inode=$(ls -di /usr/sbin/hyperd 2>/dev/null | awk '{print $1}')
+   manager_inode=$(ls -di "$manager" 2>/dev/null | awk '{print $1}')
+   if { [ -n "$cli_inode" ] && [ "$cli_inode" != "$(cat "$dir/package-inode")" ]; } ||
+      { [ -n "$manager_inode" ] && [ "$manager_inode" != "$(cat "$dir/manager-inode")" ]; }; then
+    rm -rf "$dir"
+    exit 0
+   fi
+   if "$dir/network" release && stop_supervised; then
+    if [ ! -e /usr/sbin/hyperd ] && [ ! -L /usr/sbin/hyperd ] && ! pidof hyperd >/dev/null; then
+     # Kernels, subscriptions and accounts stay for a later installation.
+     rm -f "$manager" "${manager%/*}/.manager.next" "${manager%/*}/.manager.previous" "${manager%/*}/.activate.lock"
+     rmdir /usr/libexec/hyper 2>/dev/null || :
+     logger -t hyper 'Package removal recovery restored direct networking'
+     rm -rf "$dir"
+     exit 0
+    fi
+   fi
+   sleep "$delay"
+   if [ "$delay" -lt 32 ]; then delay=$((delay * 2)); fi
+  done
+  ;;
+ *) exit 2;;
+esac

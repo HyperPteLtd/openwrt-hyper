@@ -1,0 +1,174 @@
+#!/bin/sh
+# Install a package identified by the official GitHub Release and its asset digest.
+set -eu
+umask 077
+case "${1:-}" in check|apply) action=$1;; *) exit 2;; esac
+name=luci-app-hyper
+origin=https://api.github.com/repos/HyperPteLtd/openwrt-hyper/releases
+downloads=https://github.com/HyperPteLtd/openwrt-hyper/releases/download
+tmp=$(mktemp -d /tmp/hyper-upgrade.XXXXXX)
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 1' INT TERM
+fail() { echo "$1" >&2; exit 1; }
+if ! command -v ucode >/dev/null; then fail 'Checking plugin updates requires the ucode command'; fi
+if command -v uclient-fetch >/dev/null; then fetcher=uclient-fetch
+elif command -v curl >/dev/null; then fetcher=curl
+elif command -v wget >/dev/null && wget --version 2>/dev/null | grep -q '^GNU Wget'; then fetcher=wget
+else fail 'Checking plugin updates requires an HTTPS downloader (uclient-fetch, curl or GNU Wget)'; fi
+fetch() (
+ # Bound even responses without Content-Length.
+ ulimit -f "$3"
+ case "$fetcher" in
+  curl) curl -q -fsSL --proto '=https' --proto-redir '=https' --max-time 30 -A Hyper-OpenWrt -o "$tmp/$2" "$1" ;;
+  wget) wget --https-only -T 30 -t 1 -U Hyper-OpenWrt -q -O "$tmp/$2" "$1" ;;
+  *) uclient-fetch -T 30 -U Hyper-OpenWrt -q -O "$tmp/$2" "$1" ;;
+ esac
+ test -s "$tmp/$2"
+)
+field() {
+ awk -v key="$1:" '$1==key {if (++count>1 || NF!=2) exit 1; print $2} END {if(count!=1) exit 1}' "$2"
+}
+pm=opkg
+if command -v apk >/dev/null; then pm=apk; fi
+if [ "$action" = apply ]; then
+ exec 9>/var/lock/hyper-package-update
+ flock -n 9 || fail 'A package update is already in progress'
+fi
+# Each Release package is built for one OpenWrt architecture; pick this router's.
+arch=$(. /etc/openwrt_release && echo "${DISTRIB_ARCH:-}")
+case "$arch" in ''|*[!a-z0-9_-]*) fail 'Cannot read the router architecture';; esac
+fetch "$origin/latest" release.json 8192
+ucode -F "release=$tmp/release.json" -e '
+ let format = ARGV[0], arch = ARGV[1];
+ let common = ["x86_64", "i386_pentium4", "aarch64_generic", "aarch64_cortex-a53", "aarch64_cortex-a72",
+     "arm_arm926ej-s", "arm_arm1176jzf-s_vfp", "arm_cortex-a7_neon-vfpv4", "arm_cortex-a9_vfpv3-d16",
+     "arm_cortex-a15_neon-vfpv4", "mips_24kc", "mipsel_24kc"];
+ let arches = { opkg: [], apk: [] };
+ for (let a in common) { push(arches.opkg, a); push(arches.apk, a); }
+ push(arches.opkg, "riscv64_riscv64", "loongarch64_generic");
+ push(arches.apk, "riscv64_generic", "loongarch64_generic");
+ let repo = "https://github.com/HyperPteLtd/openwrt-hyper/releases";
+ if (release.draft !== false || release.prerelease !== false || type(release.tag_name) != "string" ||
+     length(release.tag_name) > 65 || !match(release.tag_name, /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/) ||
+     release.html_url !== repo + "/tag/" + release.tag_name || type(release.assets) != "array" ||
+     length(release.assets) != length(arches.opkg) + length(arches.apk) + 1 ||
+     length(filter(release.assets, x => x.name === "SHA256SUMS")) != 1)
+     die("Invalid official package release");
+ if (index(arches[format], arch) < 0) die("No official package for this router architecture");
+ let version = substr(release.tag_name, 1);
+ // Every installer of a release carries the same package revision (1.0.1-r4).
+ let revision;
+ for (let x in release.assets) {
+     let m = match(x.name, /^luci-app-hyper_[0-9.]+-([1-9][0-9]{0,5})_[A-Za-z0-9_-]+\.ipk$/);
+     if (!m) continue;
+     if (revision != null && revision !== m[1]) die("Inconsistent package revisions");
+     revision = m[1];
+ }
+ if (revision == null) die("Missing package revision");
+ let wanted = [];
+ for (let a in arches.opkg) push(wanted, ["opkg", a, "luci-app-hyper_" + version + "-" + revision + "_" + a + ".ipk"]);
+ for (let a in arches.apk) push(wanted, ["apk", a, "luci-app-hyper-" + version + "-r" + revision + "_" + a + ".apk"]);
+ let selected;
+ for (let entry in wanted) {
+     let formatName = entry[0], name = entry[2];
+     let found = filter(release.assets, x => x.name === name);
+     if (length(found) != 1) die("Missing or duplicate package asset");
+     let a = found[0];
+     if (a.state !== "uploaded" || a.browser_download_url !== repo + "/download/" + release.tag_name + "/" + name ||
+         type(a.size) != "int" || a.size < 1 || a.size > 268435456 || type(a.digest) != "string" ||
+         length(a.digest) != 71 || !match(a.digest, /^sha256:[a-f0-9]{64}$/))
+         die("Invalid package asset identity or SHA256 digest");
+     if (formatName == format && entry[1] == arch) selected = a;
+ }
+ print(version, "\n", revision, "\n", selected.name, "\n", selected.size, "\n", substr(selected.digest, 7), "\n");
+' -- "$pm" "$arch" > "$tmp/selection" || fail 'Cannot verify the official release metadata'
+{
+ IFS= read -r release_version
+ IFS= read -r revision
+ IFS= read -r file
+ IFS= read -r size
+ IFS= read -r digest
+} < "$tmp/selection"
+if [ "$pm" = apk ]; then
+ version=$release_version-r$revision
+ current=$(apk query --installed --format json --fields version "$name" | jsonfilter -e '@[0].version')
+else
+ version=$release_version-$revision
+ current=$(opkg status "$name" | awk '$1=="Version:" {print $2}')
+fi
+case "$current" in ''|*[!A-Za-z0-9.+_~:-]*) fail 'Invalid installed package version';; esac
+if [ "$pm" = apk ]; then
+ relation=$(apk version -t "$version" "$current")
+else
+ # opkg reads a lone '>' or '<' as >= or <=, so equal versions need the strict '>>' and '<<'.
+ relation='='
+ if opkg compare-versions "$version" '>>' "$current"; then relation='>'
+ elif opkg compare-versions "$version" '<<' "$current"; then relation='<'; fi
+fi
+case "$relation" in
+ '>') available=true;;
+ '=') available=false;;
+ '<') [ "$action" = check ] || fail 'Refusing package downgrade'; available=false;;
+ *) fail 'Cannot compare package versions';;
+esac
+if [ "$action" = apply ] && [ "$available" = true ]; then
+ free=$(df -Pk "$tmp" | awk 'END {print $4}')
+ # The archive and its bundled CPU payload coexist on tmpfs during installation.
+ test "$free" -ge "$(((size * 2 + 1023) / 1024 + 4096))" || fail 'Insufficient temporary storage for update'
+ # GitHub first (or the address that worked last), then the download mirrors from LuCI
+ # (internal/mirror keeps the same defaults). Each copy must match the release digest.
+ mirrors='https://ghfast.top/ https://gh-proxy.com/ https://ghproxy.net/ https://gh.idayer.com/ https://cors.isteed.cc/ https://ghm.078465.xyz/ https://ghfile.geekertao.top/ https://gh.ddlc.top/'
+ if [ "$(uci -q get hyper.main.download_mirrors_saved)" = 1 ]; then mirrors=$(uci -q get hyper.main.download_mirror || true); fi
+ state=/var/run/hyper/download-mirror
+ last=$(cat "$state" 2>/dev/null || true)
+ # Only a prefix from this list: the state file is shared with repository-file CDNs.
+ case " $mirrors " in *" $last "*) ;; *) last=;; esac
+ # 'direct' stands for GitHub itself; the remembered address goes first.
+ order=direct
+ for prefix in $mirrors; do case "$prefix" in https://*/) order="$order $prefix";; esac; done
+ [ -z "$last" ] || order="$last $(echo " $order " | sed "s# $last # #")"
+ fetched=
+ for choice in $order; do
+  prefix=$choice; [ "$choice" != direct ] || prefix=
+  rm -f "$tmp/$file"
+  if fetch "$prefix$downloads/v$release_version/$file" "$file" "$(((size + 511) / 512))" 2>/dev/null &&
+     [ "$(wc -c < "$tmp/$file")" -eq "$size" ] &&
+     printf '%s  %s\n' "$digest" "$tmp/$file" | sha256sum -c - >/dev/null 2>&1; then
+   fetched=1
+   mkdir -p "${state%/*}" && printf '%s\n' "$prefix" > "$state"
+   break
+  fi
+ done
+ [ -n "$fetched" ] || fail 'Cannot download a package matching the release digest'
+ if [ "$pm" = apk ]; then
+  apk --allow-untrusted adbdump --format json "$tmp/$file" > "$tmp/package.json"
+  test "$(jsonfilter -i "$tmp/package.json" -e '@.info.name')" = "$name" &&
+   test "$(jsonfilter -i "$tmp/package.json" -e '@.info.version')" = "$version" &&
+   test "$(jsonfilter -i "$tmp/package.json" -e '@.info.arch')" = "$arch" || fail 'APK identity does not match release'
+  # Older packages pulled in router services and drivers as dependencies.
+  # Keep existing providers that apk would remove in this upgrade. The single
+  # transaction records them in world and leaves future Hyper removal independent.
+  add_local() { LC_ALL=C apk --no-network --no-cache --repositories-file /dev/null add --allow-untrusted "$@"; }
+  add_local --simulate "$tmp/$file" > "$tmp/apk-plan" || fail 'Cannot plan the offline APK upgrade'
+  set -- "$tmp/$file"
+  for provider in $(awk '$1 ~ /^\([0-9]+\/[0-9]+\)$/ && $2 == "Purging" {print $3}' "$tmp/apk-plan"); do
+   case "$provider" in
+    ip-full|kmod-tun|flock|procd-ujail|dnsmasq|dnsmasq-full|firewall4|nftables-json|kmod-nft-tproxy|ca-bundle|uclient-fetch|jsonfilter|rpcd|rpcd-mod-ucode|ubus|uci|ucode|ucode-mod-fs|ucode-mod-ubus)
+     apk info -e "$provider" >/dev/null || fail 'Installed APK providers changed during preflight'
+     set -- "$@" "$provider" ;;
+   esac
+  done
+  add_local "$@" >&2
+  actual=$(apk query --installed --format json --fields version "$name" | jsonfilter -e '@[0].version')
+ else
+  tar -xzOf "$tmp/$file" ./control.tar.gz | tar -xzO ./control > "$tmp/control"
+  test "$(field Package "$tmp/control")" = "$name" &&
+   test "$(field Version "$tmp/control")" = "$version" &&
+   test "$(field Architecture "$tmp/control")" = "$arch" || fail 'IPK identity does not match release'
+  opkg install "$tmp/$file" >&2
+  actual=$(opkg status "$name" | awk '$1=="Version:" {print $2}')
+ fi
+ [ "$actual" = "$version" ] || fail 'Package manager did not apply the requested version'
+ current=$actual; available=false
+fi
+printf '{"installed":"%s","candidate":"%s","available":%s}\n' "$current" "$version" "$available"

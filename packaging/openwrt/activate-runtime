@@ -1,0 +1,109 @@
+#!/bin/sh
+# Select the executable while every package dependency and the verified
+# package payload are available. IPKG_INSTROOT may be a foreign-CPU image.
+set -eu
+umask 077
+root=${IPKG_INSTROOT:-}
+dir=$root/usr/libexec/hyper
+payload=$root/tmp/hyper-package-payload
+manager=$dir/manager
+fail() { echo "Hyper runtime: $*" >&2; exit 1; }
+
+# preinst contains the same staging check before the package manager unpacks.
+# A failed install may leave this private directory for the next attempt.
+if [ -e "$payload" ] || [ -L "$payload" ]; then
+ [ ! -L "$payload" ] && [ -d "$payload" ] &&
+  [ "$(ls -ldn "$payload" | awk '{print substr($1,1,10), $3}')" = "drwx------ $(id -u)" ] ||
+  fail 'unsafe package payload directory'
+fi
+[ ! -L "$manager" ] && { [ ! -e "$manager" ] || [ -f "$manager" ]; } || fail 'invalid manager path'
+. "$root/etc/openwrt_release"
+abi=$(sh "$dir/runtime-abi" "$DISTRIB_ARCH") || fail "unsupported CPU $DISTRIB_ARCH"
+case "$abi" in ''|.|..|*[!a-zA-Z0-9_.-]*) fail 'invalid CPU identifier';; esac
+checksum() {
+ awk -v file="$2" '$2 == file { if (NF != 2 || length($1) != 64 || $1 ~ /[^0-9a-f]/) exit 1; count++; sum=$1 }
+  END { if(count != 1) exit 1; print sum }' "$1"
+}
+expected=$(checksum "$dir/runtime.sha256" "$abi") || fail "missing executable checksum for $abi"
+verify() { printf '%s  %s\n' "$1" "$2" | sha256sum -c - >/dev/null; }
+new=$dir/.manager.next
+previous=$dir/.manager.previous
+lock=$dir/.activate.lock
+for file in "$new" "$previous" "$lock"; do
+ [ ! -L "$file" ] && { [ ! -e "$file" ] || [ -f "$file" ]; } || fail "invalid installer state at $file"
+done
+exec 9>"$lock"
+flock -x 9
+swapped=0
+restart_attempted=0
+cleanup() {
+ rc=$?
+ if [ "$rc" -ne 0 ] && [ "$swapped" = 1 ]; then
+  if [ -f "$previous" ]; then
+   if ! [ "$previous" -ef "$manager" ]; then mv -f "$previous" "$manager"; fi
+   if [ "$restart_attempted" = 1 ]; then /etc/init.d/hyper restart || :; fi
+  else
+   if [ "$restart_attempted" = 1 ]; then /etc/init.d/hyper stop || :; fi
+   rm -f "$manager"
+  fi
+ fi
+ rm -f "$new" "$previous"
+}
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
+# These fixed paths are only modified under the activation lock. An interrupted
+# extraction consumes at most one candidate slot, even after repeated power loss.
+if [ -f "$previous" ]; then
+ if [ "$previous" -ef "$manager" ]; then rm -f "$previous"
+ elif [ -f "$manager" ] && verify "$expected" "$manager" >/dev/null 2>&1; then swapped=1
+ else mv -f "$previous" "$manager"; fi
+fi
+if [ -d "$payload" ]; then
+ archive="$payload/$abi.gz"
+ for file in "$archive" "$payload/SHA256SUMS"; do
+  [ -f "$file" ] && [ ! -L "$file" ] || fail "incomplete payload for $abi"
+ done
+ compressed=$(checksum "$payload/SHA256SUMS" "$abi.gz") || fail "missing archive checksum for $abi"
+ verify "$compressed" "$archive" || fail "archive checksum mismatch for $abi"
+fi
+if ! { [ -x "$manager" ] && verify "$expected" "$manager" >/dev/null 2>&1; }; then
+ if [ -d "$payload" ]; then
+  gzip -dc "$archive" > "$new" || fail "cannot unpack $abi"
+ fi
+ [ -s "$new" ] && verify "$expected" "$new" || fail "missing or invalid executable for $abi"
+ # ELF class, endianness and e_machine are readable without executing a foreign ELF.
+ elf_id() {
+  { dd if="$1" bs=1 count=6 2>/dev/null; dd if="$1" bs=1 skip=18 count=2 2>/dev/null; } | sha256sum
+ }
+ [ -s "$root/bin/busybox" ] && [ "$(elf_id "$root/bin/busybox")" = "$(elf_id "$new")" ] ||
+  fail "executable architecture mismatch for $DISTRIB_ARCH"
+ chmod 755 "$new"
+ if [ -f "$manager" ]; then
+  ln "$manager" "$previous"
+ fi
+ swapped=1
+ mv -f "$new" "$manager"
+fi
+# The daemon consumes this request after activation, also on first boot of a
+# prebuilt image. A failed download must never hold the package transaction.
+queue_first_kernel() {
+ for folder in "$root/etc/hyper" "$root/etc/hyper/mihomo-kernel"; do
+  [ ! -L "$folder" ] || return 1
+  [ -d "$folder" ] || mkdir -m 0711 "$folder" || return 1
+  ls -ldn "$folder" | awk -v owner="$(id -u)" '$3==owner && substr($1,6,1)!="w" && substr($1,9,1)!="w" {ok=1} END {exit !ok}' || return 1
+ done
+ pending=$root/etc/hyper/mihomo-kernel/.first-install-pending
+ attempted=$root/etc/hyper/mihomo-kernel/.first-install-attempted
+ [ ! -e "$pending" ] && [ ! -e "$attempted" ] || return 0
+ [ ! -L "$pending" ] && [ ! -L "$attempted" ] && (set -C; : > "$pending")
+}
+queue_first_kernel || echo 'Hyper could not queue the initial Mihomo download; use kernel management in LuCI.' >&2
+if [ -z "$root" ]; then
+ /etc/init.d/hyper enable
+ if [ "$(cat /proc/1/comm)" = procd ] || ubus -t 2 list service 2>/dev/null | grep -qx service; then
+  restart_attempted=1
+  /etc/init.d/hyper restart
+  /etc/init.d/rpcd reload
+ fi
+fi
+rm -rf "$payload"

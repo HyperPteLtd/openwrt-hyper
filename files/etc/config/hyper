@@ -1,0 +1,7 @@
+config router 'main'
+ option enabled '0'
+ option method 'tproxy'
+ option dns '1'
+ option fail_open '1'
+ option update_hours '6'
+ list network 'lan'

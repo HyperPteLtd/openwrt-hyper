@@ -1,0 +1,290 @@
+.ow .ow-proxy-page {
+	--ow-delay: light-dark(#067647, #63daa8);
+	display: grid;
+	gap: 16px;
+	min-width: 0;
+}
+.ow .ow-proxy-page .ow-proxy-toolbar {
+	gap: 10px;
+}
+.ow .ow-proxy-toolbar h2 {
+	margin-right: auto;
+}
+.ow .ow-proxy-toolbar :is(input[type='search'], select, button) {
+	min-height: 32px;
+	font-size: 13px;
+}
+.ow .ow-proxy-page .ow-proxy-toolbar select {
+	background-color: var(--ow-fill);
+	min-width: 108px;
+	padding-inline-end: 28px;
+}
+.ow .ow-proxy-toolbar input[type='search'] {
+	width: 164px;
+}
+.ow .ow-proxy-toolbar button {
+	border-radius: 99px;
+}
+.ow .ow-group-columns {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16px;
+	align-items: start;
+}
+.ow .ow-group-column {
+	display: grid;
+	gap: 16px;
+	min-width: 0;
+}
+.ow .ow-group-panel {
+	position: relative;
+	min-width: 0;
+	padding: 16px 20px;
+	border: 1px solid var(--ow-line);
+	border-radius: 22px;
+	background: var(--ow-panel);
+}
+.ow .ow-proxy-page .ow-accordion {
+	border: 0;
+}
+.ow .ow-proxy-page .ow-accordion > summary {
+	display: grid;
+	grid-template-columns: 12px auto minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 8px;
+	min-height: 32px;
+	list-style: none;
+	padding: 0 40px 0 0;
+}
+.ow .ow-proxy-page .ow-accordion > summary > * {
+	margin-inline: 0;
+}
+.ow .ow-proxy-page .ow-accordion > summary::-webkit-details-marker {
+	display: none;
+}
+.ow .ow-proxy-page .ow-accordion > summary::before {
+	content: '';
+	width: 7px;
+	height: 7px;
+	margin-left: 1px;
+	border: solid var(--ow-secondary);
+	border-width: 1.5px 1.5px 0 0;
+	transform: rotate(45deg);
+}
+.ow .ow-proxy-page .ow-accordion[open] > summary::before {
+	transform: translateY(-1px) rotate(135deg);
+}
+.ow .ow-group-title {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	max-width: 17em;
+}
+.ow .ow-group-title strong {
+	font-size: 16px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.ow .ow-group-title small {
+	flex: none;
+	padding: 1px 7px;
+	border-radius: 99px;
+	background: var(--ow-fill);
+}
+.ow .ow-group-route {
+	color: var(--ow-secondary);
+	font-size: 13px;
+}
+.ow .ow-group-delay,
+.ow .ow-proxy-page .ow-node-tail {
+	color: var(--ow-delay);
+	font:
+		600 12px/1.4 ui-monospace,
+		monospace;
+	white-space: nowrap;
+}
+.ow .ow-group-dots {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	grid-column: 2 / -1;
+	margin-top: 5px;
+}
+.ow .ow-accordion[open] .ow-group-dots,
+.ow .ow-group-dots:empty {
+	display: none;
+}
+.ow .ow-group-dots i {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: color-mix(in srgb, var(--ow-secondary) 28%, var(--ow-panel));
+}
+.ow .ow-group-dots i[data-speed='fast'] {
+	background: var(--ow-delay);
+}
+.ow .ow-group-dots i[data-speed='slow'] {
+	background: light-dark(#875500, #edbf66);
+}
+.ow .ow-proxy-page .ow-group-test {
+	position: absolute;
+	top: 16px;
+	right: 20px;
+	width: 32px;
+	min-height: 32px;
+	padding: 0;
+	border-radius: 50%;
+}
+.ow .ow-group-test::before {
+	content: '';
+	display: block;
+	width: 16px;
+	height: 16px;
+	background: currentColor;
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='m11.5 2-8 10h5l-1 6 9-11h-6z'/%3E%3C/svg%3E")
+		center / contain no-repeat;
+}
+.ow .ow-proxy-page .ow-node-grid {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.ow .ow-proxy-page .ow-accordion > .ow-node-grid {
+	margin-top: 12px;
+	padding: 0;
+}
+.ow .ow-proxy-page .ow-node {
+	min-height: 52px;
+	padding: 6px 10px;
+	border: 0;
+	background: var(--ow-soft);
+}
+.ow .ow-proxy-page button.ow-node:hover {
+	background: var(--ow-tint);
+}
+.ow .ow-proxy-page .ow-node.is-active {
+	background: var(--ow-tint);
+	box-shadow: inset 0 0 0 2px var(--ow-teal);
+}
+.ow .ow-node-name {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+.ow .ow-proxy-page .ow-node-copy {
+	gap: 2px;
+}
+.ow .ow-proxy-page .ow-node-copy strong {
+	font-size: 13px;
+}
+.ow .ow-proxy-page .ow-node-copy > small {
+	font-size: 11px;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.ow .ow-node-name .ow-badge {
+	padding: 0 4px;
+	white-space: nowrap;
+	flex: none;
+}
+.ow .ow-proxy-page .ow-node-tail[data-slow] {
+	color: light-dark(#875500, #edbf66);
+}
+.ow .ow-node-more {
+	grid-column: 1 / -1;
+}
+.ow .ow-selection-error {
+	margin-top: 8px;
+	color: var(--ow-danger);
+	overflow-wrap: anywhere;
+}
+.ow .ow-global-heading {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: 4px 12px;
+}
+.ow .ow-global-heading small {
+	margin-right: auto;
+}
+.ow .ow-global-applied {
+	color: var(--ow-delay);
+	font-size: 13px;
+}
+.ow .ow-global-saved {
+	font-size: 13px;
+}
+.ow .ow-global-body .ow-node-grid {
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+@container (max-width: 920px) {
+	.ow .ow-proxy-page .ow-group-columns {
+		grid-template-columns: 1fr;
+	}
+}
+@container (max-width: 640px) {
+	.ow .ow-proxy-page .ow-proxy-toolbar h2 {
+		flex: 1 0 100%;
+	}
+	.ow .ow-proxy-page .ow-method-label {
+		display: none;
+	}
+	.ow .ow-proxy-page .ow-proxy-toolbar input[type='search'] {
+		flex: 1 1 100px;
+		min-width: 0;
+	}
+	.ow .ow-proxy-page .ow-group-panel {
+		padding: 12px 14px;
+		border-radius: 18px;
+	}
+	.ow .ow-proxy-page .ow-group-test {
+		top: 12px;
+		right: 14px;
+	}
+	.ow .ow-proxy-page .ow-node-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 6px;
+	}
+	.ow .ow-proxy-page .ow-node {
+		min-height: 48px;
+	}
+	.ow .ow-proxy-page .ow-accordion > summary {
+		grid-template-columns: 12px minmax(0, 1fr) auto;
+	}
+	.ow .ow-group-title {
+		max-width: 100%;
+	}
+	.ow .ow-group-route {
+		grid-column: 2;
+		grid-row: 2;
+		font-size: 12px;
+	}
+	.ow .ow-group-delay {
+		grid-column: 3;
+		grid-row: 1;
+	}
+	.ow .ow-group-dots {
+		display: none;
+	}
+}
+@container (max-width: 380px) {
+	.ow .ow-proxy-page .ow-node-copy {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: center;
+	}
+	.ow .ow-proxy-page .ow-node-name {
+		display: contents;
+	}
+	.ow .ow-proxy-page .ow-node-name strong {
+		grid-area: 1 / 1 / 2 / -1;
+	}
+	.ow .ow-proxy-page .ow-node-name .ow-badge {
+		grid-area: 2 / 2;
+	}
+	.ow .ow-proxy-page .ow-node-copy > small {
+		grid-area: 2 / 1;
+	}
+}

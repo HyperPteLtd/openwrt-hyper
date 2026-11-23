@@ -1,0 +1,344 @@
+# Sourced by the network helper and its private removal-recovery copy.
+# iptables on a firewall4 image can be an nft compatibility frontend.
+bypass4='0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4'
+bypass6='::/128 ::1/128 fe80::/10 fc00::/7 ff00::/8'
+
+# Networks the router is directly attached to (LAN, WAN and delegated IPv6
+# prefixes), so public LAN addresses and the upstream modem stay direct.
+# Only kernel-connected and delegated routes count; a VPN's static routes never do.
+local_prefixes() {
+ if [ "$1" = 4 ]; then
+  ip -4 route show table main proto kernel 2>/dev/null | awk '$1 != "default" && $1 ~ /^[0-9.]+(\/[0-9]+)?$/ {print $1}'
+ else
+  ip -6 route show table main 2>/dev/null | awk '
+   { p = $1; if (p == "unreachable" || p == "blackhole" || p == "prohibit") p = $2; else if ($0 !~ / proto kernel /) next }
+   p != "default" && p !~ /^(fe80|ff[0-9a-f][0-9a-f]):/ && p ~ /^[0-9a-f:]+(\/[0-9]+)?$/ {print p}'
+ fi | sort -u
+}
+
+legacy_tool() {
+ case "$1" in 4) xtbase=iptables ;; 6) xtbase=ip6tables ;; *) return 1 ;; esac
+ for candidate in "$xtbase-legacy" "$xtbase"; do
+  version=$("$candidate" -V 2>/dev/null) || continue
+  case "$version" in *'(legacy)'*) printf '%s\n' "$candidate"; return 0 ;; esac
+ done
+ return 1
+}
+legacy_active() {
+ xt=$(legacy_tool "$1") && "$xt" -w 2 -t filter -S INPUT 2>/dev/null | grep -q -- '--comment "!fw3'
+}
+firewall_status() {
+ nft_active=0; xt_active=0
+ if nft list chain inet fw4 input >/dev/null 2>&1 && nft list chain inet fw4 forward >/dev/null 2>&1; then nft_active=1; fi
+ if legacy_active 4; then xt_active=1; xt=$(legacy_tool 4)
+ elif legacy_active 6; then xt_active=1; xt=$(legacy_tool 6); fi
+ case "$nft_active:$xt_active" in
+  1:0) printf 'fw4 nftables %s\n' "$(nft --version 2>/dev/null | awk '{print $2}')";;
+  0:1) printf 'fw3 iptables-legacy %s\n' "$("$xt" -V | awk '{print $2}')";;
+  1:1) echo ambiguous;;
+  *) echo unavailable;;
+ esac
+}
+
+# A ruleset is validated by the actual kernel for every enabled family before
+# any routes or DNS change. Each table is committed with --noflush. The filter
+# allowances and the TProxy listener guard land before the first fw3 zone rule,
+# including guest zones. Verify, repair and release find every owned rule through
+# legacy_snapshot.
+legacy_plan() {
+ fam=$1
+ if [ "$fam" = 4 ]; then
+  private_ips=$bypass4
+  desttypes=LOCAL,BROADCAST,MULTICAST
+ else
+  private_ips=$bypass6
+  desttypes=LOCAL,MULTICAST
+ fi
+ tag="-m comment --comment $note"
+ echo '*filter'
+ for device in $interfaces; do
+  if [ "$fam" = 6 ] && [ "$v6" != 1 ]; then continue; fi
+  if [ "$method" = tproxy ]; then
+   echo "-I INPUT -i $device -m mark --mark $mark/0xffff $tag -j ACCEPT"
+  else
+   echo "-I FORWARD -i $device -o owtun0 -m mark --mark $mark/0xffff $tag -j ACCEPT"
+   echo "-I FORWARD -i owtun0 -o $device -m conntrack --ctstate ESTABLISHED,RELATED $tag -j ACCEPT"
+  fi
+ done
+ if [ -s /var/run/hyper/telegram-input.xt ]; then
+  # Fields originate exclusively from telegramAllowance's netip validation.
+  while read -r family device src dst dport; do
+   [ "$family" = "$fam" ] || continue
+   if [ "$device" = - ]; then
+    echo "-I INPUT -d $dst -p tcp --dport $dport $tag -j DROP"
+   else
+    echo "-I INPUT -i $device -s $src -d $dst -p tcp --dport $dport $tag -j ACCEPT"
+   fi
+  done </var/run/hyper/telegram-input.xt
+ fi
+ # As fw4's listener_guard chain: only packets the takeover marked reach the transparent
+ # listener, so no device (nor the WAN) connects to it straight and has the core serve a
+ # connection addressed to itself. Inserted last, the guard heads INPUT, ahead of the
+ # allowances above and every fw3 rule; the router's own connections over loopback stay.
+ # The core listens on IPv6 only with the IPv6 takeover (the lan-tproxy listener in config.go).
+ if [ "$method" = tproxy ] && { [ "$fam" = 4 ] || [ "$v6" = 1 ]; }; then
+  for proto_name in tcp udp; do
+   echo "-I INPUT ! -i lo -p $proto_name --dport $port -m mark ! --mark $mark/0xffff $tag -j REJECT"
+  done
+ fi
+ echo COMMIT
+ if [ "$fam" = 6 ] && [ "$v6" != 1 ]; then return 0; fi
+ echo '*mangle'
+ echo '-N HYPER_LAN'
+ if [ "${dns_intercept:-0}" = 1 ]; then
+  # Mangle runs before dstnat. A DNS packet must reach nat without the
+  # policy mark or TProxy socket that would otherwise capture it.
+  for proto_name in tcp udp; do
+   echo "-A HYPER_LAN -p $proto_name --dport 53 $tag -j RETURN"
+  done
+ fi
+ # Replies to connections opened from outside (port forwards, inbound services) stay untouched.
+ echo "-A HYPER_LAN -m conntrack --ctdir REPLY $tag -j RETURN"
+ # Devices routed direct skip the takeover (direct_devices in the network helper). The core
+ # answers real addresses on fw3, so no fake-ip range needs to stay captured.
+ if [ "$fam" = 4 ]; then direct_ips=${direct4:-}; else direct_ips=${direct6:-}; fi
+ for prefix in $direct_ips; do echo "-A HYPER_LAN -s $prefix $tag -j RETURN"; done
+ if [ "${legacy_mac:-0}" = 1 ]; then
+  for address in $direct_mac; do echo "-A HYPER_LAN -m mac --mac-source $address $tag -j RETURN"; done
+ fi
+ # Time sync stays direct: NTP names keep real addresses and a node without UDP must not stop the clock.
+ echo "-A HYPER_LAN -p udp --dport 123 $tag -j RETURN"
+ echo "-A HYPER_LAN -m addrtype --dst-type $desttypes $tag -j RETURN"
+ for prefix in $private_ips $(local_prefixes "$fam"); do
+  echo "-A HYPER_LAN -d $prefix $tag -j RETURN"
+ done
+ for proto_name in tcp udp; do
+  if [ "$method" = tproxy ]; then
+   echo "-A HYPER_LAN -p $proto_name $tag -j TPROXY --on-port $port --tproxy-mark $mark/0xffff"
+  else
+   echo "-A HYPER_LAN -p $proto_name $tag -j MARK --set-xmark $mark/0xffff"
+  fi
+ done
+ position=
+ if [ -n "${state:-}" ] && [ -f "$state/hold/fw3.$fam" ]; then
+  # Recovery builds the candidate beneath the live guard. Install after its
+  # existing jump, preserving protection until the final clean handoff.
+  xt=$(legacy_tool "$fam") || return 1
+  position=$("$xt" -w 2 -t mangle -S PREROUTING | awk '$1=="-A"{n++; if ($NF=="OW_HOLD") {print n+1; exit}}')
+  [ -n "$position" ] || return 1
+ fi
+ for device in $interfaces; do
+  echo "-I PREROUTING $position -i $device $tag -j HYPER_LAN"
+ done
+ echo COMMIT
+ side_nat=0; if [ "$fam" = 4 ] && [ "${side_router:-0}" = 1 ]; then side_nat=1; fi
+ if [ "${dns_intercept:-0}" = 1 ] || [ "$side_nat" = 1 ]; then
+  echo '*nat'
+  for device in $interfaces; do
+   if [ "${dns_intercept:-0}" = 1 ]; then
+    for proto_name in tcp udp; do
+     echo "-I PREROUTING -i $device -p $proto_name --dport 53 -m addrtype --dst-type UNICAST $tag -j REDIRECT --to-ports 53"
+    done
+   fi
+   # A side router's direct flows, as in the nft side_router chain. Appended after fw3's own
+   # rules so a zone NAT of the user's keeps precedence. Without sets this also masquerades
+   # flows routed between managed LANs, as masquerading on the LAN zone does.
+   if [ "$side_nat" = 1 ]; then
+    echo "-A POSTROUTING -o $device -m addrtype ! --src-type LOCAL $tag -j MASQUERADE"
+   fi
+  done
+  echo COMMIT
+ fi
+}
+# Use the complete canonical rule text from xtables; no router-provided text is
+# evaluated as shell. Base chains and exact owner comments bound all deletions.
+legacy_snapshot() {
+ xtcmd=$1
+ for tbl in filter mangle ${2:-}; do
+  list=$("$xtcmd" -w 2 -t "$tbl" -S) || return 1
+  echo "*$tbl"
+  printf '%s\n' "$list" | awk -v owner="$note" '
+   $1=="-A" && ($2=="INPUT" || $2=="FORWARD" || $2=="PREROUTING" || $2=="POSTROUTING" || $2=="HYPER_LAN") {
+    for (i=3; i<NF; ++i) if ($i=="--comment" && ($(i+1)==owner || $(i+1)=="\"" owner "\"")) {print; break}
+   }'
+  echo COMMIT
+ done
+}
+legacy_prepare() {
+ for fam in $legacy_families; do
+  legacy_active "$fam" || return 1
+  xt=$(legacy_tool "$fam") || return 1
+  xtrestore=$xt-restore
+  # An explicit legacy CLI paired with nft's alternative must never be used.
+  "$xtrestore" -V 2>/dev/null | grep -Fq '(legacy)' || return 1
+  nat_table=
+  if [ "${dns_intercept:-0}" = 1 ] && { [ "$fam" = 4 ] || [ "$v6" = 1 ]; }; then nat_table=nat; fi
+  if [ "$fam" = 4 ] && [ "${side_router:-0}" = 1 ]; then nat_table=nat; fi
+  prior=$(legacy_snapshot "$xt" "$nat_table") || return 1
+  if printf '%s\n' "$prior" | grep -q '^-A ' || "$xt" -w 2 -t mangle -S HYPER_LAN >/dev/null 2>&1; then return 1; fi
+  # The MAC match is an optional xtables module; without it the core still routes those devices direct.
+  legacy_mac=0
+  if [ -n "${direct_mac:-}" ] && printf '*mangle\n-I PREROUTING -m mac --mac-source 02:00:00:00:00:01 -j RETURN\nCOMMIT\n' |
+   "$xtrestore" --test --noflush >/dev/null 2>&1; then legacy_mac=1; fi
+  legacy_plan "$fam" >"$state/legacy.$fam.plan" || return 1
+  "$xtrestore" --test --noflush <"$state/legacy.$fam.plan" || return 1
+ done
+}
+legacy_apply() {
+ for fam in $legacy_families; do
+  xt=$(legacy_tool "$fam") || return 1
+  # A restore can commit filter and then fail mangle. Publish the journal first.
+  touch "$state/fw3.$fam" || return 1
+  "$xt-restore" --noflush <"$state/legacy.$fam.plan" || return 1
+  legacy_current "$xt" "$fam" >"$state/legacy.$fam.active" || return 1
+ done
+}
+legacy_current() {
+ # Use the applied plan during verify/release, even if UCI has since changed.
+ plan="$state/legacy.$2.plan"
+ [ -s "$plan" ] || return 1
+ nat_table=
+ if grep -Fqx '*nat' "$plan"; then nat_table=nat; fi
+ legacy_snapshot "$1" "$nat_table"
+}
+legacy_verify() {
+ [ -f "$state/fw3.4" ] || return 1
+ for fam in 4 6; do
+  [ -f "$state/fw3.$fam" ] || continue
+  xt=$(legacy_tool "$fam") || return 1
+  actual=$(legacy_current "$xt" "$fam") || return 1
+  [ "$actual" = "$(cat "$state/legacy.$fam.active")" ] || return 1
+ done
+}
+legacy_remove() {
+ [ -e "$state/fw3.$1" ] || return 0
+ legacy_clear "$1" || return 1
+ rm -f "$state/fw3.$1" "$state/legacy.$1.active" "$state/legacy.$1.plan"
+}
+# Delete whatever owned rules of one family are left, keeping the applied plan.
+legacy_clear() {
+ family=$1
+ xt=$(legacy_tool "$family") || return 1
+ snapshot=$(legacy_current "$xt" "$family") || return 1
+ # An empty, replaced, or externally referenced chain has no exclusive owner.
+ # When we do own it exclusively, delete its rules and the chain in one commit.
+ delete_chain=0
+ if printf '%s\n' "$snapshot" | grep -q '^-A HYPER_LAN '; then
+  mangle=$("$xt" -w 2 -t mangle -S) || return 1
+  foreign=$(printf '%s\n' "$mangle" | awk -v owner="$note" '
+   $1=="-A" {
+    relevant=($2=="HYPER_LAN"); owned=0
+    for (i=3; i<NF; ++i) {
+     if (($i=="-j" || $i=="-g") && $(i+1)=="HYPER_LAN") relevant=1
+     if ($i=="--comment" && ($(i+1)==owner || $(i+1)=="\"" owner "\"")) owned=1
+    }
+    if (relevant && !owned) print
+   }')
+  [ -n "$foreign" ] || delete_chain=1
+ fi
+ printf '%s\n' "$snapshot" | awk -v remove="$delete_chain" '
+  /^\*/ {mangle=($0=="*mangle")}
+  $0=="COMMIT" && mangle && remove {print "-X HYPER_LAN"}
+  {sub(/^-A /, "-D "); print}
+ ' >"$state/legacy.$family.delete" || return 1
+ "$xt-restore" --noflush <"$state/legacy.$family.delete" || return 1
+ remaining=$(legacy_current "$xt" "$family") || return 1
+ if printf '%s\n' "$remaining" | grep -q '^-A '; then return 1; fi
+ rm -f "$state/legacy.$family.delete"
+}
+
+# Only issue identifiers listed by the manager cross the diagnostics boundary.
+# Full reports describe both modes, but recommend components for the selected
+# mode only. Startup checks only the selected mode. No probe changes live rules.
+cap_issue() {
+ cap_ready=0
+ if [ "$cap_scope" = common ] || [ "$cap_scope" = "$selected" ]; then
+  echo "missing $1"
+  selected_ready=0
+ fi
+}
+cap_ip() {
+ for family in 4 6; do
+  [ "$family" = 4 ] || [ "$v6" = 1 ] || continue
+  ip -N "-$family" rule show >/dev/null && ip -N "-$family" route show table all >/dev/null &&
+   ip "-$family" -o address show dev lo >/dev/null || return 1
+ done
+ # Ask for a local marked route without sending any packet.
+ ip -N -4 route get 127.0.0.1 mark 0x4f57 >/dev/null
+}
+cap_fw4_rules() {
+ if [ "$1" = dns ]; then
+  printf 'add table inet ow_probe_%s\nadd chain inet ow_probe_%s dns { type nat hook prerouting priority dstnat - 1; }\n' "$$" "$$"
+  printf 'add rule inet ow_probe_%s dns fib daddr type unicast meta l4proto { tcp, udp } th dport 53 redirect to :53\n' "$$"
+ else
+  action='meta mark set 0x4f57'
+  [ "$1" != tproxy ] || action="$action tproxy to :19762 accept"
+  printf 'add table inet ow_probe_%s\nadd chain inet ow_probe_%s pre { type filter hook prerouting priority mangle; }\n' "$$" "$$"
+  printf 'add rule inet ow_probe_%s pre fib daddr type { local, broadcast, multicast } return\n' "$$"
+  printf 'add rule inet ow_probe_%s pre meta l4proto { tcp, udp } %s\n' "$$" "$action"
+ fi | nft -c -f - >/dev/null 2>&1
+}
+cap_legacy() {
+ for family in 4 6; do
+  [ "$family" = 4 ] || [ "$v6" = 1 ] || continue
+  xt=$(legacy_tool "$family") && "$xt-restore" -V 2>/dev/null | grep -Fq '(legacy)' || { cap_issue "xtables$family"; continue; }
+  legacy_active "$family" || { cap_issue "fw3_active$family"; continue; }
+  # Split the tests so an IPv6 NAT failure never suggests installing TProxy.
+  if [ "$dns_intercept" = 1 ]; then
+   if ! printf '*nat\n-I PREROUTING -p udp --dport 53 -m addrtype --dst-type UNICAST -j REDIRECT --to-ports 53\nCOMMIT\n' |
+    "$xt-restore" --test --noflush >/dev/null 2>&1; then cap_issue "xt_redirect$family"; fi
+  fi
+  if ! (dns_intercept=0; legacy_plan "$family") | sed "s/HYPER_LAN/OW_PROBE_$$/g" |
+   "$xt-restore" --test --noflush >/dev/null 2>&1; then
+   if ! printf '*mangle\n-I PREROUTING -m addrtype --dst-type LOCAL -j RETURN\nCOMMIT\n' |
+    "$xt-restore" --test --noflush >/dev/null 2>&1; then cap_issue xt_addrtype
+   elif [ "$method" = tproxy ] && ! printf '*mangle\n-I PREROUTING -p tcp -j TPROXY --on-port 19762 --tproxy-mark 0x4f57/0xffff\nCOMMIT\n' |
+    "$xt-restore" --test --noflush >/dev/null 2>&1; then cap_issue xt_tproxy
+   else cap_issue xt_rules; fi
+  fi
+ done
+}
+firewall_capabilities() {
+ purpose=${1:-all}
+ info=$(firewall_status); echo "$info"; kind=${info%% *}
+ selected=$(uci -q get hyper.main.method || echo tproxy)
+ v6=0; if ip -6 route get 2400:3200::1 >/dev/null 2>&1; then v6=1; fi; echo "ipv6 $v6"
+ dns=$(uci -q get hyper.main.dns || echo 0)
+ dns_intercept=0
+ if [ "$dns" = 1 ]; then dns_intercept=1; fi
+ echo "dns_intercept $dns_intercept"
+ cap_scope=common; cap_ready=1; selected_ready=1
+ case "$selected" in tproxy|tun) ;; *) cap_issue method ;; esac
+ case "$kind" in fw3|fw4) ;; ambiguous) cap_issue firewall_mixed ;; *) cap_issue firewall_inactive ;; esac
+ cap_ip 2>/dev/null || cap_issue iproute
+ if [ "$dns" = 1 ]; then
+  if ! [ -x /etc/init.d/dnsmasq ] || ! printf 'no-resolv\nserver=127.0.0.1#19764\n' | dnsmasq --test --conf-file=- >/dev/null 2>&1; then cap_issue dnsmasq
+  elif interfaces=$(devices) && [ -n "$interfaces" ]; then
+   if ! result=$(dnsdirs); then
+    case "$result" in 'missing dns_'*) cap_issue "${result#missing }" ;; *) cap_issue dns_config_unreadable ;; esac
+   fi
+  else cap_issue dns_no_instance; fi
+  command -v nslookup >/dev/null || cap_issue nslookup
+ fi
+ if [ "$kind" = fw4 ]; then
+  nft -j list table inet fw4 2>/dev/null | jsonfilter -e '@.nftables[*].table.name' 2>/dev/null | grep -Fqx fw4 || cap_issue nft_json
+  if [ "$dns_intercept" = 1 ]; then cap_fw4_rules dns || cap_issue nft_redirect; fi
+ fi
+ common_ready=$cap_ready
+ note=hyper-owned-v1; interfaces=lo; mark=0x4f57; port=19762
+ for method in tproxy tun; do
+  [ "$purpose" = all ] || [ "$method" = "$selected" ] || continue
+  cap_scope=$method; cap_ready=$common_ready
+  if [ "$kind" = fw4 ]; then
+   if ! cap_fw4_rules "$method"; then
+    if [ "$method" = tproxy ] && cap_fw4_rules tun; then cap_issue nft_tproxy
+    else cap_issue nft_rules; fi
+   fi
+  elif [ "$kind" = fw3 ]; then cap_legacy; fi
+  if [ "$method" = tun ]; then
+   [ -c /dev/net/tun ] && [ "$(cat /sys/class/misc/tun/dev 2>/dev/null)" = 10:200 ] && ( : <>/dev/net/tun ) 2>/dev/null || cap_issue tun_device
+  fi
+  echo "$method $cap_ready"
+ done
+ [ "$purpose" = all ] || [ "$selected_ready" = 1 ]
+}

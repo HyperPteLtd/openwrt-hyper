@@ -1,0 +1,21 @@
+#!/bin/sh
+# An absent instance is already stopped. A missing procd object, unavailable
+# bus or rejected request must still fail so package recovery can retry.
+instance=${1:-}
+case "$instance" in
+ '') query='{"name":"hyper"}'; target='@.hyper' ;;
+ *[!a-zA-Z0-9_.-]*) echo 'Invalid Hyper instance name' >&2; exit 2 ;;
+ *) query="{\"name\":\"hyper\",\"instance\":\"$instance\"}"; target="@.hyper.instances['$instance']" ;;
+esac
+if message=$(ubus -t 3 call service delete "$query" 2>&1); then exit 0; else rc=$?; fi
+# OpenWrt ubus CLI versions return either the status or its negation (252).
+# UBUS_STATUS_NOT_FOUND can also mean the service object itself is gone.
+# Ask the same live supervisor if this specific service/instance still exists.
+if { [ "$rc" -eq 252 ] || [ "$rc" -eq 4 ]; } &&
+   state=$(ubus -t 3 call service list '{"name":"hyper"}') &&
+   jsonfilter -s "$state" -e '@' >/dev/null &&
+   ! jsonfilter -s "$state" -e "$target" >/dev/null; then
+ exit 0
+fi
+printf '%s\n' "$message" >&2
+exit "$rc"

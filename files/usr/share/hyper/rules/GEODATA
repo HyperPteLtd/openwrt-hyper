@@ -1,0 +1,4 @@
+d4ec4c5e5d5a38c1399964ea9fd8c94288426a3b31b483904b67819fc07f4466 16503149 GeoIP.dat https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/82471aee50b830e785eace0ffcd5283df2e769f1/geoip.dat
+05383cf8d1086234116d0cff2af6dc595370b6a8c1197814168dc8a527a781d1 4359441 GeoSite.dat https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/82471aee50b830e785eace0ffcd5283df2e769f1/geosite.dat
+9840946762fa8c2673738bbbbab22bb720bde931f6dea327eb58e689babc37dc 7630477 country.mmdb https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/82471aee50b830e785eace0ffcd5283df2e769f1/country.mmdb
+ba7c4964c71b51d28dc23eefd5e4376801bf90472d26f766648aae003af9388e 9072814 ASN.mmdb https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/82471aee50b830e785eace0ffcd5283df2e769f1/GeoLite2-ASN.mmdb

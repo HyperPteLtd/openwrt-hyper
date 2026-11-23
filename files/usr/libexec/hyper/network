@@ -1,0 +1,814 @@
+#!/bin/sh
+# The caller supplies one verb. Interfaces and DNS directories come from netifd
+# and the running dnsmasq instances, never from an RPC request.
+set -eu
+umask 077
+. "${0%/*}/firewall-backend"
+# Like managedLAN in network.go, skip a managed interface that is down, has no device (a guest
+# Wi-Fi switched off) or no address probe_interfaces could check in a taken-over family, so the
+# others are still taken over; its hotplug notice restarts the takeover once it comes up.
+devices() {
+ seen=' '
+ for net in $(uci -q get hyper.main.network); do
+  case "$net" in ''|*[!a-zA-Z0-9_]*) return 1 ;; esac
+  # netifd publishes l3_device only while the interface is up.
+  dev=$(ubus call "network.interface.$net" status 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null) || continue
+  case "$dev" in ''|lo|*[!a-zA-Z0-9_.-]*) continue ;; esac
+  case "$seen" in *" $dev "*) continue ;; esac
+  [ -e "/sys/class/net/$dev" ] || continue
+  [ -n "$(ip -4 -o address show dev "$dev" scope global)" ] ||
+   { [ "${v6:-0}" = 1 ] && [ -n "$(ip -6 -o address show dev "$dev" scope global)" ]; } || continue
+  seen="$seen$dev "
+  echo "$dev"
+ done
+}
+dnsdirs() {
+ # Netifd returns only validated kernel interface names in devices().
+ # shellcheck disable=SC2086
+ hyper-net dns-directories $interfaces
+}
+case "${1:-}" in
+ environment) firewall_status; exit 0 ;;
+ capabilities) firewall_capabilities all; exit 0 ;;
+ prerequisites) firewall_capabilities selected; exit $? ;;
+esac
+state=/var/run/hyper/network
+mkdir -p "$state"
+exec 9>"$state/lock"
+attempt=0
+while ! flock -n 9; do
+ [ "$attempt" -lt 8 ] || exit 1
+ attempt=$((attempt+1))
+ sleep 1
+done
+table=21998
+mark=0x4f57
+proto=199
+note=hyper-owned-v1
+port=19762
+fakenet=198.18.0.0/16
+dnsfile=99-hyper-upstream.conf
+. "${0%/*}/fault-policy"
+
+stage=initializing
+apply_started=0
+fail_stage() { printf '%s\n' "$1" >"$state/error.new" && mv -f "$state/error.new" "$state/error"; }
+firewall_held=
+lock_firewall() {
+ [ "$firewall_held" != "$1" ] || return 0
+ [ -z "$firewall_held" ] || return 1
+ # Both OpenWrt firewalls hold this same lock across their rule commits.
+ exec 8>"/var/run/$1.lock" || return 1
+ count=0
+ until flock -n 8; do
+  count=$((count+1))
+  if [ "$count" -ge 8 ]; then exec 8>&-; return 1; fi
+  sleep 1
+ done
+ firewall_held=$1
+}
+unlock_firewall() {
+ if [ -n "$firewall_held" ]; then flock -u 8; exec 8>&-; firewall_held=; fi
+}
+owned_table() {
+ [ "$(nft -j list table inet hyper 2>/dev/null | jsonfilter -e '@.nftables[*].table.comment' 2>/dev/null)" = "$note" ]
+}
+valid_dir() {
+ case "$1" in /tmp/*|/var/*) ;; *) return 1 ;; esac
+ case "$1" in */../*|*/..|*' '*) return 1 ;; esac
+ [ -d "$1" ] && [ ! -L "$1" ]
+}
+# As in OpenClash, dnsmasq caches nothing and forwards nowhere else while it forwards to the
+# core: a cached fake-ip answer outliving the core's mapping would point devices at an address
+# nothing serves, and dnsmasq would keep asking the DNS forwardings set in LuCI (a public
+# resolver, or SmartDNS at 127.0.0.1#5335) around the core. The changes are uci state: every
+# config_load, the dnsmasq init script's too, reads /var/state over /etc/config, yet nothing
+# commits it. A power loss or a sysupgrade loses them, and LuCI keeps showing the user's own.
+state_uci() { uci -q -P /var/state "$@"; }
+nl='
+'
+dns_section() {
+ case "$1" in
+  # The default up to OpenWrt 23.05, shared by every instance: it names a section only alone.
+  /tmp/dnsmasq.d) set -- /var/etc/dnsmasq.conf.*; [ "$#" = 1 ] && [ -f "$1" ] || return 1
+   sec=${1#/var/etc/dnsmasq.conf.} ;;
+  /tmp/dnsmasq.*.d) sec=${1#/tmp/dnsmasq.}; sec=${sec%.d} ;;
+  *) return 1 ;;
+ esac
+ case "$sec" in ''|*[!a-zA-Z0-9_]*) return 1 ;; esac
+ [ "$(uci -q get "dhcp.$sec")" = dnsmasq ] && echo "$sec"
+}
+# Matches defaultServer in netguard: no domain, or the catch-all domain #.
+default_server() {
+ case "$1" in /*) case "${1%/*}/" in */#/*) ;; *) return 1 ;; esac ;; esac
+}
+dhcp_takeover() {
+ while IFS= read -r dir; do
+  sec=$(dns_section "$dir") || continue
+  state_uci set "dhcp.$sec.cachesize=0" || return 1
+  # Forwardings for single domains stay. The option is rewritten whole, list or plain value.
+  servers=$(state_uci -d "$nl" get "dhcp.$sec.server") || continue
+  kept=; aside=0
+  while IFS= read -r server; do
+   if [ -z "$server" ]; then continue; fi
+   if default_server "$server"; then aside=1; else kept="$kept$server$nl"; fi
+  done <<EOF
+$servers
+EOF
+  [ "$aside" = 1 ] || continue
+  state_uci delete "dhcp.$sec.server" || return 1
+  while IFS= read -r server; do
+   [ -z "$server" ] || state_uci add_list "dhcp.$sec.server=$server" || return 1
+  done <<EOF
+$kept
+EOF
+ done <"$state/dns"
+}
+# Sets reload_dns=1 when dnsmasq has to load its settings again.
+dhcp_restore() {
+ before=$(state_uci -X show dhcp) || return 0
+ for sec in $(printf '%s\n' "$before" | sed -n 's/^dhcp\.\([A-Za-z0-9_]*\)=dnsmasq$/\1/p'); do
+  state_uci revert "dhcp.$sec.cachesize" && state_uci revert "dhcp.$sec.server" || return 1
+ done
+ [ "$before" = "$(state_uci -X show dhcp)" ] || reload_dns=1
+ legacy_restore
+}
+# Older versions kept the originals in /etc/config next to the changed values, committed from
+# a save directory of their own.
+dhcp_uci() { mkdir -p "$state/uci" && uci -q -t "$state/uci" "$@"; }
+legacy_restore() {
+ dhcp_uci -X show dhcp | grep -Eq '^dhcp\.[A-Za-z0-9_]*\.hyper_(cachesize|server)=' || return 0
+ for entry in $(dhcp_uci -X show dhcp | sed -n "s/^dhcp\.\([A-Za-z0-9_]*\)\.hyper_cachesize='\([0-9-]*\)'$/\1=\2/p"); do
+  sec=${entry%%=*}; old=${entry#*=}
+  case "$old" in ''|*[!0-9]*) dhcp_uci delete "dhcp.$sec.cachesize" || : ;;
+   *) dhcp_uci set "dhcp.$sec.cachesize=$old" || return 1 ;; esac
+  dhcp_uci delete "dhcp.$sec.hyper_cachesize" || return 1
+ done
+ for sec in $(dhcp_uci -X show dhcp | sed -n 's/^dhcp\.\([A-Za-z0-9_]*\)\.hyper_server=.*/\1/p'); do
+  servers=$(dhcp_uci -d "$nl" get "dhcp.$sec.hyper_server") || return 1
+  # Those versions copied a plain value without removing it; nothing is listed twice.
+  current=$(dhcp_uci -d "$nl" get "dhcp.$sec.server") || current=
+  while IFS= read -r server; do
+   [ -n "$server" ] || continue
+   printf '%s\n' "$current" | grep -Fqx -- "$server" || dhcp_uci add_list "dhcp.$sec.server=$server" || return 1
+  done <<EOF
+$servers
+EOF
+  dhcp_uci delete "dhcp.$sec.hyper_server" || return 1
+ done
+ dhcp_uci commit dhcp && reload_dns=1
+}
+dns_restore() {
+ if [ ! -e "$state/dns" ]; then
+  # Nothing is recorded, yet a crash or an interrupted upgrade may have left an Hyper include
+  # or the cache and forwardings set aside. Every release, including the one at manager start,
+  # puts them back.
+  reload_dns=0
+  for f in /tmp/dnsmasq.d/$dnsfile /tmp/dnsmasq.*.d/$dnsfile; do
+   if [ -f "$f" ] && grep -Fqx '# Hyper managed upstream' "$f"; then rm -f "$f"; reload_dns=1; fi
+  done
+  dhcp_restore || return 1
+  [ "$reload_dns" = 0 ] || /etc/init.d/dnsmasq restart || return 1
+  return 0
+ fi
+ dhcp_restore || return 1
+ while IFS= read -r dir; do
+  [ -d "$dir" ] || continue
+  valid_dir "$dir" || return 1
+  file="$dir/$dnsfile"
+  if [ -f "$file" ]; then
+   grep -Fqx '# Hyper managed upstream' "$file" || return 1
+   rm -f "$file"
+  fi
+ done <"$state/dns"
+ /etc/init.d/dnsmasq restart || return 1
+ rm -f "$state/dns"
+}
+# Every optional dnsmasq line is written only when this build lists the option:
+# names are case-sensitive and an unknown line stops dnsmasq from starting.
+dnsmasq_has() { dnsmasq --help 2>/dev/null | grep -qE -- "--$1([^A-Za-z0-9-]|$)"; }
+dns_setup() {
+ if ! dnsdirs >"$state/dns.raw"; then
+  read -r prefix issue <"$state/dns.raw" && [ "$prefix" = missing ] && stage=$issue
+  return 1
+ fi
+ sort -u "$state/dns.raw" >"$state/dns.new"
+ rm -f "$state/dns.raw"
+ [ -s "$state/dns.new" ] || { echo 'dnsmasq include directories unavailable' >&2; return 1; }
+ while IFS= read -r dir; do valid_dir "$dir" && [ ! -e "$dir/$dnsfile" ] || return 1; done <"$state/dns.new"
+ mv "$state/dns.new" "$state/dns"
+ # Without IPv6 takeover, AAAA answers would send preferred IPv6 traffic
+ # around the proxy, so hide them while the takeover is active.
+ # The option is case-sensitive and needs dnsmasq 2.87 or newer; an unknown line stops dnsmasq.
+ aaaa=0; if [ "$v6" != 1 ] && dnsmasq_has filter-AAAA; then aaaa=1; fi
+ while IFS= read -r dir; do
+  tmp=$(mktemp "$dir/.hyper.XXXXXX")
+  {
+   echo '# Hyper managed upstream'
+   if [ "$dns" = 1 ]; then
+    printf '%s\n' 'no-resolv' 'server=127.0.0.1#19764' 'server=/probe.hyper.invalid/127.0.0.1#19764' 'rebind-domain-ok=/probe.hyper.invalid/'
+   fi
+   if [ "$aaaa" = 1 ]; then echo 'filter-AAAA'; fi
+  } >"$tmp"
+  chmod 0644 "$tmp"; mv -f "$tmp" "$dir/$dnsfile"
+ done <"$state/dns"
+ if [ "$dns" = 1 ]; then dhcp_takeover || return 1; fi
+ /etc/init.d/dnsmasq restart
+}
+# Append elements to one of our sets in the pending batch, one per line.
+set_elements() {
+ [ -n "$2" ] || return 0
+ { echo "add element inet hyper $1 {"; printf '%s\n' "$2" | sed '$!s/$/,/'; echo '}'; } >>"$batch"
+}
+# Pings to fake addresses get an answer like OpenClash: routed to the core path instead of timing out.
+fake_ping() {
+ [ "$fake_ip" = 1 ] || return 0
+ echo "  meta nfproto ipv4 ip daddr $fakenet icmp type echo-request meta mark set (meta mark & 0xffff0000) | $mark accept" >>"$batch"
+}
+# Devices whose rule sends them direct skip the takeover, as with OpenClash's LAN blacklist. The
+# root manager decides which (directDevices in network.go); every value lands in a ruleset, so
+# each one is checked again.
+direct_devices() {
+ direct4=; direct6=; direct_mac=
+ [ -s /var/run/hyper/direct-devices ] || return 0
+ while read -r kind value rest; do
+  [ -z "$rest" ] || return 1
+  case "$kind:$value" in
+   4:*[!0-9./]*|6:*[!0-9a-f:./]*) return 1 ;;
+   4:[0-9]*.*.*.*/[0-9]*) direct4="${direct4:+$direct4 }$value" ;;
+   6:*:*/[0-9]*) direct6="${direct6:+$direct6 }$value" ;;
+   mac:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]) direct_mac="${direct_mac:+$direct_mac }$value" ;;
+   *) return 1 ;;
+  esac
+ done </var/run/hyper/direct-devices
+}
+# Their lookups still get fake addresses from DNS protection, so those stay captured: only the
+# core can map them back, and its device rule then sends the connection direct.
+direct_rules() {
+ real=; [ "$fake_ip" != 1 ] || real=" ip daddr != $fakenet"
+ [ -z "$direct4" ] || echo "  ip saddr @direct4$real return"
+ [ -z "$direct6" ] || echo '  ip6 saddr @direct6 return'
+ [ -n "$direct_mac" ] || return 0
+ if [ -n "$real" ]; then
+  echo "  ether saddr @direct_mac$real return"
+  echo '  ether saddr @direct_mac meta nfproto ipv6 return'
+ else echo '  ether saddr @direct_mac return'; fi
+}
+# fw4 loads this copy of our live table with each start, restart and reload of its ruleset
+# (the ruleset-post include), so the takeover survives them inside fw4's own transaction, and
+# repair puts a wiped table back from it. It is taken from the table after every change, under
+# the fw4 lock. A copy nft rejected would stop fw4 from loading anything, the LAN's NAT
+# included, so one that fails the check is dropped instead: the next change tries again, and
+# a wiped table then waits for the manager's release and restart.
+replay_save() {
+ { echo 'table inet hyper'; echo 'delete table inet hyper'; nft -s list table inet hyper; } >"$state/replay.new" &&
+  nft -c -f "$state/replay.new" && mkdir -p "$state/replay" && mv -f "$state/replay.new" "$state/replay/hyper.nft" && return
+ echo 'Hyper: the table copy for fw4 failed its check and is not replayed' >&2
+ rm -rf "$state/replay" "$state/replay.new"
+}
+# Interface changes (PPPoE redial, a new IPv6 prefix) only replace the attached-network sets.
+refresh() {
+ [ -f "$state/owned" ] && [ "$(cat "$state/backend" 2>/dev/null)" = fw4 ] && owned_table || return 0
+ batch="$state/refresh.nft"
+ v6=0; [ ! -f "$state/ipv6" ] || v6=1
+ { echo 'flush set inet hyper local4'; echo 'flush set inet hyper local6'; } >"$batch"
+ set_elements local4 "$(local_prefixes 4)"
+ if [ "$v6" = 1 ]; then set_elements local6 "$(local_prefixes 6)"; fi
+ # The fw4 lock keeps a reload out until the replayed copy matches.
+ lock_firewall fw4
+ nft -f "$batch"
+ rm -f "$batch"
+ replay_save
+ unlock_firewall
+}
+# An updated China address list replaces the shortcut sets in one transaction. They only
+# hold elements while the shortcut is on, so an empty cn4 leaves both alone.
+refresh_cn() {
+ [ -f "$state/owned" ] && [ "$(cat "$state/backend" 2>/dev/null)" = fw4 ] && owned_table || return 0
+ nft list set inet hyper cn4 | grep -q 'elements = ' || return 0
+ # Read both families before flushing: a failed read keeps the current sets.
+ ranges4=$(hyper-net cn-ranges 4) && [ -n "$ranges4" ] || return 1
+ ranges6=
+ if [ -f "$state/ipv6" ]; then ranges6=$(hyper-net cn-ranges 6) || return 1; fi
+ batch="$state/refresh-cn.nft"
+ { echo 'flush set inet hyper cn4'; echo 'flush set inet hyper cn6'; } >"$batch"
+ set_elements cn4 "$ranges4"
+ set_elements cn6 "$ranges6"
+ # Like refresh: the copy fw4 replays must carry the new lists too.
+ lock_firewall fw4
+ nft -f "$batch"
+ rm -f "$batch"
+ replay_save
+ unlock_firewall
+}
+clean_routes() {
+ family=$1
+ [ -e "$state/route$family" ] || return 0
+ # Only delete a route with our table number, protocol and nexthop.
+ if ip -N "-$family" rule show | grep -Eq '^21998:.*fwmark 0x4f57/0xffff.*lookup 21998 proto 199([[:space:]]|$)' ; then
+  ip "-$family" rule del pref "$table" fwmark "$mark/0xffff" table "$table" protocol "$proto" || return 1
+ fi
+ routes=$(ip "-$family" route show table "$table" proto "$proto" 2>/dev/null || :)
+ if printf '%s\n' "$routes" | grep -Eq '^prohibit default '; then
+  ip "-$family" route del prohibit default metric 32760 table "$table" proto "$proto" || return 1
+ fi
+ if printf '%s\n' "$routes" | grep -Eq '^(local )?default dev '; then
+  case "$(cat "$state/route$family")" in tun) ip "-$family" route del default dev owtun0 table "$table" proto "$proto" ;;
+   tproxy) ip "-$family" route del local default dev lo table "$table" proto "$proto" ;; *) return 1 ;; esac
+ fi
+ rm -f "$state/route$family"
+}
+release_active() {
+ failure=0
+ if [ -e "$state/fw4" ] || [ "$(cat "$state/backend" 2>/dev/null)" = fw4 ] || { command -v nft >/dev/null && owned_table; }; then
+  if lock_firewall fw4; then
+   # fw4 must stop replaying the table (see replay_save) before it goes.
+   rm -rf "$state/replay" "$state/replay.new"
+   if [ -e "$state/fw4" ]; then remove_fw4 || { failure=1; fail_stage fw4_restore; }; fi
+   if ! tables=$(nft list tables); then failure=1; fail_stage firewall_inspection
+   elif printf '%s\n' "$tables" | grep -Fqx 'table inet hyper'; then
+    if ! nft -j list table inet hyper >/dev/null; then failure=1; fail_stage firewall_inspection
+    elif owned_table; then nft delete table inet hyper || { failure=1; fail_stage firewall_release; }; fi
+   fi
+  else failure=1; fail_stage fw4_restore; fi
+  unlock_firewall
+ fi
+ if [ -e "$state/fw3.4" ] || [ -e "$state/fw3.6" ]; then
+  if lock_firewall fw3; then
+   for family in 4 6; do legacy_remove "$family" || { failure=1; fail_stage fw3_restore; }; done
+  else failure=1; fail_stage fw3_restore; fi
+  unlock_firewall
+ fi
+ dns_restore || { failure=1; fail_stage dns_restore; }
+ clean_routes 4 || { failure=1; fail_stage ipv4_restore; }
+ clean_routes 6 || { failure=1; fail_stage ipv6_restore; }
+ if [ "$failure" -eq 0 ] && [ -e "$state/owned" ]; then
+  restored=0
+  for _ in 1 2 3 4; do if verify_direct; then restored=1; break; fi; sleep 1; done
+  [ "$restored" = 1 ] || { fail_stage direct_lan_probe; return 1; }
+  rm -f "$state/owned" "$state/armed" "$state/interfaces" "$state/dns-probed" "$state/ipv6" "$state/management.json" "$state/backend" "$state/side_router"
+ fi
+ return "$failure"
+}
+release() {
+ active_rc=0
+ release_active || active_rc=1
+ guard_remove || { fail_stage fault_restore; return 1; }
+ if [ "$active_rc" = 0 ] && [ -d "$guard_plan" ]; then
+  rm -f "$guard_plan/fw4" "$guard_plan/fw3.4" "$guard_plan/fw3.6" "$guard_plan/default" && rmdir "$guard_plan" || return 1
+ fi
+ return "$active_rc"
+}
+add_routes() {
+ family=$1
+ # Refuse to borrow another policy table even if its number matches.
+ if ip -N "-$family" rule show | grep -Eq '^21998:'; then return 1; fi
+ if ip "-$family" route show table "$table" 2>/dev/null | grep -q .; then return 1; fi
+ echo "$method" >"$state/route$family"
+ if [ "$method" = tun ]; then ip "-$family" route add default dev owtun0 table "$table" proto "$proto"
+ else ip "-$family" route add local default dev lo table "$table" proto "$proto"; fi
+ if [ "$method" = tun ] && [ "$fail_open" = 0 ]; then
+  # Removing a dead TUN removes its device route immediately. Prevent RPDB
+  # fallthrough even before either health monitor observes the process exit.
+  ip "-$family" route add prohibit default metric 32760 table "$table" proto "$proto"
+ fi
+ ip "-$family" rule add pref "$table" fwmark "$mark/0xffff" table "$table" protocol "$proto"
+}
+# Probe the actual router address of every configured ingress. The kernel's
+# route lookup includes iif and the reserved mark, so it exercises the RPDB.
+probe_interfaces() {
+ phase=$1
+ [ -s "$state/interfaces" ] || return 1
+ for dev in $(cat "$state/interfaces"); do
+  [ -e "/sys/class/net/$dev" ] || { [ "$phase" = direct ] && continue; return 1; }
+  checked=0
+  for family in 4 6; do
+   [ "$family" = 4 ] || [ -f "$state/ipv6" ] || continue
+   ips=$(ip "-$family" -o address show dev "$dev" scope global | awk '{print $4}')
+   for prefix in $ips; do
+    addr=${prefix%/*}
+    checked=1
+    if [ "$phase" = active ]; then
+     if [ "$family" = 4 ]; then dst=198.19.255.254; alt=203.0.113.253; else dst=2001:db8::1; alt=2001:db8:ffff::2; fi
+     if ip "-$family" route get "$dst" 2>/dev/null | grep -q '^local '; then dst=$alt; fi
+     # No external packets are sent. Verify a nonlocal LAN flow receives the
+     # expected routing decision and that the management address stays local.
+     if [ "$family" = 4 ]; then
+      peer=$(echo "$addr" | awk -F . -v bits="${prefix#*/}" '{ n=$4; if (bits==31) n+=(n%2 ? -1 : 1); else n+=(n%4<2 ? 1 : -1); print $1"."$2"."$3"."n }')
+     else peer=::; fi
+     ip -N "-$family" route get "$dst" from "$peer" iif "$dev" mark "$mark" | grep -Eq 'table 21998( |$)' || return 1
+    fi
+    ip "-$family" route get "$addr" | grep -Eq '^local ' || return 1
+    if [ -e "$state/dns-probed" ]; then
+     if [ "$phase" = active ]; then
+      nslookup -retry=1 -timeout=1 -type=A probe.hyper.invalid "$addr" 2>/dev/null | grep -Eq '^Address([[:space:]][0-9]+)?:[[:space:]]+192\.0\.2\.1([[:space:]]|$)' || return 1
+     else
+      nslookup -retry=1 -timeout=1 -type=A localhost "$addr" >/dev/null 2>&1 || return 1
+     fi
+    fi
+   done
+  done
+  [ "$checked" = 1 ] || [ "$phase" = direct ] || return 1
+ done
+}
+# Land in the fw4 input/forward chains, including on a guest zone with
+# a default reject policy. The include globs also replay exactly these narrow
+# allowances during an atomic fw4 reload. They expand to nothing when stopped.
+owned_handles() {
+ chain=$1
+ nft -a list chain inet fw4 "$chain" 2>/dev/null | awk -v token="$note-$chain" '
+  index($0, "comment \"" token "\"") && $(NF-1)=="handle" && $NF ~ /^[0-9]+$/ {print $NF}'
+}
+remove_fw4() {
+ rm -f "$state/allow/input/rules.nft" "$state/allow/forward/rules.nft"
+ # Keep the cleanup marker when nft itself is unavailable; a retry must
+ # still be able to remove runtime rules after the daemon recovers.
+ nft list tables >/dev/null || return 1
+ for chain in input forward; do
+  for handle in $(owned_handles "$chain"); do
+   nft delete rule inet fw4 "$chain" handle "$handle" || return 1
+  done
+ done
+ rm -f "$state/fw4"
+}
+prepare_fw4() {
+ nft list chain inet fw4 input >/dev/null && nft list chain inet fw4 forward >/dev/null || return 1
+ for chain in input forward; do
+  [ -z "$(owned_handles "$chain")" ] || return 1
+  mkdir -p "$state/allow/$chain"
+ done
+ touch "$state/fw4"
+ : >"$state/allow/input/rules.new"
+ if [ "$method" = tproxy ]; then
+  printf 'iifname { %s } meta mark & 0xffff == %s accept comment "%s-input"\n' "$names" "$mark" "$note" >"$state/allow/input/rules.new"
+ else
+  {
+   printf 'iifname { %s } oifname "owtun0" meta mark & 0xffff == %s accept comment "%s-forward"\n' "$names" "$mark" "$note"
+   printf 'iifname "owtun0" oifname { %s } ct state established,related accept comment "%s-forward"\n' "$names" "$note"
+  } >"$state/allow/forward/rules.new"
+  mv "$state/allow/forward/rules.new" "$state/allow/forward/rules.nft"
+ fi
+ if [ -s /var/run/hyper/telegram-input.rule ]; then
+  # The root manager writes this only after checking the address, interface
+  # and source prefixes against live netifd data and signed capabilities.
+  cat /var/run/hyper/telegram-input.rule >>"$state/allow/input/rules.new"
+ fi
+ if [ -s "$state/allow/input/rules.new" ]; then mv "$state/allow/input/rules.new" "$state/allow/input/rules.nft"
+ else rm -f "$state/allow/input/rules.new"; fi
+ for chain in input forward; do
+  file="$state/allow/$chain/rules.nft"
+  [ -s "$file" ] || continue
+  while IFS= read -r rule; do printf 'insert rule inet fw4 %s %s\n' "$chain" "$rule" ; done <"$file"
+ done >>"$batch"
+}
+verify_fw4() {
+ for chain in input forward; do
+  file="$state/allow/$chain/rules.nft"
+  [ -f "$file" ] || continue
+  want=$(wc -l <"$file")
+  actual=$(owned_handles "$chain" | wc -l)
+  [ "$actual" -eq "$want" ] || return 1
+ done
+}
+verify_direct() {
+ if [ "$(cat "$state/backend" 2>/dev/null)" = fw4 ]; then nft list tables >/dev/null || return 1; fi
+ ! owned_table || return 1
+ # Only verify restoration of interfaces which are still present; WAN or
+ # client outages must not prevent us from releasing the rules.
+ [ ! -f "$state/interfaces" ] || probe_interfaces direct || return 1
+ [ ! -e "$state/management.json" ] || hyper-net management-check || return 1
+}
+verify() {
+ expected=$(cat "$state/backend" 2>/dev/null) || return 1
+ current=$(firewall_status)
+ case "$expected:${current%% *}" in
+  fw3:fw3) legacy_verify || return 1 ;;
+  fw4:fw4) owned_table && verify_fw4 || return 1 ;;
+  # A stopped fw4 (fw4 flush) has no chains to allow through: repair puts the table back on
+  # its own, and starting fw4 replays it together with the allowances.
+  fw4:unavailable) owned_table || return 1 ;;
+  *) return 1 ;;
+ esac
+ for family in 4 6; do
+  [ -f "$state/route$family" ] || continue
+  ip -N "-$family" rule show | grep -Eq '^21998:.*fwmark 0x4f57/0xffff.*lookup 21998 proto 199([[:space:]]|$)' || return 1
+  ip "-$family" route show table "$table" proto "$proto" | grep -q . || return 1
+ done
+ [ -f "$state/route4" ] && probe_interfaces active
+}
+apply() {
+ # init sets this before taking the network lock for stop, and clears it only
+ # on an explicit service start. A retry queued behind stop cannot retake LAN.
+ stage=service_stopping
+ [ ! -e /var/run/hyper/stopping ] || return 1
+ stage=firewall_backend
+ status=$(firewall_status); backend=${status%% *}
+ case "$backend" in fw3|fw4) ;; *) return 1 ;; esac
+ stage=firewall_conflict
+ for pending in owned fw4 fw3.4 fw3.6 route4 route6 dns; do [ ! -f "$state/$pending" ] || return 1; done
+ if [ "$backend" = fw4 ]; then
+  ! nft list table inet hyper >/dev/null 2>&1 || return 1
+ fi
+ method=$(uci -q get hyper.main.method);case "$method" in tun|tproxy) ;; *) return 1 ;; esac
+ # IPv6 is taken over when the core can reach the IPv6 internet. The manager decides once
+ # (ipv6Uplink in network.go) and passes the result, so the core's listeners and the firewall
+ # agree; a manual run checks the route the same way.
+ case "$family_arg" in
+  ipv6) v6=1 ;; ipv4) v6=0 ;;
+  *) v6=0; if ip -6 route get 2400:3200::1 >/dev/null 2>&1; then v6=1; fi ;;
+ esac
+ stage=lan_interfaces
+ interfaces=$(devices) && [ -n "$interfaces" ] || return 1
+ # Canonical whitespace makes set comparisons independent of UCI list order.
+ interfaces=$(echo $interfaces)
+ printf '%s\n' "$interfaces" >"$state/interfaces"
+ stage=management_probe
+ hyper-net management-record
+ names="";for dev in $interfaces; do names="$names, \"$dev\""; done
+ names=${names#, }
+ # A side router (旁路由) reaches the internet through its main router on a managed LAN: the
+ # IPv4 default route leaves through that LAN and there is no WAN of its own. The manager
+ # decides (sideRouter in network.go) so its network key agrees; a manual run checks the same
+ # route: the first, lowest-metric default of the main table.
+ side_router=0
+ case "$router_arg" in
+  side-router) side_router=1 ;;
+  main-router) ;;
+  *) uplink=$(ip -4 route show default table main 2>/dev/null | awk '$1 == "default" {for (i = 2; i < NF; i++) if ($i == "dev") {print $(i+1); exit}}')
+   case " $interfaces " in *" $uplink "*) [ -z "$uplink" ] || side_router=1 ;; esac ;;
+ esac
+ dns=$(uci -q get hyper.main.dns || echo 0)
+ # As in OpenClash, DNS protection also takes over lookups devices send to other resolvers.
+ dns_intercept=$dns
+ if [ "$v6" = 1 ]; then touch "$state/ipv6"; families='ipv4, ipv6';else rm -f "$state/ipv6"; families=ipv4;fi
+ # Proxying the router itself needs nftables. Fake-ip is used only then (FakeIP in network.go),
+ # since the router's own lookups also get fake addresses. The core's group is always known:
+ # the manager passes it (gid= below).
+ local_proxy=1
+ if [ "$backend" != fw4 ]; then local_proxy=0; fi
+ fake_ip=0
+ if [ "$dns" = 1 ] && [ "$local_proxy" = 1 ]; then fake_ip=1; fi
+ # The China IP shortcut needs nftables sets; on fw3 the core still routes these itself. The
+ # manager asks for it only in smart mode (chinaShortcut in network.go): global proxies everything.
+ bypass_cn=0
+ if [ "$china_arg" = china ] && [ "$backend" = fw4 ]; then bypass_cn=1; fi
+ stage=firewall_prepare
+ direct_devices
+ if [ "$backend" = fw3 ]; then
+  stage=legacy_capabilities
+  legacy_families=4
+  if [ "$v6" = 1 ] || grep -q '^6 ' /var/run/hyper/telegram-input.xt 2>/dev/null; then legacy_families='4 6'; fi
+  lock_firewall fw3
+  legacy_prepare
+ else
+ batch="$state/transaction.nft"
+ cat >"$batch" <<EOF
+table inet hyper {
+ comment "$note"
+ set local4 { type ipv4_addr; flags interval; auto-merge; }
+ set local6 { type ipv6_addr; flags interval; auto-merge; }
+ set cn4 { type ipv4_addr; flags interval; auto-merge; }
+ set cn6 { type ipv6_addr; flags interval; auto-merge; }
+ set direct4 { type ipv4_addr; flags interval; auto-merge; }
+ set direct6 { type ipv6_addr; flags interval; auto-merge; }
+ set direct_mac { type ether_addr; }
+ chain lan {
+  type filter hook prerouting priority mangle - 1; policy accept;
+EOF
+ if [ "$local_proxy" = 1 ] && [ "$method" = tproxy ]; then
+  # Router-originated packets marked in the output chain loop back through lo.
+  echo "  iifname \"lo\" meta mark & 0xffff == $mark meta l4proto { tcp, udp } tproxy to :$port accept" >>"$batch"
+ fi
+ cat >>"$batch" <<EOF
+  iifname != { $names } return
+  meta nfproto != { $families } return
+  # Replies to connections that something else opened (port forwards, inbound services) stay untouched.
+  ct direction reply return
+EOF
+ direct_rules >>"$batch"
+ cat >>"$batch" <<EOF
+  # Time sync stays direct: NTP names keep real addresses and a node without UDP must not stop the clock.
+  udp dport 123 return
+EOF
+ fake_ping
+ cat >>"$batch" <<EOF
+  fib daddr type { local, broadcast, multicast } return
+EOF
+ if [ "$dns_intercept" = 1 ]; then
+  # Leave port 53 unmarked so the later NAT hook can send it to dnsmasq.
+  echo '  meta l4proto { tcp, udp } th dport 53 return' >>"$batch"
+ fi
+ cat >>"$batch" <<EOF
+  ip daddr { $(echo "$bypass4" | sed 's/ /, /g') } return
+  ip6 daddr { $(echo "$bypass6" | sed 's/ /, /g') } return
+  ip daddr @local4 return
+  ip6 daddr @local6 return
+  ip daddr @cn4 return
+  ip6 daddr @cn6 return
+EOF
+ if [ "$method" = tun ]; then
+  echo '  meta nfproto ipv4 icmp type echo-request meta mark set (meta mark & 0xffff0000) | 0x4f57 return' >>"$batch"
+  [ "$v6" != 1 ] || echo '  meta nfproto ipv6 icmpv6 type echo-request meta mark set (meta mark & 0xffff0000) | 0x4f57 return' >>"$batch"
+  echo '  meta l4proto { tcp, udp } meta mark set (meta mark & 0xffff0000) | 0x4f57' >>"$batch"
+ else
+  echo "  meta l4proto { tcp, udp } meta mark set (meta mark & 0xffff0000) | 0x4f57 tproxy to :$port accept" >>"$batch"
+ fi
+ echo ' }' >>"$batch"
+ # Lock devices to the router's DNS over both families, even when IPv6 is not proxied: an IPv6
+ # resolver from router advertisements would otherwise answer with poisoned or AAAA records.
+ if [ "$dns_intercept" = 1 ]; then
+  cat >>"$batch" <<EOF
+ chain lan_dns {
+  type nat hook prerouting priority dstnat - 1; policy accept;
+  iifname { $names } fib daddr type unicast meta l4proto { tcp, udp } th dport 53 redirect to :53
+ }
+EOF
+ fi
+ if [ "$local_proxy" = 1 ]; then
+  # The core's own group is excluded so its outbound traffic never loops. As with OpenClash,
+  # every other process running as nogroup leaves uncaptured too.
+  cat >>"$batch" <<EOF
+ chain local {
+  type route hook output priority mangle - 1; policy accept;
+  meta nfproto != { $families } return
+  meta skgid $core_gid return
+  # Only connections the router itself opens: replies from LuCI, VPN servers and other inbound services stay direct.
+  ct direction reply return
+EOF
+  fake_ping
+  cat >>"$batch" <<EOF
+  fib daddr type { local, broadcast, multicast } return
+EOF
+  cat >>"$batch" <<EOF
+  meta l4proto { tcp, udp } th dport 53 return
+  ip daddr { $(echo "$bypass4" | sed 's/ /, /g') } return
+  ip6 daddr { $(echo "$bypass6" | sed 's/ /, /g') } return
+  ip daddr @local4 return
+  ip6 daddr @local6 return
+  ip daddr @cn4 return
+  ip6 daddr @cn6 return
+EOF
+  # As in OpenClash, the router's own UDP stays direct except toward fake addresses, which only
+  # the core can serve: kernel WireGuard has no socket group to exempt, and Tailscale, ZeroTier,
+  # OpenVPN, STUN hole punching, mwan3 probes and time sync break through a node without UDP.
+  [ "$fake_ip" != 1 ] || echo "  ip daddr $fakenet meta l4proto udp meta mark set (meta mark & 0xffff0000) | $mark" >>"$batch"
+  cat >>"$batch" <<EOF
+  meta l4proto tcp meta mark set (meta mark & 0xffff0000) | $mark
+ }
+EOF
+ fi
+ if [ "$side_router" = 1 ]; then
+  # Flows this router forwards direct (direct devices; China, private and NTP destinations)
+  # leave through the LAN to the main router, whose replies would reach the device straight:
+  # an asymmetric route that drop-invalid and stateful firewalls break. Masquerade them so the
+  # replies come back here, as OpenClash's bypass_gateway_compatible does. A NAT chain sees
+  # only a flow's first packet, so replies need no rule; proxied flows leave the core with a
+  # local source (TUN ones through owtun0) and never match. Attached networks keep device
+  # addresses, and running after srcnat lets a NAT rule of the user's own take precedence.
+  cat >>"$batch" <<EOF
+ chain side_router {
+  type nat hook postrouting priority srcnat + 1; policy accept;
+  meta nfproto ipv4 oifname { $names } fib saddr type != local ip daddr != @local4 masquerade
+ }
+EOF
+ fi
+ if [ "$method" = tproxy ]; then
+  cat >>"$batch" <<EOF
+ chain listener_guard {
+  type filter hook input priority filter - 1; policy accept;
+  iifname "lo" return
+  meta l4proto { tcp, udp } th dport $port meta mark & 0xffff != $mark reject
+ }
+EOF
+ fi
+ echo '}' >>"$batch"
+ set_elements local4 "$(local_prefixes 4)"
+ if [ "$v6" = 1 ]; then set_elements local6 "$(local_prefixes 6)"; fi
+ if [ "$bypass_cn" = 1 ]; then
+  set_elements cn4 "$(hyper-net cn-ranges 4)"
+  if [ "$v6" = 1 ]; then set_elements cn6 "$(hyper-net cn-ranges 6)"; fi
+ fi
+ set_elements direct4 "$(echo "$direct4" | tr ' ' '\n')"
+ set_elements direct6 "$(echo "$direct6" | tr ' ' '\n')"
+ set_elements direct_mac "$(echo "$direct_mac" | tr ' ' '\n')"
+ stage=firewall_prepare
+ nft -j list table inet fw4 >/dev/null
+ nft -c -f "$batch"
+ fi
+ fail_open=$(uci -q get hyper.main.fail_open || echo 1)
+ if [ "$fail_open" = 0 ]; then
+  stage=fault_flow_offload
+  guard_no_offload "$backend" "$interfaces" "$v6"
+  stage=fault_protection
+  guard_prepare
+ fi
+ apply_started=1
+ echo "$backend" >"$state/backend"
+ touch "$state/owned"
+ if [ "$side_router" = 1 ]; then touch "$state/side_router"; else rm -f "$state/side_router"; fi
+ stage=ipv4_route
+ add_routes 4
+ if [ "$v6" = 1 ]; then stage=ipv6_route; add_routes 6; fi
+ if [ "$dns" = 1 ]; then stage=dns_reload; dns_setup; touch "$state/dns-probed"
+ elif [ "$v6" != 1 ]; then stage=dns_reload; dns_setup || true; fi
+ stage=firewall_apply
+ if [ "$backend" = fw3 ]; then
+  legacy_apply
+ else
+  lock_firewall fw4
+  prepare_fw4
+  nft -f "$batch"
+  rm -f "$batch"
+  replay_save
+ fi
+ unlock_firewall
+ stage=managed_lan_probe
+ # dnsmasq is started asynchronously by procd. Do not publish a healthy
+ # transition until all managed listeners answer the synthetic query.
+ for _ in 1 2 3 4; do
+  if verify && hyper-net management-check; then
+   if [ "$fail_open" = 0 ]; then touch "$state/armed"; fi
+   stage=fault_restore
+   guard_remove || return 1
+   return 0
+  fi
+  sleep 1
+ done
+ return 1
+}
+# A firewall stop or restart (fw4 flush, fw3 restart) or another tool can remove the takeover's
+# rules while the core, routes and DNS stay. Put the same rules back. The manager asks only
+# while the core is healthy and limits how often. Prints "repaired" when rules changed.
+repair() {
+ [ ! -e /var/run/hyper/stopping ] || { fail_stage service_stopping; return 1; }
+ expected=$(cat "$state/backend" 2>/dev/null) && [ -f "$state/owned" ] || { fail_stage firewall_backend; return 1; }
+ current=$(firewall_status); current=${current%% *}
+ changed=0
+ case "$expected:$current" in
+  fw4:fw4|fw4:unavailable) lock_firewall fw4 && repair_fw4 ;;
+  fw3:fw3) lock_firewall fw3 && repair_fw3 ;;
+  *) fail_stage firewall_backend; return 1 ;;
+ esac || { unlock_firewall; fail_stage firewall_apply; return 1; }
+ unlock_firewall
+ verify || { fail_stage managed_lan_probe; return 1; }
+ [ "$changed" = 0 ] || echo repaired
+}
+repair_fw4() {
+ batch="$state/repair.nft"
+ : >"$batch"
+ if ! owned_table; then
+  # A table of that name we do not own is not ours to replace.
+  ! nft list table inet hyper >/dev/null 2>&1 && [ -s "$state/replay/hyper.nft" ] || return 1
+  cat "$state/replay/hyper.nft" >>"$batch" || return 1
+ fi
+ # fw4 replays the allowances itself; this covers rules deleted by hand.
+ if [ "$current" = fw4 ] && ! verify_fw4; then
+  for chain in input forward; do
+   for handle in $(owned_handles "$chain"); do echo "delete rule inet fw4 $chain handle $handle"; done
+   file="$state/allow/$chain/rules.nft"
+   [ ! -s "$file" ] || while IFS= read -r rule; do printf 'insert rule inet fw4 %s %s\n' "$chain" "$rule"; done <"$file"
+  done >>"$batch"
+ fi
+ if [ -s "$batch" ]; then nft -f "$batch" || return 1; changed=1; fi
+ rm -f "$batch"
+}
+repair_fw3() {
+ for fam in 4 6; do
+  [ -f "$state/fw3.$fam" ] || continue
+  xt=$(legacy_tool "$fam") || return 1
+  actual=$(legacy_current "$xt" "$fam") || return 1
+  [ "$actual" != "$(cat "$state/legacy.$fam.active")" ] || continue
+  # Leftovers go first. The plan inserts at the top: a fault guard position it may record is gone.
+  legacy_clear "$fam" || return 1
+  sed 's/^-I PREROUTING [0-9][0-9]* /-I PREROUTING /' "$state/legacy.$fam.plan" | "$xt-restore" --noflush || return 1
+  legacy_current "$xt" "$fam" >"$state/legacy.$fam.active" || return 1
+  changed=1
+ done
+}
+finish_apply() {
+ if [ "$1" = 0 ]; then rm -f "$state/error"; return; fi
+ failed_step=$stage
+ unlock_firewall
+ if [ "$apply_started" = 1 ]; then release_active || :; fi
+ fail_stage "$failed_step"
+}
+case "${1:-}" in
+ apply)
+  family_arg=; china_arg=; router_arg=; core_gid=; shift
+  for arg in "$@"; do
+   case "$arg" in ipv4|ipv6) family_arg=$arg ;; china) china_arg=$arg ;; side-router|main-router) router_arg=$arg ;;
+    gid=[1-9]*) core_gid=${arg#gid=} ;; *) exit 2 ;; esac
+  done
+  # The core runs as root:nogroup, like OpenClash's. The manager resolves that group once
+  # (internal/coregroup), launches the core in it and passes its id, whose sockets the capture
+  # of the router's own traffic lets out. None is guessed here, and root's group is never exempt.
+  case "$core_gid" in ''|*[!0-9]*) exit 2 ;; esac
+  trap 'finish_apply "$?"' EXIT; apply ;;
+ verify) verify || { fail_stage managed_lan_probe; exit 1; } ;;
+ repair) repair ;;
+ release) release ;;
+ refresh) refresh ;;
+ refresh-cn) refresh_cn ;;
+ fault) fault ;;
+ *) exit 2 ;;
+esac

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Observe system time corrections. The manager retries only operations whose
+# certificate validity check can succeed with the corrected clock.
+case "${ACTION:-}:${stratum:-}" in
+ step:*|stratum:[1-9]|stratum:1[0-5]) ;;
+ *) exit 0 ;;
+esac
+[ -S /var/run/hyper/manager.sock ] || exit 0
+/usr/sbin/hyperd notify-clock

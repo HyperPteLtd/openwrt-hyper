@@ -1,0 +1,8 @@
+{
+  "admin/services/hyper": {
+    "title": "Hyper",
+    "order": 55,
+    "action": { "type": "view", "path": "hyper/router" },
+    "depends": { "acl": ["hyper"] }
+  }
+}

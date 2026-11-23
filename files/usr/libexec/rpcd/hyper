@@ -1,0 +1,11 @@
+#!/bin/sh
+case "$1" in
+ list) cat <<'JSON'
+{"environment":{},"health_check":{},"devices":{},"network_preferences":{},"save_network":{"args":{}},"custom_rules":{},"save_rules":{"args":[],"revision":0},"plugin_check":{},"plugin_update":{},"traffic":{},"routes":{"limit":0},"test_nodes":{"source":"","method":"","args":{}},"cancel_tests":{},"latencies":{"method":""},"status":{},"groups":{},"live_groups":{},"logs":{"offset":0,"limit":50,"source":"","level":"","query":""},"connections":{"offset":0,"limit":50},"rule_hits":{},"clear":{"page":""},"task":{"task":""},"start":{"revision":0},"stop":{"revision":0},"mode":{"mode":"","revision":0},"source":{"source":"","revision":0},"policy":{"policy":{},"revision":0},"select_node":{"source":"","group":"","node":""},"subscription_read":{"action":"","args":{}},"subscription_write":{"action":"","args":{}},"kernel_read":{"action":""},"kernel_write":{"action":"","args":{}},"conflicts":{}}
+JSON
+ ;;
+ call)
+  case "$2" in environment|health_check|devices|custom_rules|save_rules|network_preferences|save_network|plugin_check|plugin_update|traffic|routes|test_nodes|cancel_tests|latencies|status|groups|live_groups|logs|connections|rule_hits|clear|task|start|stop|mode|source|policy|select_node|subscription_read|subscription_write|kernel_read|kernel_write|conflicts) exec /usr/sbin/hyperd call "$2";; esac
+  exit 2 ;;
+ *) exit 2 ;;
+esac

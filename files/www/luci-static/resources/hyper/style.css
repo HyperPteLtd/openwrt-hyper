@@ -1,0 +1,1533 @@
+@import url('./pages/proxy.css');
+@import url('./pages/records.css');
+
+.ow {
+	--ow-bg: #fff;
+	--ow-panel: #fff;
+	--ow-text: #0b0f12;
+	--ow-secondary: #4a5560;
+	--ow-line: #e4e7ea;
+	--ow-soft: #f4f6f7;
+	--ow-fill: #eef0f2;
+	--ow-teal: #00b3a4;
+	--ow-accent: #00665e;
+	--ow-tint: #e3f7f5;
+	--ow-violet: #7756e8;
+	--ow-danger: #ad2d25;
+	--ow-warning: #7b420a;
+	--ow-warning-tint: #fff0d9;
+	color: var(--ow-text);
+	background: var(--ow-bg);
+	font:
+		14px/1.45 -apple-system,
+		BlinkMacSystemFont,
+		'PingFang SC',
+		Inter,
+		'Microsoft YaHei',
+		sans-serif;
+	font-variant-numeric: tabular-nums;
+	min-width: 0;
+	padding: clamp(12px, 2vw, 28px);
+	border-radius: 16px;
+	container-type: inline-size;
+}
+@media (prefers-color-scheme: dark) {
+	.ow {
+		--ow-bg: #0c1013;
+		--ow-panel: #171c21;
+		--ow-text: #eef2f4;
+		--ow-secondary: #a8b1b8;
+		--ow-line: #30373e;
+		--ow-soft: #12171b;
+		--ow-fill: #282e34;
+		--ow-teal: #26cbbb;
+		--ow-accent: #50dfd0;
+		--ow-tint: #103a36;
+		--ow-violet: #ad96ff;
+		--ow-danger: #ff8c82;
+		--ow-warning: #edbf66;
+		--ow-warning-tint: #36280f;
+		color-scheme: dark;
+	}
+}
+.ow *,
+.ow *::before,
+.ow *::after {
+	box-sizing: border-box;
+}
+.ow [hidden] {
+	display: none !important;
+}
+.ow :is(h1, h2, h3, p, ul, ol, figure, fieldset, details, summary, table, label) {
+	margin: 0;
+}
+.ow h1,
+.ow h2,
+.ow h3 {
+	color: var(--ow-text);
+	font-family: inherit;
+	line-height: 1.25;
+	letter-spacing: -0.02em;
+	text-transform: none;
+	border: 0;
+	background: none;
+	padding: 0;
+}
+.ow h1 {
+	font-size: 28px;
+	font-weight: 750;
+}
+.ow h2 {
+	font-size: 20px;
+	font-weight: 700;
+}
+.ow h3 {
+	font-size: 16px;
+	font-weight: 650;
+}
+.ow :is(input, select, textarea, button) {
+	font: inherit;
+	color: inherit;
+	max-width: 100%;
+	margin: 0;
+	box-shadow: none;
+	text-shadow: none;
+}
+.ow :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+	border: 1px solid var(--ow-line);
+	border-radius: 10px;
+	background-color: var(--ow-panel);
+	padding: 7px 10px;
+	min-height: 36px;
+	min-width: 0;
+}
+/* A checkbox field reads as one line: the box, then its label. */
+.ow .ow-field:has(> input:is([type='checkbox'], [type='radio'])) {
+	flex-direction: row-reverse;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 8px;
+}
+.ow .ow-field:has(> input:is([type='checkbox'], [type='radio'])) > span {
+	color: var(--ow-text);
+	font-size: 13px;
+	line-height: 20px;
+}
+.ow .ow-picker label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+.ow input[type='checkbox'],
+.ow input[type='radio'] {
+	accent-color: var(--ow-accent);
+	/* LuCI themes nudge checkboxes with offsets; keep them on the text's centre line. */
+	margin: 0;
+	position: static;
+	top: auto;
+	vertical-align: middle;
+	align-self: center;
+	flex: none;
+}
+.ow select {
+	appearance: none;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m2 4 4 4 4-4' fill='none' stroke='%23768188' stroke-width='1.6'/%3E%3C/svg%3E");
+	background-position: right 10px center;
+	background-repeat: no-repeat;
+	padding-right: 30px;
+	cursor: pointer;
+}
+.ow textarea {
+	width: 100%;
+	resize: vertical;
+}
+.ow input::file-selector-button {
+	font: inherit;
+	color: var(--ow-accent);
+	background: var(--ow-tint);
+	border: 0;
+	border-radius: 7px;
+	padding: 5px 10px;
+	margin-right: 8px;
+}
+.ow button,
+.ow nav a {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	background: var(--ow-fill);
+	color: var(--ow-text);
+	border: 0;
+	border-radius: 10px;
+	padding: 7px 12px;
+	min-height: 34px;
+	font-weight: 550;
+	line-height: 1.3;
+	text-decoration: none;
+	cursor: pointer;
+}
+.ow :is(button, nav a):hover {
+	background: var(--ow-tint);
+	color: var(--ow-accent);
+}
+.ow button:disabled,
+.ow button[aria-busy='true'] {
+	cursor: default;
+	opacity: 0.55;
+}
+.ow :is(button, a, summary, input, textarea, select):focus-visible {
+	outline: 2px solid var(--ow-teal);
+	outline-offset: 2px;
+}
+.ow button.ow-primary {
+	color: #002c28;
+	background: var(--ow-teal);
+}
+.ow button.ow-danger {
+	color: var(--ow-danger);
+	background: color-mix(in srgb, var(--ow-danger) 12%, var(--ow-panel));
+}
+.ow button.ow-link {
+	padding: 3px 2px;
+	min-height: 28px;
+	background: none;
+	color: var(--ow-accent);
+}
+.ow button.ow-link.ow-danger {
+	color: var(--ow-danger);
+}
+.ow small,
+.ow .ow-muted,
+.ow .ow-field > span {
+	color: var(--ow-secondary);
+	font-size: 12px;
+}
+.ow .ow-header,
+.ow .ow-brand,
+.ow nav,
+.ow .ow-toolbar,
+.ow .ow-actions,
+.ow .ow-row {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	min-width: 0;
+}
+.ow .ow-header {
+	gap: 36px;
+	margin-bottom: 20px;
+	flex-wrap: wrap;
+}
+.ow .ow-brand {
+	gap: 12px;
+}
+.ow .ow-brand img {
+	display: block;
+	object-fit: contain;
+}
+.ow nav {
+	gap: 4px;
+	flex-wrap: wrap;
+}
+.ow nav a {
+	background: transparent;
+	padding: 8px 16px;
+	font-weight: 500;
+	border-radius: 99px;
+	white-space: nowrap;
+}
+.ow nav a[aria-current='page'],
+.ow .ow-segment [aria-pressed='true'] {
+	background: var(--ow-panel);
+	color: var(--ow-accent);
+	font-weight: 650;
+	box-shadow: 0 1px 4px #0002;
+}
+.ow .ow-row {
+	justify-content: space-between;
+	flex-wrap: wrap;
+}
+/* LuCI themes give headings a full-width block; keep a row's title beside its actions. */
+.ow .ow-row > :is(h2, h3) {
+	width: auto;
+	flex: 0 1 auto;
+	min-width: 0;
+}
+.ow .ow-route-side > .ow-row {
+	flex-wrap: nowrap;
+}
+.ow .ow-actions,
+.ow .ow-toolbar {
+	flex-wrap: wrap;
+}
+.ow .ow-field {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	min-width: 0;
+}
+.ow .ow-main,
+.ow .ow-stack,
+.ow .ow-card {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	min-width: 0;
+}
+.ow .ow-card {
+	background: var(--ow-panel);
+	border: 1px solid var(--ow-line);
+	border-radius: 22px;
+	padding: 20px;
+	align-self: stretch;
+}
+.ow .ow-dashboard,
+.ow .ow-grid,
+.ow .ow-source-grid {
+	display: grid;
+	gap: 16px;
+	min-width: 0;
+}
+.ow .ow-dashboard {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	align-items: stretch;
+}
+.ow .ow-grid,
+.ow .ow-source-grid {
+	grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr));
+}
+.ow .ow-hero {
+	grid-column: span 2;
+	display: grid;
+	grid-template-columns: minmax(170px, 1fr) minmax(0, 2fr);
+	gap: 20px;
+	padding: 20px 24px;
+}
+.ow .ow-connection {
+	height: 400px;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+	gap: 6px;
+}
+.ow .ow-connection > h2 {
+	font-size: 22px;
+}
+.ow .ow-plan-label {
+	max-width: 100%;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+/* The power button. Off it is the theme colour. While the proxy connects (pulse) or disconnects
+   (pulse gentle) it keeps the theme colour and its ring pulses; connected (on), the whole button is
+   the red disconnect control. overview.js eases each change over from the look before, across
+   redraws too, and keeps a pulse in step through them. */
+.ow button.ow-power {
+	--ow-power-red: var(--ow-danger);
+	width: 108px;
+	height: 108px;
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	border-radius: 50%;
+	background: var(--ow-tint);
+	box-shadow: 0 0 0 7px var(--ow-fill);
+	color: var(--ow-accent);
+	margin: 14px 0 11px;
+	transition: background-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+@media (prefers-color-scheme: dark) {
+	/* White on the dark theme's light red reads at 2.3:1; this red keeps the label above 4.5:1. */
+	.ow button.ow-power {
+		--ow-power-red: #d0352c;
+	}
+}
+.ow button.ow-power.on {
+	color: #fff;
+	background: var(--ow-power-red);
+	box-shadow: 0 0 0 7px color-mix(in srgb, var(--ow-power-red) 22%, transparent);
+}
+.ow button.ow-power.on:is(:hover, :focus-visible, :active) {
+	background: color-mix(in srgb, var(--ow-power-red) 85%, #000);
+	box-shadow: 0 0 0 7px color-mix(in srgb, var(--ow-power-red) 32%, transparent);
+}
+/* Its word and ring show what it is doing, so a press in progress does not dim it. */
+.ow button.ow-power[aria-busy='true'] {
+	opacity: 1;
+}
+/* Disconnecting, a press waits for the router (aria-disabled, still focusable). */
+.ow button.ow-power[aria-disabled='true'] {
+	cursor: default;
+}
+/* Each pulse rests on this ring, so it starts and stops without a jump. */
+.ow button.ow-power.pulse {
+	box-shadow: 0 0 0 7px color-mix(in srgb, var(--ow-accent) 24%, transparent);
+	animation: ow-power-pulse 1.6s ease-in-out infinite;
+}
+.ow button.ow-power.pulse.gentle {
+	animation-name: ow-power-ebb;
+	animation-duration: 2.4s;
+}
+@keyframes ow-power-pulse {
+	50% {
+		box-shadow: 0 0 0 15px color-mix(in srgb, var(--ow-accent) 6%, transparent);
+	}
+}
+@keyframes ow-power-ebb {
+	50% {
+		box-shadow: 0 0 0 11px color-mix(in srgb, var(--ow-accent) 10%, transparent);
+	}
+}
+.ow .ow-power span {
+	font-size: 12px;
+}
+/* A new word fades in over the old one in the same cell. */
+.ow .ow-power-label {
+	display: grid;
+	justify-items: center;
+}
+.ow .ow-power-label > span {
+	grid-area: 1 / 1;
+}
+.ow .ow-graph-block {
+	align-self: stretch;
+	margin-top: auto;
+	text-align: left;
+}
+.ow .ow-total,
+.ow .ow-rate,
+.ow .ow-source-sub {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 3px;
+	color: var(--ow-secondary);
+	font-size: 12px;
+}
+.ow .ow-total {
+	border-bottom: 1px solid var(--ow-line);
+	padding: 0 0 7px;
+	margin-bottom: 6px;
+}
+.ow .ow-total strong {
+	color: var(--ow-text);
+}
+.ow .ow-chart svg {
+	display: block;
+	width: 100%;
+	height: 74px;
+}
+.ow .ow-gridline {
+	stroke: var(--ow-line);
+	stroke-dasharray: 3 4;
+	fill: none;
+}
+.ow .ow-rate {
+	margin-top: 4px;
+	font-size: 11px;
+}
+.ow .ow-rate > span {
+	display: flex;
+	gap: 6px;
+}
+.ow .ow-rate > span > span:first-child {
+	color: var(--ow-accent);
+}
+.ow .ow-rate > span > span + span {
+	color: var(--ow-violet);
+}
+.ow .ow-route-side {
+	min-width: 0;
+	border-left: 1px solid var(--ow-line);
+	padding-left: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 15px;
+}
+.ow .ow-modes {
+	display: grid;
+	grid-template-columns: 3fr 2fr 2fr;
+	gap: 10px;
+}
+.ow .ow-segment {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 3px;
+	background: var(--ow-fill);
+	border-radius: 99px;
+	max-width: 100%;
+}
+.ow .ow-segment button {
+	flex: 1 1 auto;
+	border-radius: 99px;
+	min-height: 29px;
+	background: none;
+	padding: 4px 9px;
+	font-size: 13px;
+	white-space: nowrap;
+}
+.ow .ow-routes,
+.ow .ow-node-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr));
+	gap: 8px;
+}
+.ow .ow-routes {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	align-content: start;
+}
+.ow .ow-route,
+.ow button.ow-route {
+	background: var(--ow-soft);
+	border-color: transparent;
+}
+.ow .ow-route,
+.ow button.ow-route,
+.ow .ow-node,
+.ow button.ow-node {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 8px;
+	text-align: left;
+	min-width: 0;
+	border: 1px solid var(--ow-line);
+	background: var(--ow-panel);
+	border-radius: 12px;
+	padding: 9px;
+}
+.ow .ow-route > span:last-child,
+.ow .ow-node-copy,
+.ow .ow-node-tail,
+.ow .ow-device-name,
+.ow .ow-source-info {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.ow .ow-route strong,
+.ow .ow-route small,
+.ow .ow-node strong,
+.ow .ow-truncate {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.ow .ow-route-icon {
+	color: var(--ow-accent);
+}
+.ow button.ow-route[aria-pressed='true'] {
+	border-color: var(--ow-accent);
+	background: var(--ow-tint);
+}
+.ow .ow-global-nodes {
+	max-height: 232px;
+	overflow-y: auto;
+}
+.ow .ow-checks {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-top: auto;
+	font-size: 12px;
+	color: var(--ow-secondary);
+}
+.ow .ow-checks > button {
+	margin-left: auto;
+}
+.ow .ow-checks span {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+.ow .ow-dot {
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	flex: none;
+	border-radius: 50%;
+	background: #929ca3;
+}
+.ow .ow-dot.good {
+	background: #27985d;
+}
+.ow .ow-dot.bad {
+	background: var(--ow-danger);
+}
+.ow .ow-sources {
+	gap: 10px;
+}
+.ow .ow-source-line {
+	min-width: 0;
+	width: 100%;
+	text-align: left;
+	justify-content: flex-start;
+	background: var(--ow-soft);
+	padding: 11px;
+	border-radius: 14px;
+}
+.ow .ow-source-line.is-active,
+.ow .ow-node.is-active {
+	background: var(--ow-tint);
+	border-color: var(--ow-teal);
+}
+.ow .ow-source-info {
+	flex: 1;
+	gap: 5px;
+}
+.ow .ow-source-info strong {
+	overflow-wrap: anywhere;
+}
+/* Subscription cards: a provider account carries the accent; link and file subscriptions stay neutral. */
+.ow .ow-card.ow-source-card {
+	--ow-source-pad: 16px;
+	border: 1px solid var(--ow-line);
+	border-radius: 16px;
+	padding: var(--ow-source-pad);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.ow .ow-source-card button {
+	overflow-wrap: normal;
+}
+.ow .ow-source-card[data-kind='platform'] {
+	border-color: color-mix(in srgb, var(--ow-teal) 45%, var(--ow-line));
+	--ow-kind-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='8' cy='5.25' r='2.75'/%3E%3Cpath d='M2.75 14c.6-2.75 2.65-4.25 5.25-4.25s4.65 1.5 5.25 4.25'/%3E%3C/svg%3E");
+}
+.ow .ow-source-card[data-kind='external'] {
+	--ow-kind-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='m6.25 9.75 3.5-3.5M7.25 4.5l.9-.9a2.6 2.6 0 0 1 3.7 3.7l-.9.9M8.75 11.5l-.9.9a2.6 2.6 0 0 1-3.7-3.7l.9-.9'/%3E%3C/svg%3E");
+}
+.ow .ow-source-card[data-kind='file'] {
+	--ow-kind-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M4 1.75h5l3 3v9.5H4zM9 1.75v3h3'/%3E%3C/svg%3E");
+}
+/* The header is a band across the card: avatar, then kind and use, the name, and the format line. */
+.ow .ow-source-title {
+	display: grid;
+	grid-template-columns: 36px minmax(0, 1fr) auto;
+	grid-template-areas:
+		'avatar kind use'
+		'avatar name name'
+		'avatar meta meta';
+	align-items: center;
+	gap: 4px 12px;
+	margin: calc(-1 * var(--ow-source-pad)) calc(-1 * var(--ow-source-pad)) 0;
+	padding: 14px var(--ow-source-pad) 12px;
+	background: var(--ow-soft);
+	border-bottom: 1px solid var(--ow-line);
+	border-radius: 15px 15px 0 0;
+}
+.ow .ow-source-card[data-kind='platform'] > .ow-source-title {
+	background: var(--ow-tint);
+	border-bottom-color: color-mix(in srgb, var(--ow-teal) 30%, var(--ow-line));
+	box-shadow: inset 0 3px 0 var(--ow-teal);
+}
+.ow .ow-source-title > .ow-avatar {
+	grid-area: avatar;
+	align-self: start;
+}
+.ow .ow-source-card[data-kind='platform'] .ow-avatar {
+	background: var(--ow-teal);
+	border-color: transparent;
+	color: #002c28;
+}
+.ow .ow-source-kind {
+	grid-area: kind;
+	justify-self: start;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: 100%;
+	padding: 1px 8px 1px 6px;
+	border: 1px solid var(--ow-line);
+	border-radius: 6px;
+	background: var(--ow-panel);
+	color: var(--ow-secondary);
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 18px;
+	white-space: nowrap;
+}
+.ow .ow-source-kind::before {
+	content: '';
+	width: 12px;
+	height: 12px;
+	flex: none;
+	background: currentColor;
+	mask: var(--ow-kind-icon) center / contain no-repeat;
+}
+.ow .ow-source-card[data-kind='platform'] .ow-source-kind {
+	color: var(--ow-accent);
+	border-color: color-mix(in srgb, var(--ow-teal) 50%, transparent);
+}
+/* Long names stop at two lines; the full name is the tooltip. */
+.ow .ow-source-name {
+	grid-area: name;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+	font-size: 15px;
+	line-height: 1.35;
+}
+.ow .ow-source-meta {
+	grid-area: meta;
+}
+.ow .ow-source-use {
+	grid-area: use;
+	justify-self: end;
+	white-space: nowrap;
+}
+.ow .ow-source-title > button.ow-source-use {
+	min-height: 30px;
+	padding: 4px 11px;
+	font-size: 13px;
+	background: var(--ow-panel);
+	border: 1px solid var(--ow-line);
+}
+.ow .ow-source-title > button.ow-source-use:not(:disabled):hover {
+	background: var(--ow-tint);
+	border-color: var(--ow-teal);
+}
+.ow .ow-source-title > .ow-badge.ow-source-use {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 9px;
+	border: 1px solid color-mix(in srgb, var(--ow-teal) 50%, transparent);
+	border-radius: 99px;
+	background: var(--ow-panel);
+	font-size: 12px;
+	font-weight: 600;
+}
+.ow .ow-source-title > .ow-badge.ow-source-use::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--ow-teal);
+}
+.ow .ow-avatar {
+	width: 36px;
+	height: 36px;
+	aspect-ratio: 1;
+	flex: 0 0 36px;
+	display: inline-grid;
+	place-items: center;
+	background: var(--ow-panel);
+	border: 1px solid var(--ow-line);
+	border-radius: 9px;
+	color: var(--ow-secondary);
+	font-size: 16px;
+	font-weight: 650;
+}
+.ow progress {
+	width: 100%;
+	height: 5px;
+	accent-color: var(--ow-teal);
+	border: 0;
+}
+/* Devices span two rows beside a 2x2 block: proxy, DNS, recovery, updates. */
+.ow .ow-devices {
+	grid-row: span 2;
+}
+.ow .ow-device-row {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 9px 0;
+	border-bottom: 1px solid var(--ow-line);
+}
+.ow .ow-device-name {
+	flex: 1;
+	overflow-wrap: anywhere;
+}
+.ow .ow-device-name strong {
+	font-weight: 550;
+}
+.ow .ow-switch {
+	position: relative;
+	padding: 0;
+	margin: 0;
+	align-self: center;
+	vertical-align: middle;
+	min-height: 0;
+	width: 44px;
+	height: 26px;
+	border: 0;
+	border-radius: 99px;
+	background: var(--ow-fill);
+	flex: none;
+}
+.ow .ow-switch::before {
+	content: '';
+	position: absolute;
+	inset: 3px auto auto 3px;
+	width: 20px;
+	height: 20px;
+	background: #fff;
+	border-radius: 50%;
+	box-shadow: 0 1px 3px #0003;
+}
+.ow .ow-switch[aria-checked='true'] {
+	background: var(--ow-teal);
+}
+.ow .ow-switch[aria-checked='true']::before {
+	left: 21px;
+}
+.ow .ow-empty {
+	padding: 22px 8px;
+	color: var(--ow-secondary);
+	text-align: center;
+	font-size: 13px;
+	grid-column: 1/-1;
+}
+.ow .ow-alert,
+.ow .ow-warning {
+	padding: 10px 14px;
+	border-radius: 12px;
+	overflow-wrap: anywhere;
+}
+.ow .ow-alert {
+	background: var(--ow-tint);
+	margin-bottom: 12px;
+}
+.ow .ow-warning {
+	background: var(--ow-warning-tint);
+	color: var(--ow-warning);
+}
+.ow dialog.ow-modal {
+	position: fixed;
+	inset: 0;
+	margin: auto;
+	transform: none;
+	height: fit-content;
+	max-width: calc(100vw - 24px);
+	max-height: calc(100vh - 24px);
+	font: inherit;
+	color: var(--ow-text);
+	background: var(--ow-panel);
+	border: 1px solid var(--ow-line);
+	border-radius: 20px;
+	width: min(480px, calc(100vw - 28px));
+	max-height: calc(100dvh - 24px);
+	overflow: hidden;
+	padding: 0;
+	box-shadow: 0 16px 70px #0003;
+}
+.ow dialog.ow-modal[open] {
+	display: flex;
+	flex-direction: column;
+}
+.ow .ow-modal::backdrop {
+	background: #05151680;
+}
+.ow .ow-modal-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex: none;
+	padding: 18px 20px 12px;
+	background: var(--ow-panel);
+	color: var(--ow-text);
+	position: static;
+}
+.ow .ow-modal-body {
+	padding: 4px 20px 20px;
+	min-height: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+.ow .ow-modal-status {
+	padding: 8px 12px;
+	margin-bottom: 12px;
+	border-radius: 8px;
+	background: var(--ow-soft);
+	color: var(--ow-danger);
+}
+.ow .ow-close {
+	border-radius: 50%;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	font-size: 22px;
+}
+.ow .ow-picker {
+	display: grid;
+	gap: 8px;
+	max-height: 40vh;
+	overflow: auto;
+}
+.ow .ow-accordion {
+	border: 1px solid var(--ow-line);
+	border-radius: 14px;
+	min-width: 0;
+}
+.ow summary {
+	cursor: pointer;
+	padding: 8px 0;
+	color: var(--ow-text);
+}
+.ow .ow-accordion > summary {
+	padding: 12px 14px;
+}
+.ow .ow-accordion > summary > * {
+	margin-inline-end: 8px;
+}
+.ow .ow-accordion > .ow-node-grid {
+	padding: 0 12px 12px;
+}
+.ow .ow-node {
+	min-height: 55px;
+}
+.ow .ow-node-copy {
+	flex: 1;
+}
+.ow .ow-node-tail {
+	align-items: flex-end;
+	font-size: 11px;
+	color: var(--ow-accent);
+}
+.ow .ow-badge,
+.ow .ow-level {
+	display: inline-block;
+	background: var(--ow-tint);
+	color: var(--ow-accent);
+	padding: 2px 7px;
+	border-radius: 6px;
+	font-size: 11px;
+}
+.ow .ow-log {
+	border-bottom: 1px solid var(--ow-line);
+}
+.ow .ow-log summary {
+	display: grid;
+	grid-template-columns: 64px 40px 1fr;
+	align-items: center;
+	gap: 10px;
+	overflow-wrap: anywhere;
+}
+.ow .ow-log time,
+.ow .ow-mono {
+	font-family: ui-monospace, monospace;
+}
+.ow .ow-log > div {
+	padding: 0 0 9px 124px;
+}
+.ow .ow-level.warn {
+	background: #ffebc8;
+	color: #774609;
+}
+.ow .ow-level.error {
+	background: #ffe0dd;
+	color: #992d26;
+}
+.ow .ow-table {
+	width: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+}
+.ow .ow-table th,
+.ow .ow-table td {
+	text-align: left;
+	overflow-wrap: anywhere;
+	padding: 9px 6px;
+	border-bottom: 1px solid var(--ow-line);
+	background: transparent;
+	color: inherit;
+}
+.ow .ow-table th {
+	color: var(--ow-secondary);
+	font-size: 12px;
+}
+.ow .ow-table td small {
+	display: block;
+}
+.ow .ow-rule-list {
+	display: grid;
+	gap: 0;
+}
+.ow .ow-rule-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 10px;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--ow-line);
+}
+
+/* Rules page: the overview's grid. The built-in rule sets take the wide column, where the
+   overview shows its status card; custom rules take the column beside it. Each column stacks
+   its cards, and below 840px the columns stack too. */
+.ow .ow-dashboard.ow-rules > .ow-side-stack {
+	/* The overview pins its side column to the status card's height; here both columns grow. */
+	height: auto;
+	min-height: 0;
+}
+.ow .ow-rules > .ow-side-stack > .ow-card:last-child {
+	flex: 1 1 auto;
+}
+@container (min-width: 841px) {
+	.ow .ow-rules > .ow-rules-builtin {
+		grid-column: span 2;
+	}
+}
+@container (max-width: 840px) {
+	.ow .ow-rules > .ow-side-stack {
+		grid-column: 1 / -1;
+	}
+}
+/* Rule sets: one card each, two a row (left and right) in the wide column, and across the page
+   once the columns stack; one a row on a phone. A row's cards share its height, so their links
+   line up along the bottom. */
+.ow .ow-set-heading {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+.ow .ow-set-heading > h2 {
+	width: auto;
+}
+.ow .ow-set-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	align-content: start;
+	gap: 12px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.ow .ow-set-card {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	min-width: 0;
+	margin: 0;
+	padding: 12px 14px 8px;
+	border: 1px solid var(--ow-line);
+	border-radius: 14px;
+	background: var(--ow-soft);
+	list-style: none;
+}
+.ow .ow-set-title {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 8px;
+}
+.ow .ow-set-title > h3 {
+	min-width: 0;
+	font-size: 15px;
+	line-height: 22px;
+	overflow-wrap: anywhere;
+}
+.ow .ow-set-tags {
+	display: flex;
+	flex: none;
+	gap: 4px;
+	padding-top: 1px;
+}
+.ow .ow-badge.ow-badge-plain {
+	background: var(--ow-panel);
+	color: var(--ow-secondary);
+	box-shadow: inset 0 0 0 1px var(--ow-line);
+}
+/* Entries, hits and route as label over value, side by side; the route takes the rest of the line. */
+.ow .ow-set-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 22px;
+	margin: 0;
+}
+.ow .ow-set-stats > div {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+.ow .ow-set-stats dt {
+	color: var(--ow-secondary);
+	font-size: 12px;
+	font-weight: 400;
+}
+.ow .ow-set-stats dd {
+	margin: 0;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+.ow .ow-set-stats > .ow-set-hit dd {
+	color: var(--ow-accent);
+}
+.ow .ow-set-stats > .ow-set-route {
+	flex: 1 1 8em;
+}
+.ow .ow-set-route button.ow-link {
+	min-height: 0;
+	padding: 0 2px;
+	font-weight: 600;
+	vertical-align: baseline;
+	overflow-wrap: anywhere;
+}
+.ow .ow-set-card > .ow-actions {
+	margin-top: auto;
+	justify-content: flex-end;
+	gap: 14px;
+}
+@container (max-width: 650px) {
+	.ow .ow-set-grid {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 10px;
+	}
+}
+.ow .ow-rules-custom .ow-rule-index {
+	flex: none;
+	width: 24px;
+	align-self: flex-start;
+	color: var(--ow-secondary);
+}
+.ow .ow-rules-custom .ow-rule-match {
+	flex: 1 1 12em;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.ow .ow-rules-custom .ow-rule-note {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin-top: 2px;
+}
+.ow .ow-rules-custom .ow-rule-row > .ow-actions {
+	margin-left: auto;
+}
+@container (max-width: 650px) or (min-width: 841px) {
+	/* In the narrow column the destination and the controls move under the match. */
+	.ow .ow-rules-custom .ow-rule-row {
+		row-gap: 6px;
+	}
+	.ow .ow-rules-custom .ow-rule-match {
+		flex-basis: calc(100% - 34px);
+	}
+	.ow .ow-rules-custom .ow-rule-match + * {
+		margin-left: 34px;
+	}
+}
+
+.ow .ow-facts {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 6px 16px;
+	margin: 0;
+}
+.ow .ow-facts dt {
+	color: var(--ow-secondary);
+}
+.ow .ow-facts dd {
+	margin: 0;
+}
+.ow .ow-mono {
+	overflow-wrap: anywhere;
+}
+@container (max-width:840px) {
+	.ow .ow-dashboard {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.ow .ow-hero {
+		grid-column: 1/-1;
+	}
+	.ow .ow-sources,
+	.ow .ow-devices {
+		grid-row: auto;
+	}
+	.ow .ow-dashboard > .ow-card:last-child {
+		grid-column: 1/-1;
+	}
+}
+@container (max-width:650px) {
+	.ow .ow-header {
+		align-items: flex-start;
+		gap: 8px;
+		flex-direction: column;
+		margin-bottom: 14px;
+	}
+	.ow h1 {
+		font-size: 22px;
+	}
+	.ow .ow-brand img {
+		width: 29px;
+		height: 29px;
+	}
+	.ow .ow-brand {
+		gap: 8px;
+	}
+	.ow nav {
+		width: 100%;
+		gap: 1px;
+	}
+	.ow nav a {
+		padding: 7px 10px;
+		font-size: 13px;
+	}
+	.ow .ow-dashboard {
+		display: flex;
+		flex-direction: column;
+	}
+	.ow .ow-card {
+		border-radius: 18px;
+		padding: 14px;
+		gap: 12px;
+	}
+	.ow .ow-hero {
+		display: flex;
+		flex-direction: column;
+	}
+	.ow .ow-connection {
+		height: 122px;
+		display: grid;
+		grid-template-columns: 70px minmax(0, 1fr);
+		grid-template-rows: 27px 20px 20px 20px 23px;
+		column-gap: 14px;
+		row-gap: 1px;
+		text-align: left;
+		align-items: center;
+	}
+	.ow .ow-power {
+		grid-column: 1;
+		grid-row: 1/5;
+	}
+	.ow button.ow-power {
+		width: 62px;
+		height: 62px;
+		margin: 0 auto;
+		gap: 1px;
+		box-shadow: 0 0 0 4px var(--ow-tint);
+	}
+	.ow .ow-power svg {
+		width: 24px;
+		height: 24px;
+	}
+	.ow .ow-power span {
+		font-size: 10px;
+	}
+	.ow .ow-connection > h2,
+	.ow .ow-connection > span,
+	.ow .ow-connection > strong,
+	.ow .ow-connection > small {
+		grid-column: 2;
+	}
+	.ow .ow-connection > h2 {
+		grid-row: 1;
+	}
+	.ow .ow-connection > span {
+		grid-row: 2;
+		/* One line in its row: a longer phase or countdown ends in an ellipsis. */
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.ow .ow-connection > strong {
+		grid-row: 3;
+	}
+	.ow .ow-connection > small {
+		grid-row: 4;
+	}
+	.ow .ow-graph-block {
+		grid-column: 1/-1;
+		grid-row: 5;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 4px;
+		align-self: stretch;
+	}
+	.ow .ow-graph-block .ow-chart {
+		display: none;
+	}
+	.ow .ow-total,
+	.ow .ow-rate {
+		font-size: 10px;
+		padding: 0;
+		border: 0;
+		margin: 0;
+	}
+	.ow .ow-rate {
+		font-size: 0;
+	}
+	.ow .ow-rate > span {
+		font-size: 10px;
+	}
+	.ow .ow-route-side {
+		padding: 10px 0 0;
+		border: 0;
+		border-top: 1px solid var(--ow-line);
+		gap: 12px;
+	}
+	.ow .ow-routes {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.ow .ow-routes:not(.ow-global-nodes) > .ow-route:nth-child(n + 5) {
+		display: none;
+	}
+	.ow .ow-field input,
+	.ow .ow-field select,
+	.ow .ow-toolbar input {
+		max-width: 100%;
+	}
+	.ow .ow-actions,
+	.ow .ow-toolbar {
+		gap: 6px;
+	}
+	.ow .ow-segment button {
+		padding: 5px 8px;
+	}
+	.ow .ow-grid,
+	.ow .ow-source-grid {
+		grid-template-columns: 1fr;
+	}
+	.ow .ow-accordion summary {
+		overflow-wrap: anywhere;
+	}
+	.ow .ow-table.ow-connections,
+	.ow .ow-connections tbody {
+		display: block;
+	}
+	.ow .ow-connections thead {
+		display: none;
+	}
+	.ow .ow-connections tr {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 3px 8px;
+		padding: 9px 0;
+		border-bottom: 1px solid var(--ow-line);
+	}
+	.ow .ow-connections td {
+		border: 0;
+		padding: 2px 0;
+	}
+	.ow .ow-connections td::before {
+		content: attr(data-label) ' ';
+		color: var(--ow-secondary);
+		font-size: 11px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.ow * {
+		scroll-behavior: auto !important;
+		transition: none !important;
+		animation: none !important;
+	}
+}
+.ow .ow-environment {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+	gap: 12px;
+}
+.ow .ow-environment > div {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.ow .ow-onboarding,
+.ow .ow-setup-section {
+	display: grid;
+	gap: 12px;
+}
+.ow .ow-setup-section {
+	padding: 16px;
+	background: var(--ow-soft);
+	border-radius: 16px;
+	gap: 8px;
+}
+.ow .ow-setup-section .ow-stack { gap: 8px; }
+.ow .ow-setup-section input { width: 100%; }
+.ow .ow-setup-section button[type=submit] { min-height: 40px; border-radius: 20px; }
+.ow .ow-setup-section .ow-secondary-submit { background: var(--ow-fill); color: var(--ow-text); }
+.ow .ow-environment { grid-template-columns: 1fr; gap: 6px; }
+.ow .ow-environment > div { flex-direction: row; justify-content: space-between; gap: 12px; }
+.ow .ow-environment strong { text-align: end; font-size: 13px; font-weight: 550; }
+
+/* Three subscription cards a row on a wide page, two on a medium one, one on a phone; a row's cards share its height. */
+.ow .ow-source-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
+@container (max-width: 900px) {
+	.ow .ow-source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* The buttons keep to the card's foot so a row's line up; the card's line, once it says something, follows under them. */
+.ow .ow-source-card > .ow-actions { margin-top: auto; }
+.ow .ow-source-mobile { display: none; }
+.ow .ow-sources > .ow-row { flex-direction: row; }
+@container (max-width: 650px) {
+	.ow .ow-source-grid { grid-template-columns: minmax(0, 1fr); }
+	.ow .ow-card.ow-source-card { --ow-source-pad: 14px; }
+	/* On a phone the subscription card shows only its menu, and its line above it: empty, the line
+	   is hidden only visually, so a notice written into it is announced (Inline feedback). */
+	.ow .ow-sources:has(.ow-source-mobile) > :not(.ow-source-mobile):not(.ow-feedback) { display: none; }
+	.ow .ow-source-mobile { display: block; }
+	.ow .ow-source-mobile > summary { display: flex; align-items: center; gap: 12px; padding: 0; }
+	.ow .ow-source-mobile > summary::after { content: '›'; color: var(--ow-secondary); font-size: 20px; }
+	.ow .ow-source-mobile[open] > summary::after { transform: rotate(90deg); }
+	.ow .ow-source-mobile > div { margin-top: 12px; }
+}
+.ow input.ow-hours {
+	width: 5em;
+	text-align: center;
+	appearance: textfield;
+	-moz-appearance: textfield;
+}
+.ow input.ow-hours::-webkit-inner-spin-button,
+.ow input.ow-hours::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.ow .ow-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 0; }
+.ow .ow-row:has(> .ow-label) { flex-wrap: nowrap; }
+.ow .ow-row:has(> .ow-label) > :not(.ow-label) { flex: none; }
+.ow .ow-device-toolbar { justify-content: space-between; }
+.ow .ow-device-toolbar > input[type='search'] { margin-left: auto; }
+.ow .ow-source-card .ow-actions > .ow-danger:last-child { margin-left: auto; }
+.ow .ow-label > small:empty { display: none; }
+.ow .ow-log-detail { display: block; margin-top: 4px; font-size: 12px; overflow-wrap: anywhere; }
+
+/* Every subscription is listed; the list scrolls inside a card sized by the hero row. */
+.ow .ow-source-list { display: flex; flex-direction: column; gap: 10px; flex: 1 1 0; min-height: 0; overflow-y: auto; }
+
+@container (max-width: 840px) {
+	.ow .ow-source-list { flex: none; max-height: 320px; }
+}
+
+.ow .ow-upstream { font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.ow .ow-dns-presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.ow .ow-chip { border: 1px solid var(--ow-line); border-radius: 999px; padding: 4px 12px; background: transparent; font-size: 12px; }
+.ow .ow-chip-on { border-color: var(--ow-accent); color: var(--ow-accent); background: color-mix(in srgb, var(--ow-accent) 10%, transparent); }
+.ow .ow-modal .ow-row > input { flex: 1; min-width: 0; }
+@container (max-width: 1100px) {
+	.ow .ow-modes { grid-template-columns: 1fr 1fr; }
+	.ow .ow-modes > :first-child { grid-column: 1 / -1; }
+}
+.ow .ow-side-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ow .ow-side-stack > .ow-sources { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+@container (min-width: 841px) {
+	/* The hero sets the row height; the subscription list scrolls within it. */
+	.ow .ow-dashboard > .ow-side-stack { height: 0; min-height: 100%; }
+	.ow .ow-side-stack > .ow-sources { flex-basis: 0; }
+}
+@container (max-width: 840px) {
+	.ow .ow-side-stack { grid-column: 1 / -1; }
+}
+.ow .ow-proxy-extra { display: contents; }
+@container (max-width: 650px) {
+	/* The heading already names the state; the round button keeps only its icon. */
+	.ow .ow-power span { display: none; }
+	.ow .ow-power svg { width: 28px; height: 28px; }
+}
+.ow .ow-source-list > * { flex: none; }
+
+/* ---- Inline feedback -------------------------------------------------------------------------
+   A line under the row, card or control whose action it reports (dom.js feedback()), in place of
+   the alert at the top of the page. Empty, it is hidden only visually, so screen readers keep the
+   live region and announce what is written into it, and it takes no room: not even a flex or grid
+   gap. The tone is named by an icon as well as a colour, and the words say what happened. */
+.ow .ow-feedback {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.45;
+	color: var(--ow-secondary);
+	overflow-wrap: anywhere;
+}
+.ow .ow-feedback:empty {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	border: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+}
+.ow .ow-feedback:not(:empty) {
+	width: 100%;
+}
+.ow :is(.ow-feedback, .ow-muted)[data-tone='error'] {
+	color: var(--ow-danger);
+}
+/* A review opened in place: the summary carries the tone, the list under it reads as usual. */
+.ow .ow-muted[data-tone='error'] details > :not(summary) {
+	color: var(--ow-secondary);
+}
+.ow .ow-feedback[data-tone='done'] {
+	color: var(--ow-accent);
+}
+.ow .ow-feedback[data-tone]::before {
+	content: '!';
+	content: '!' / '';
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	margin-right: 6px;
+	border-radius: 50%;
+	vertical-align: -3px;
+	font-size: 11px;
+	font-weight: 750;
+	line-height: 1;
+	color: var(--ow-panel);
+	background: var(--ow-danger);
+}
+.ow .ow-feedback[data-tone='done']::before {
+	content: '✓';
+	content: '✓' / '';
+	background: var(--ow-accent);
+}
+.ow .ow-feedback > button.ow-link {
+	min-height: 0;
+	padding: 0 2px;
+	vertical-align: baseline;
+}
+/* A blocking error (the service's problem under the power button) stands apart from the text around
+   it, announced or not (overview.js reads out only a new one). */
+.ow .ow-feedback.ow-blocking[data-tone='error'] {
+	padding: 6px 10px;
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--ow-danger) 10%, var(--ow-panel));
+}
+/* The status column keeps its height until it has something to report. */
+.ow .ow-connection:has(> .ow-feedback:not(:empty)) {
+	height: auto;
+	min-height: 400px;
+}
+/* A device's or a rule's line reads as part of its row. */
+.ow .ow-device-row + .ow-feedback:not(:empty) {
+	padding: 6px 0 8px 14px;
+	border-bottom: 1px solid var(--ow-line);
+}
+.ow .ow-rules-custom .ow-rule-row > .ow-feedback:not(:empty) {
+	padding-left: 34px;
+}
+/* Without subscriptions the card offers the setup. */
+.ow .ow-source-setup {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 6px 0;
+}
+@container (max-width: 650px) {
+	.ow .ow-connection:has(> .ow-feedback:not(:empty)) {
+		height: auto;
+		min-height: 0;
+		grid-template-rows: 27px 20px 20px 20px 23px auto;
+	}
+	.ow .ow-connection > .ow-feedback {
+		grid-column: 1 / -1;
+		grid-row: 6;
+		text-align: left;
+	}
+}

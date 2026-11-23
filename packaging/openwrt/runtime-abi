@@ -1,0 +1,16 @@
+#!/bin/sh
+# CPU/ABI names shared by the build and the offline installer.
+case "${1:-}" in
+ --list) printf '%s\n' amd64 386 arm64 arm5 arm6 arm7 mips mipsle riscv64 loong64 ;;
+ x86_64) echo amd64 ;;
+ i386_pentium4) echo 386 ;;
+ aarch64_generic|aarch64_cortex-a53|aarch64_cortex-a72) echo arm64 ;;
+ arm_arm926ej-s) echo arm5 ;;
+ arm_arm1176jzf-s_vfp) echo arm6 ;;
+ arm_cortex-a7_neon-vfpv4|arm_cortex-a9_vfpv3-d16|arm_cortex-a15_neon-vfpv4) echo arm7 ;;
+ mips_24kc) echo mips ;;
+ mipsel_24kc) echo mipsle ;;
+ riscv64_riscv64|riscv64_generic) echo riscv64 ;;
+ loongarch64_generic) echo loong64 ;;
+ *) echo "Unsupported OpenWrt package architecture: ${1:-unknown}" >&2; exit 1 ;;
+esac

@@ -1,0 +1,50 @@
+{
+  "hyper": {
+    "description": "Manage Hyper routing on this router",
+    "read": {
+      "ubus": {
+        "hyper": [
+          "environment",
+          "devices",
+          "network_preferences",
+          "custom_rules",
+          "plugin_check",
+          "routes",
+          "traffic",
+          "latencies",
+          "status",
+          "groups",
+          "live_groups",
+          "logs",
+          "connections",
+          "rule_hits",
+          "task",
+          "subscription_read",
+          "kernel_read",
+          "conflicts"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "hyper": [
+          "health_check",
+          "save_network",
+          "save_rules",
+          "plugin_update",
+          "test_nodes",
+          "cancel_tests",
+          "start",
+          "stop",
+          "mode",
+          "source",
+          "policy",
+          "select_node",
+          "clear",
+          "subscription_write",
+          "kernel_write"
+        ]
+      }
+    }
+  }
+}
