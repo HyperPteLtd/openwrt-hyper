@@ -80,7 +80,7 @@ else
 	sh /etc/uci-defaults/luci-hyper
 fi
 BIN=/usr/libexec/hyper/bin
-v="$("$BIN/mihomo" -v | head -n1)" && ok "$v" || bad "bundled mihomo does not run"
+v="$("$BIN/mihomo" -v)" && ok "$(echo "$v" | head -n1)" || bad "bundled mihomo does not run"
 v="$("$BIN/hyperd" version)" && ok "hyperd $v" || bad "bundled hyperd does not run"
 
 echo "== first boot"
@@ -95,7 +95,8 @@ echo "== rpcd and hyperd"
 sleep 1
 /sbin/rpcd >/dev/null 2>&1 &
 "$BIN/hyperd" serve >/tmp/hyperd.log 2>&1 &
-for _ in $(seq 1 50); do [ -S /var/run/hyper/hyperd.sock ] && break; sleep 0.2; done
+# Whole seconds: the firmware's busybox sleep takes no fractions.
+for _ in $(seq 1 10); do [ -S /var/run/hyper/hyperd.sock ] && break; sleep 1; done
 if ubus -t 10 wait_for luci.hyper; then
 	n="$(ubus -v list luci.hyper | grep -c '^[[:space:]]*"')"
 	[ "$n" = 34 ] && ok "rpcd serves luci.hyper through hyperd ($n methods)" || bad "luci.hyper has $n methods"
