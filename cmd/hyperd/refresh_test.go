@@ -121,9 +121,7 @@ func TestFailingRefreshBacksOff(t *testing.T) {
 func TestFailedFirstImportRetriesOnlyTransientFailures(t *testing.T) {
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339)
-	for _, code := range []string{"subscription_token_unreachable", "locations_unreachable", "nodes",
-		"subscription_token_http_500", "subscription_token_http_502", "subscription_token_http_503", "subscription_token_http_429", "subscription_token_http_408",
-		"locations_http_504", "locations_http_429"} {
+	for _, code := range []string{"subscription_token_unreachable", "locations_unreachable", "nodes_unreachable"} {
 		src := subscription.Status{Kind: hyper, LastFailure: code, Attempts: 1, AttemptedAt: at}
 		for _, interval := range []time.Duration{0, 24 * time.Hour} {
 			if dueForRefresh(src, now.Add(14*time.Minute), time.Time{}, interval) || !dueForRefresh(src, now.Add(15*time.Minute), time.Time{}, interval) {
@@ -136,8 +134,8 @@ func TestFailedFirstImportRetriesOnlyTransientFailures(t *testing.T) {
 			t.Fatal("retry ignored the back-off", code)
 		}
 	}
-	for _, code := range []string{"", "update_failed", "subscription_token_http_400", "subscription_token_http_403", "subscription_token_http_404", "locations_http_410",
-		"subscription_token_http_5000", "locations_http_x", "subscription_tls_untrusted", "no_usable_nodes", "no_countries", "decrypt", "invalid_source_kind"} {
+	for _, code := range []string{"", "update_failed", "subscription_token_failed", "locations_failed",
+		"subscription_tls_untrusted", "no_usable_nodes", "no_countries", "decrypt", "invalid_source_kind"} {
 		src := subscription.Status{Kind: hyper, LastFailure: code, Attempts: 1, AttemptedAt: now.Add(-7 * time.Hour).Format(time.RFC3339)}
 		if dueForRefresh(src, now, time.Time{}, time.Hour) {
 			t.Fatal("retried a failure a retry cannot change", code)
@@ -166,7 +164,7 @@ func TestOfflineFirstImportCompletesBySchedule(t *testing.T) {
 	body := "proxies: [{name: Edge, type: http, server: edge.example, port: 8080}]\nrules: ['MATCH,DIRECT']"
 	serveFixtures(t, func(id string) (string, error) {
 		if id == "gone" {
-			return "", errors.New("subscription_token_http_404")
+			return "", errors.New("subscription_token_failed")
 		}
 		return body, failure
 	})
@@ -211,12 +209,12 @@ func TestOfflineFirstImportCompletesBySchedule(t *testing.T) {
 	}
 	due(status("sub"), 2)
 	// The service is overloaded, then the subscription arrives.
-	failure = errors.New("locations_http_503")
+	failure = errors.New("locations_unreachable")
 	if _, err := f.Refresh(t.Context(), store, "sub", subscription.Policy{Scheduled: true}); err == nil {
 		t.Fatal("503 imported")
 	}
 	st = status("sub")
-	if st.LastFailure != "locations_http_503" {
+	if st.LastFailure != "locations_unreachable" {
 		t.Fatal(st.LastFailure)
 	}
 	due(st, 3)
@@ -232,7 +230,7 @@ func TestOfflineFirstImportCompletesBySchedule(t *testing.T) {
 	if _, err := f.Refresh(t.Context(), store, "gone", subscription.Policy{}); err == nil {
 		t.Fatal("404 imported")
 	}
-	if st := status("gone"); st.LastFailure != "subscription_token_http_404" || dueForRefresh(st, time.Now().Add(7*time.Hour), time.Time{}, 0) {
+	if st := status("gone"); st.LastFailure != "subscription_token_failed" || dueForRefresh(st, time.Now().Add(7*time.Hour), time.Time{}, 0) {
 		t.Fatal("permanent failure retried", st.LastFailure)
 	}
 }
