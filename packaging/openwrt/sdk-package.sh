@@ -8,9 +8,10 @@ input=/tmp/input
 pkg="$input/pkg"
 feed=/tmp/feed
 name=luci-app-hyper
-# Alternative DNS, firewall, TLS and iproute2 implementations are firmware
-# capabilities. Do not ask the package manager to replace a functioning one.
-deps='libc luci-base procd busybox'
+# The dependencies 0.x declared, so a router upgrading from it (offline, by its own
+# updater) already has every one: fw4 with TProxy, the TUN driver, full iproute2 for policy
+# routing, jsonfilter and the CA bundle for HTTPS.
+deps='libc luci-base procd busybox rpcd jsonfilter firewall4 kmod-nft-tproxy kmod-tun ip-full ca-bundle'
 runtime=$pkg/usr/libexec/hyper
 payload=$pkg/tmp/hyper-package-payload
 install -d -m 1777 "$pkg/tmp"
@@ -31,6 +32,15 @@ for archive in "$payload"/*.gz; do
  printf ' %s) runtime_kb=%s;;\n' "$abi" "$(( (bytes+1023)/1024 + 1024 ))" >> "$input/runtime-space"
 done
 rm -f "$input/verify-runtime"
+# The core the package carries (fetch-core.sh) is unpacked on the router: on flash where it
+# fits, otherwise in RAM (internal/kernel installBundle).
+core_kb=0 core_gz_kb=0
+if [ -e "$pkg/usr/share/hyper/core/pin.json" ]; then
+ set -- "$pkg"/usr/share/hyper/core/*.gz
+ [ "$#" = 1 ] && [ -f "$1" ] || { echo 'Expected one bundled core' >&2; exit 1; }
+ core_kb=$(( ($(gzip -dc "$1" | wc -c) + 1023) / 1024 ))
+ core_gz_kb=$(( ($(wc -c < "$1") + 1023) / 1024 ))
+fi
 chown -R 0:0 "$pkg"
 cat > "$input/preinst" <<'HOOK'
 #!/bin/sh
@@ -77,7 +87,7 @@ cat >> "$input/preinst" <<'HOOK'
 HOOK
 cat "$input/runtime-space" >> "$input/preinst"
 payload_kb=$(du -sk "$payload" | awk '{print $1}')
-printf ' *) echo "This Hyper package has no program for the $abi CPU ($DISTRIB_ARCH); download the package for $DISTRIB_ARCH" >&2; exit 1;;\n esac\n payload_kb=%s\n' "$(( payload_kb + 1024 ))" >> "$input/preinst"
+printf ' *) echo "This Hyper package has no program for the $abi CPU ($DISTRIB_ARCH); download the package for $DISTRIB_ARCH" >&2; exit 1;;\n esac\n payload_kb=%s\n core_kb=%s\n core_gz_kb=%s\n' "$(( payload_kb + 1024 ))" "$core_kb" "$core_gz_kb" >> "$input/preinst"
 cat >> "$input/preinst" <<'HOOK'
  dest=$root/usr/libexec/hyper
  while [ ! -d "$dest" ]; do dest=${dest%/*}; [ -n "$dest" ] || dest=/; done
@@ -92,6 +102,20 @@ cat >> "$input/preinst" <<'HOOK'
  if [ "$1" -lt "$runtime_kb" ]; then
   echo "Hyper $abi needs $runtime_kb KiB free on $2 ($1 available)" >&2; exit 1
  fi
+ # The core: unpacked on flash (with 18 MiB for configuration and recovery), or in RAM on a
+ # router with 512 MiB. Refusing here keeps a router that has room for neither on the
+ # version it runs, also when its own updater installs this package. 0.x's core and
+ # programs leave with it.
+ if [ -z "$root" ] && [ "$core_kb" -gt 0 ]; then
+  free_kb=$1
+  [ ! -d "$root/usr/libexec/hyper/bin" ] || free_kb=$((free_kb + $(du -sk "$root/usr/libexec/hyper/bin" | awk '{print $1}')))
+  mem_kb=$(awk '$1 == "MemTotal:" {print $2}' /proc/meminfo)
+  if [ "$free_kb" -lt $((runtime_kb + core_gz_kb + core_kb + 18432)) ] &&
+     { [ "${mem_kb:-0}" -lt 458752 ] || [ "$tmp_kb" -lt $((payload_kb + core_kb)) ]; }; then
+   echo "Hyper's core needs $(( (runtime_kb + core_gz_kb + core_kb + 18432) / 1024 )) MiB free on $2 ($(( free_kb / 1024 )) MiB available), or 512 MiB of RAM to run from memory" >&2
+   exit 1
+  fi
+ fi
 fi
 mkdir -m 700 "$dir"
 if [ -z "$root" ]; then
@@ -100,6 +124,12 @@ if [ -z "$root" ]; then
   echo 'The firmware flock command must support file descriptor locks (-n, -u and -x)' >&2; exit 1
  fi
  rm -f "$dir/test.lock"
+ # 0.x ran /usr/libexec/hyper/bin/hyperd, which its package manager never stops on an
+ # upgrade. Stop it and release its network takeover while its own scripts are still here.
+ if [ -x /usr/libexec/hyper/bin/hyperd ]; then
+  /etc/init.d/hyper stop >/dev/null 2>&1 || :
+  [ ! -x /usr/libexec/hyper/network ] || /usr/libexec/hyper/network down >/dev/null 2>&1 || :
+ fi
 fi
 HOOK
 cat > "$input/postinst" <<'HOOK'

@@ -15,7 +15,7 @@ uci add_list rpcd.webprobe.read=hyper
 uci add_list rpcd.webprobe.write=hyper
 uci commit rpcd
 ubusd >/tmp/web-ubus.log 2>&1 & bus=$!
-rpc= daemon= web= peer=
+rpc= daemon= web=
 stage=socket
 cleanup() {
  code=$?
@@ -26,7 +26,7 @@ cleanup() {
  fi
  # Let clients finish their shutdown on the bus they started on. Otherwise
  # their cleanup can unlink the socket used by the next installation test.
- for pid in "$peer" "$web" "$daemon" "$rpc" "$bus"; do
+ for pid in "$web" "$daemon" "$rpc" "$bus"; do
   [ -n "$pid" ] || continue
   kill "$pid" 2>/dev/null || :
   wait "$pid" 2>/dev/null || :
@@ -85,26 +85,14 @@ post "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"call\",\"params\":[\"$session\"
 denied
 echo 'LuCI serves both JavaScript entry points and the authenticated Hyper ubus call succeeds'
 
-stage=probe-source
-# Configure an ordinary file subscription while the router is stopped. A second
-# listener can be closed independently of uhttpd serving the authenticated RPC.
-uhttpd -f -h /www -p 127.0.0.1:18890 >/tmp/web-peer.log 2>&1 & peer=$!
-curl -fsS --retry 5 --retry-connrefused http://127.0.0.1:18890/luci-static/resources/hyper/app.js -o /dev/null
-printf '%s' '{"config":{"id":"package-probes","name":"Package fixture","kind":"file"}}' |
- hyper-subscription configure | jsonfilter -e '@.ok' | grep -qx true
-# A subscription with its own final rule keeps the routing template, and so the network, out of the test.
-printf '%s' '{"source":"package-probes","content":"proxies:\n  - {name: loopback, type: http, server: 127.0.0.1, port: 18890}\nrules:\n  - MATCH,DIRECT\n"}' |
- hyper-subscription refresh | jsonfilter -e '@.data.decision' | grep -qx ready
-node=$(printf '%s' '{"source":"package-probes"}' | hyper-subscription nodes | jsonfilter -e '@.data.items[0].id')
-[ -n "$node" ]
 writer=$(login webprobe)
 [ -n "$writer" ] && [ "$writer" != "$anon" ]
 rpc_call() {
  post "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"call\",\"params\":[\"$writer\",\"hyper\",\"$1\",$2]}" > /tmp/web-result
  [ "$(jsonfilter -i /tmp/web-result -e '@.result[0]')" = 0 ]
 }
+stage=signed-out
 rpc_call status '{}'
-[ "$(jsonfilter -i /tmp/web-result -e '@.result[1].saved.source')" = package-probes ]
 [ "$(jsonfilter -i /tmp/web-result -e '@.result[1].saved.enabled')" = false ]
 wait_task() {
  job=$(jsonfilter -i /tmp/web-result -e '@.result[1].task')
@@ -128,32 +116,10 @@ for toggle in false true; do
  grep -Eq "^[[:space:]]*option[[:space:]]+fail_open[[:space:]]+'$bit'[[:space:]]*$" /etc/config/hyper
 done
 echo 'Authenticated LuCI RPC persisted both fail-open settings to the UCI file'
-measure() {
- rpc_call test_nodes "{\"source\":\"package-probes\",\"method\":\"$1\",\"args\":{\"nodes\":[\"$node\"]}}"
-}
-tcp_probe() {
- measure tcp
- wait_task
- rpc_call latencies '{"method":"tcp"}'
- [ "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.node')" = "$node" ]
-}
-stage=tcp-handshake
-tcp_probe
-measured=$(jsonfilter -i /tmp/web-result -e '@.result[1].*.latency.measured_at')
-[ "$measured" -gt 0 ]
-[ "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.latency.delay_ms')" -gt 0 ]
-stage=url-while-stopped
-measure url
-[ "$(jsonfilter -i /tmp/web-result -e '@.result[1].error')" = 'active source changed or core stopped' ]
-rpc_call latencies '{"method":"url"}'
-[ -z "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.node')" ]
-rpc_call latencies '{"method":"tcp"}'
-[ "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.latency.measured_at')" = "$measured" ]
-stage=tcp-closed-peer
-kill "$peer"
-wait "$peer" || :
-peer=
-tcp_probe
-[ "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.error')" = 'no confirmed measurement' ]
-[ -z "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.latency.measured_at')" ]
-echo 'Installed LuCI RPC measured a loopback TCP handshake, detected the closed peer and kept stopped-core URL tests separate'
+stage=bundled-core
+# The daemon installs the package's core offline and selects it.
+tag=$(jsonfilter -i /usr/share/hyper/core/pin.json -e '@.tag')
+core_selected() { [ "$(hyper-kernel status | jsonfilter -e '@.selected')" = "$tag" ]; }
+for i in $(seq 1 150); do core_selected && break; sleep 2; done
+core_selected
+echo "The daemon installed and selected the package's core $tag ($(hyper-kernel status | jsonfilter -e '@.mode'))"

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Download the latest stable release's installer for one package format and OpenWrt
-# architecture into an empty directory, beside its line of the release's SHA256SUMS. A
+# architecture into an empty directory, beside its line of the release's sha256sums as
+# SHA256SUMS. A
 # release without that installer (an architecture or format added since) leaves the
 # directory empty, and the install test skips the upgrade from it.
 set -eu
@@ -28,7 +29,8 @@ else
    -o /dev/null -w '%{url_effective}' "$releases/latest") || return 1
   printf '%s\n' "${_latest##*/}"
  }
- asset() { fetch "$1" "$2" "$3" "$releases/download/$tag/$4"; }
+ # GitHub's download address escapes the + of a name.
+ asset() { fetch "$1" "$2" "$3" "$releases/download/$tag/$(printf '%s' "$4" | sed 's/+/%2B/g')"; }
 fi
 # Reaching GitHub is the test's precondition, not its result: when the release can't be read,
 # the upgrade from it is skipped with a warning instead of failing the whole matrix.
@@ -40,12 +42,12 @@ tag=$(retry latest) || unreachable 'release lookup failed'
 if ! printf '%s\n' "$tag" | grep -Eqx 'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'; then
  echo "Unexpected latest release tag: $tag" >&2; exit 1
 fi
-retry asset 60 65536 "$work/SHA256SUMS" SHA256SUMS || unreachable "SHA256SUMS of $tag"
-# The release names follow internal/release PackageName: the revision follows the last preview.
+retry asset 60 65536 "$work/SHA256SUMS" sha256sums || unreachable "sha256sums of $tag"
+# The release names follow internal/release PackageName.
 version=$(printf '%s' "${tag#v}" | sed 's/\./\\./g')
 case "$format" in
- ipk) pattern="luci-app-hyper_$version-[1-9][0-9]*_$arch\\.ipk" ;;
- apk) pattern="luci-app-hyper-$version-r[1-9][0-9]*_$arch\\.apk" ;;
+ ipk) pattern="23\\.05-24\\.10_luci-app-hyper_${version}_$arch\\.ipk" ;;
+ apk) pattern="25\\.12\\+_luci-app-hyper-$version-$arch\\.apk" ;;
 esac
 count=$(grep -Ec "^[0-9a-f]{64}  $pattern\$" "$work/SHA256SUMS" || true)
 case "$count" in

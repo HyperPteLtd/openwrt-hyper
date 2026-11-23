@@ -52,6 +52,20 @@ case "$revision" in 0*|*[!0-9]*|'') echo 'Expected a positive package revision' 
 [ -n "$package_arch" ] || [ "$revision" = 1 ] || { echo 'Release assets use revision 1' >&2; exit 1; }
 if [ -n "$package_arch" ]; then
  abis=$("$base/runtime-abi" "$package_arch")
+ # The core the package carries for its CPU (fetch-core.sh): from HYPER_CORE_DIR/<ABI>, as
+ # CI's core jobs fetch it, or downloaded here. A universal test package carries none.
+ if [ -n "${HYPER_CORE_DIR:-}" ]; then
+  core=$HYPER_CORE_DIR/$abis
+ else
+  core=$tmp/core
+  mkdir "$core"
+  "$base/fetch-core.sh" "$abis" "$core"
+ fi
+ test -s "$core/core/pin.json"
+ mkdir -p "$tmp/pkg/usr/share/hyper/core" "$tmp/pkg/usr/share/licenses/luci-app-hyper/core"
+ cp "$core/core/"* "$tmp/pkg/usr/share/hyper/core/"
+ cp "$core/licenses/"* "$tmp/pkg/usr/share/licenses/luci-app-hyper/core/"
+ chmod 644 "$tmp/pkg/usr/share/hyper/core/"* "$tmp/pkg/usr/share/licenses/luci-app-hyper/core/"*
 else
  abis=$("$base/runtime-abi" --list)
 fi

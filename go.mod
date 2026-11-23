@@ -2,6 +2,8 @@ module github.com/HyperPteLtd/openwrt-hyper
 
 go 1.25.0
 
+toolchain go1.25.5
+
 require (
 	aead.dev/minisign v0.3.0
 	github.com/klauspost/compress v1.17.9

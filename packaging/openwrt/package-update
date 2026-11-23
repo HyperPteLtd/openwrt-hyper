@@ -52,29 +52,23 @@ ucode -F "release=$tmp/release.json" -e '
      length(release.tag_name) > 65 || !match(release.tag_name, /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/) ||
      release.html_url !== repo + "/tag/" + release.tag_name || type(release.assets) != "array" ||
      length(release.assets) != length(arches.opkg) + length(arches.apk) + 1 ||
-     length(filter(release.assets, x => x.name === "SHA256SUMS")) != 1)
+     length(filter(release.assets, x => x.name === "sha256sums")) != 1)
      die("Invalid official package release");
  if (index(arches[format], arch) < 0) die("No official package for this router architecture");
  let version = substr(release.tag_name, 1);
- // Every installer of a release carries the same package revision (1.0.1-r4).
- let revision;
- for (let x in release.assets) {
-     let m = match(x.name, /^luci-app-hyper_[0-9.]+-([1-9][0-9]{0,5})_[A-Za-z0-9_-]+\.ipk$/);
-     if (!m) continue;
-     if (revision != null && revision !== m[1]) die("Inconsistent package revisions");
-     revision = m[1];
- }
- if (revision == null) die("Missing package revision");
+ // internal/release PackageName; every release is package revision 1.
+ let revision = "1";
  let wanted = [];
- for (let a in arches.opkg) push(wanted, ["opkg", a, "luci-app-hyper_" + version + "-" + revision + "_" + a + ".ipk"]);
- for (let a in arches.apk) push(wanted, ["apk", a, "luci-app-hyper-" + version + "-r" + revision + "_" + a + ".apk"]);
+ for (let a in arches.opkg) push(wanted, ["opkg", a, "23.05-24.10_luci-app-hyper_" + version + "_" + a + ".ipk"]);
+ for (let a in arches.apk) push(wanted, ["apk", a, "25.12+_luci-app-hyper-" + version + "-" + a + ".apk"]);
  let selected;
  for (let entry in wanted) {
      let formatName = entry[0], name = entry[2];
      let found = filter(release.assets, x => x.name === name);
      if (length(found) != 1) die("Missing or duplicate package asset");
      let a = found[0];
-     if (a.state !== "uploaded" || a.browser_download_url !== repo + "/download/" + release.tag_name + "/" + name ||
+     // GitHub escapes the + of a name in its download address.
+     if (a.state !== "uploaded" || a.browser_download_url !== repo + "/download/" + release.tag_name + "/" + replace(name, "+", "%2B") ||
          type(a.size) != "int" || a.size < 1 || a.size > 268435456 || type(a.digest) != "string" ||
          length(a.digest) != 71 || !match(a.digest, /^sha256:[a-f0-9]{64}$/))
          die("Invalid package asset identity or SHA256 digest");
@@ -131,7 +125,7 @@ if [ "$action" = apply ] && [ "$available" = true ]; then
  for choice in $order; do
   prefix=$choice; [ "$choice" != direct ] || prefix=
   rm -f "$tmp/$file"
-  if fetch "$prefix$downloads/v$release_version/$file" "$file" "$(((size + 511) / 512))" 2>/dev/null &&
+  if fetch "$prefix$downloads/v$release_version/$(printf '%s' "$file" | sed 's/+/%2B/g')" "$file" "$(((size + 511) / 512))" 2>/dev/null &&
      [ "$(wc -c < "$tmp/$file")" -eq "$size" ] &&
      printf '%s  %s\n' "$digest" "$tmp/$file" | sha256sum -c - >/dev/null 2>&1; then
    fetched=1

@@ -97,7 +97,7 @@ queue_first_kernel() {
  [ ! -e "$pending" ] && [ ! -e "$attempted" ] || return 0
  [ ! -L "$pending" ] && [ ! -L "$attempted" ] && (set -C; : > "$pending")
 }
-queue_first_kernel || echo 'Hyper could not queue the initial Mihomo download; use kernel management in LuCI.' >&2
+queue_first_kernel || echo 'Hyper could not queue the installation of its core; restart the hyper service to retry.' >&2
 if [ -z "$root" ]; then
  /etc/init.d/hyper enable
  if [ "$(cat /proc/1/comm)" = procd ] || ubus -t 2 list service 2>/dev/null | grep -qx service; then

@@ -106,3 +106,12 @@ func CheckRules(dir string, refresh bool) error {
 	}
 	return nil
 }
+
+func splitLines(s string) []string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	lines := strings.Split(s, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}

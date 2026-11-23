@@ -1,12 +1,9 @@
-// Command hyper-release builds, verifies and publishes the Hyper Release assets.
+// Command hyper-release names and checks the Hyper Release assets for the build.
 //
 //	hyper-release version VERSION
 //	hyper-release matrix [--format ipk|apk]
 //	hyper-release arches ipk|apk
 //	hyper-release package-name VERSION ipk|apk ARCH
-//	hyper-release assets VERSION FEEDS OUTPUT
-//	hyper-release notes [--preview-tag TAG --commit SHA] REPO VERSION ASSETS
-//	hyper-release publish --repo R --tag vX.Y.Z --commit SHA --assets DIR --notes FILE
 //	hyper-release fake-latest DIR RESPONSE [--invalid KIND] [--contents FILE]
 //	hyper-release licenses OUTPUT
 //	hyper-release rules [--check-package DIR]
@@ -60,13 +57,6 @@ func main() {
 		if !release.ValidVersion(a[0]) {
 			fail("expected a numeric major.minor.patch version: %q", a[0])
 		}
-	case "next-version":
-		// The version of the next release: the newest stable tag raised by the
-		// conventional commits after it. CI writes it to VERSION before building.
-		args(fs, argv, 0, "")
-		v, err := release.NextVersion(".")
-		check(err)
-		fmt.Println(v)
 	case "arches":
 		a := args(fs, argv, 1, "ipk|apk")
 		if !slices.Contains(release.Formats, a[0]) {
@@ -75,7 +65,7 @@ func main() {
 		fmt.Println(strings.Join(release.Arches[a[0]], " "))
 	case "package-name":
 		a := args(fs, argv, 3, "VERSION ipk|apk ARCH")
-		if !release.ValidPackageVersion(a[0]) || !slices.Contains(release.Formats, a[1]) || !slices.Contains(release.Arches[a[1]], a[2]) {
+		if !release.ValidVersion(a[0]) || !slices.Contains(release.Formats, a[1]) || !slices.Contains(release.Arches[a[1]], a[2]) {
 			fail("invalid version, format or architecture")
 		}
 		fmt.Println(release.PackageName(a[0], a[1], a[2]))
@@ -88,38 +78,6 @@ func main() {
 		data, err := json.Marshal(map[string]any{"include": release.Matrix(*format)})
 		check(err)
 		fmt.Println(string(data))
-	case "assets":
-		a := args(fs, argv, 3, "VERSION FEEDS OUTPUT")
-		check(release.Assemble(a[0], a[1], a[2]))
-	case "notes":
-		previewTag := fs.String("preview-tag", "", "v<VERSION>-preview.<N> for a pre-release")
-		commit := fs.String("commit", "", "develop commit of the pre-release")
-		a := args(fs, argv, 3, "[--preview-tag TAG --commit SHA] REPO VERSION ASSETS")
-		var preview *release.Preview
-		if *previewTag != "" {
-			preview = &release.Preview{Tag: *previewTag, Commit: *commit}
-		}
-		notes, err := release.RenderNotes(a[0], a[1], a[2], preview)
-		check(err)
-		fmt.Print(notes)
-	case "publish":
-		repo := fs.String("repo", "", "owner/name")
-		tag := fs.String("tag", "", "vX.Y.Z")
-		commit := fs.String("commit", "", "tested commit SHA")
-		assets := fs.String("assets", "", "directory of the installers")
-		notesFile := fs.String("notes", "", "release notes file")
-		args(fs, argv, 0, "--repo R --tag vX.Y.Z --commit SHA --assets DIR --notes FILE")
-		if !release.ValidRepo(*repo) || !release.ValidTag(*tag) || !release.ValidCommit(*commit) || *assets == "" {
-			fail("invalid repository, version tag, commit SHA or assets")
-		}
-		token := os.Getenv("GH_TOKEN")
-		if token == "" {
-			fail("GH_TOKEN is required")
-		}
-		notes, err := os.ReadFile(*notesFile)
-		check(err)
-		check(release.Publish(release.NewGitHub(*repo, token), *tag, *commit, *assets, string(notes),
-			func(s string) { fmt.Println(s) }))
 	case "fake-latest":
 		invalid := fs.String("invalid", "", strings.Join(release.FakeLatestInvalid, ", "))
 		contents := fs.String("contents", "", "serve the hash of an alternate fixture package")

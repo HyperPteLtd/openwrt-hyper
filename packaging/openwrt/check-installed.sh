@@ -51,6 +51,17 @@ check_upgraded() {
  # The core runs as root:nogroup; base-files brings the group, the package no account.
  test "$(awk -F: '$1 == "nogroup" { print $3 }' /etc/group)" = 65534
  test ! -e /usr/sbin/mihomo
+ check_core
+ # 0.x's programs and core went with its package.
+ test ! -e /usr/libexec/hyper/bin/hyperd && test ! -e /usr/libexec/hyper/bin/mihomo
+}
+# The package's core (packaging/openwrt/fetch-core.sh) and its source notice.
+check_core() {
+ pin=/usr/share/hyper/core/pin.json
+ name=$(jsonfilter -i "$pin" -e '@.name')
+ case "$name" in mihomo-linux-*-"$(jsonfilter -i "$pin" -e '@.tag')".gz) ;; *) echo "Unexpected bundled core $name" >&2; exit 1;; esac
+ printf '%s  %s\n' "$(jsonfilter -i "$pin" -e '@.sha256')" "/usr/share/hyper/core/$name" | sha256sum -c -
+ test -s /usr/share/licenses/luci-app-hyper/core/SOURCE
 }
 case "$1" in reject-*|upgrade) PATH=/tmp/hyper-test-bin:$PATH; export PATH;; esac
 case "$1" in
@@ -130,12 +141,13 @@ FETCH
   set -- /tmp/verified-feed/*
   test "$#" = 1 && test -f "$1"
   case "${1##*/}" in
-   luci-app-hyper-*-r[0-9]*.apk) apk --no-network --repositories-file /dev/null add --allow-untrusted "$1" ;;
-   luci-app-hyper_*-[0-9]*_*.ipk) opkg install "$1" ;;
+   25.12+_luci-app-hyper-*.apk) apk --no-network --repositories-file /dev/null add --allow-untrusted "$1" ;;
+   23.05-24.10_luci-app-hyper_*.ipk) opkg install "$1" ;;
    *) echo 'Expected a single installation file' >&2; exit 1 ;;
   esac
   rm "$1"
   test -x /usr/libexec/hyper/manager && test ! -e /tmp/hyper-package-payload
+  check_core
   (cd /usr/share/hyper/rules && sha256sum -c SHA256SUMS)
   awk '$3 == "geoip-cn.mrs" { ip++ } $3 == "geosite-cn.mrs" { site++ }
        END { exit !(ip == 1 && site == 1) }' /usr/share/hyper/rules/CATALOG

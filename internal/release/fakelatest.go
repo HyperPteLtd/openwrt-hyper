@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"slices"
 	"strings"
 )
 
@@ -33,15 +31,11 @@ func FakeLatest(dir, response, invalid, contents string) (string, error) {
 	}
 	pkg := packages[0]
 	name := filepath.Base(pkg)
-	names := map[string]*regexp.Regexp{
-		".apk": regexp.MustCompile(`^luci-app-hyper-(\d+\.\d+\.\d+)-r([1-9][0-9]*)_([a-z0-9_-]+)\.apk$`),
-		".ipk": regexp.MustCompile(`^luci-app-hyper_(\d+\.\d+\.\d+)-([1-9][0-9]*)_([a-z0-9_-]+)\.ipk$`),
-	}
-	m := names[filepath.Ext(name)].FindStringSubmatch(name)
-	if m == nil || !slices.Contains(Arches[filepath.Ext(name)[1:]], m[3]) {
+	version, _, _, ok := ParsePackageName(name)
+	if !ok {
 		return "", fmt.Errorf("unexpected Release package name: %s", name)
 	}
-	tag := "v" + m[1]
+	tag := "v" + version
 	repo := "https://github.com/HyperPteLtd/openwrt-hyper/releases"
 	type asset struct {
 		Name     string  `json:"name"`
@@ -57,8 +51,7 @@ func FakeLatest(dir, response, invalid, contents string) (string, error) {
 		Prerelease bool    `json:"prerelease"`
 		Assets     []asset `json:"assets"`
 	}{TagName: tag, HTMLURL: repo + "/tag/" + tag}
-	// A release's revision follows its last preview, so it is read from the package name.
-	for _, filename := range releaseNames(m[1] + "-r" + m[2]) {
+	for _, filename := range ReleaseNames(version) {
 		var size int64
 		var digest string
 		if filename == name {
@@ -76,18 +69,18 @@ func FakeLatest(dir, response, invalid, contents string) (string, error) {
 			size = info.Size()
 		} else {
 			// Each CI job builds one architecture and format. These sibling entries
-			// and SHA256SUMS are never downloaded.
+			// and the sums are never downloaded.
 			payload := sha256.Sum256([]byte("other package: " + filename))
 			size, digest = int64(len("other package: "+filename)), hex.EncodeToString(payload[:])
 		}
 		d := "sha256:" + digest
-		a := asset{Name: filename, State: "uploaded", Size: size, Digest: &d, Download: repo + "/download/" + tag + "/" + filename}
+		a := asset{Name: filename, State: "uploaded", Size: size, Digest: &d, Download: AssetURL("HyperPteLtd/openwrt-hyper", tag, filename)}
 		if filename == name {
 			switch invalid {
 			case "digest":
 				a.Digest = nil
 			case "url":
-				a.Download = strings.Replace(a.Download, "/hyper/", "/other/", 1)
+				a.Download = strings.Replace(a.Download, "/openwrt-hyper/", "/openwrt-other/", 1)
 			}
 		}
 		resp.Assets = append(resp.Assets, a)
@@ -100,7 +93,7 @@ func FakeLatest(dir, response, invalid, contents string) (string, error) {
 	case "tag":
 		resp.TagName = "v99.0.0"
 	case "origin":
-		resp.HTMLURL = strings.Replace(resp.HTMLURL, "/hyper/", "/other/", 1)
+		resp.HTMLURL = strings.Replace(resp.HTMLURL, "/openwrt-hyper/", "/openwrt-other/", 1)
 	case "draft":
 		resp.Draft = true
 	case "prerelease":

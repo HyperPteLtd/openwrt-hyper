@@ -1,4 +1,4 @@
-// Package release names, verifies, describes and publishes the per-architecture Hyper installers.
+// Package release names and checks the per-architecture Hyper installers of a GitHub Release.
 package release
 
 import (
@@ -8,10 +8,15 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
+	"strings"
 )
 
 // Name is the package-manager name of the installer.
 const Name = "luci-app-hyper"
+
+// SumsName is the Release asset listing every installer's SHA-256.
+const SumsName = "sha256sums"
 
 // commonArches are the OpenWrt package architectures every supported firmware publishes.
 var commonArches = []string{"x86_64", "i386_pentium4", "aarch64_generic", "aarch64_cortex-a53", "aarch64_cortex-a72",
@@ -26,65 +31,66 @@ var Arches = map[string][]string{
 	"apk": append(append([]string(nil), commonArches...), "riscv64_generic", "loongarch64_generic"),
 }
 
-// AllArches lists every architecture of either format, in release-notes order.
-var AllArches = append(append([]string(nil), commonArches...), "riscv64_riscv64", "riscv64_generic", "loongarch64_generic")
-
 // Formats are the two package formats, opkg (23.05 / 24.10) and apk (25.12).
 var Formats = []string{"ipk", "apk"}
+
+// Families name the firmware a format serves, the prefix of its Release names.
+var Families = map[string]string{"ipk": "23.05-24.10", "apk": "25.12+"}
 
 var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
 // ValidVersion reports whether v is a plain major.minor.patch release version.
 func ValidVersion(v string) bool { return len(v) <= 64 && versionPattern.MatchString(v) }
 
-var revisionPattern = regexp.MustCompile(`^((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))-r([1-9][0-9]{0,5})$`)
-
-// RevisionVersion is the package version of revision n of version: 1.0.1-r3. Previews of a
-// version count r1, r2, …; its stable release takes the next revision, so every build upgrades
-// the one before it in both opkg and apk.
-func RevisionVersion(version string, n int) string { return fmt.Sprintf("%s-r%d", version, n) }
-
-// ValidPackageVersion accepts a release version (revision 1) or a version with a revision.
-func ValidPackageVersion(v string) bool {
-	return ValidVersion(v) || len(v) <= 64 && revisionPattern.MatchString(v)
-}
-
-// splitRevision returns the version and package revision of a package version.
-func splitRevision(v string) (string, string) {
-	if m := revisionPattern.FindStringSubmatch(v); m != nil {
-		return m[1], m[2]
+// PackageVersion is the version the package manager records for a release: revision 1.
+func PackageVersion(version, format string) string {
+	if format == "apk" {
+		return version + "-r1"
 	}
-	return v, "1"
+	return version + "-1"
 }
 
-// PackageName returns the Release file name of the installer for an OpenWrt architecture.
+// PackageName returns the Release file name of the installer for an OpenWrt architecture,
+// as 0.x's updater looks for it.
 func PackageName(version, format, arch string) string {
-	base, rev := splitRevision(version)
 	switch format {
 	case "ipk":
-		return fmt.Sprintf("%s_%s-%s_%s.ipk", Name, base, rev, arch)
+		return fmt.Sprintf("%s_%s_%s_%s.ipk", Families[format], Name, version, arch)
 	case "apk":
-		return fmt.Sprintf("%s-%s-r%s_%s.apk", Name, base, rev, arch)
+		return fmt.Sprintf("%s_%s-%s-%s.apk", Families[format], Name, version, arch)
 	}
 	panic("unknown package format: " + format)
 }
 
-// FormatNames returns every installer of one format.
-func FormatNames(version, format string) []string {
-	names := make([]string, 0, len(Arches[format]))
-	for _, arch := range Arches[format] {
-		names = append(names, PackageName(version, format, arch))
+var namePattern = regexp.MustCompile(`^(23\.05-24\.10_luci-app-hyper_|25\.12\+_luci-app-hyper-)((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))[_-]([a-z0-9_-]+)\.(ipk|apk)$`)
+
+// ParsePackageName reads a Release installer name.
+func ParsePackageName(name string) (version, format, arch string, ok bool) {
+	m := namePattern.FindStringSubmatch(name)
+	if m == nil {
+		return "", "", "", false
 	}
-	return names
+	version, arch, format = m[2], m[3], m[4]
+	if !slices.Contains(Arches[format], arch) || PackageName(version, format, arch) != name {
+		return "", "", "", false
+	}
+	return version, format, arch, true
 }
 
-// AllNames returns every installer of a release.
-func AllNames(version string) []string {
+// AssetURL is GitHub's download address of a Release asset: it escapes the + of a name.
+func AssetURL(repo, tag, name string) string {
+	return "https://github.com/" + repo + "/releases/download/" + tag + "/" + strings.ReplaceAll(name, "+", "%2B")
+}
+
+// ReleaseNames returns every asset of a release: each installer, then SumsName.
+func ReleaseNames(version string) []string {
 	var names []string
 	for _, format := range Formats {
-		names = append(names, FormatNames(version, format)...)
+		for _, arch := range Arches[format] {
+			names = append(names, PackageName(version, format, arch))
+		}
 	}
-	return names
+	return append(names, SumsName)
 }
 
 // Digest returns the hex SHA-256 of a file.
