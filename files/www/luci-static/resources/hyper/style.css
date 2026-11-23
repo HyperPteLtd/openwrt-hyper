@@ -1,5 +1,7 @@
 @import url('./pages/proxy.css');
 @import url('./pages/records.css');
+@import url('./pages/account.css');
+@import url('./pages/plans.css');
 
 .ow {
 	--ow-bg: #fff;

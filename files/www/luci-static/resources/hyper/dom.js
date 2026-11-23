@@ -178,8 +178,8 @@ const diagnosticText = {
     kernel_bootstrap_queue_failed: '首次内核准备未能加入任务队列',
     rule_provider_cleanup_failed: '清理未使用的规则集失败',
     // Why an update a refresh downloaded was not applied (task stage held).
-    confirmation_required: '订阅有变更待确认，请到订阅页查看并确认',
-    update_blocked: '订阅的新版本无法使用，已保留上次配置，可到订阅页查看原因',
+    confirmation_required: '节点有变更待确认，请到账户页查看并确认',
+    update_blocked: '同步到的新版本无法使用，已保留上次的节点，可到账户页查看原因',
     initial_subscription_select_failed: '无法选择初始订阅',
     superseded: '已被更新的任务取代',
     task_journal_write_failed: '任务记录写入失败',
@@ -253,8 +253,8 @@ const diagnosticText = {
     context_deadline_exceeded: '操作超时',
     not_found: '找不到这个订阅',
     not_ready: '订阅尚未就绪，请先更新订阅',
-    login_required: '登录已失效，请重新登录服务商账户',
-    suspended: '服务商暂停了此订阅，请到服务商处查看',
+    login_required: '登录已失效，请重新登录 Hyper 账户',
+    suspended: '套餐已到期或不可用，续费后再同步',
     platform_account_revoked: '服务商账户已停用',
     subscription_app_disabled: '服务商已停止向此客户端提供订阅，请联系服务商',
     entitlement_check_failed: '无法向服务商确认套餐状态，请稍后重试',
@@ -320,6 +320,26 @@ const diagnosticText = {
     unsupported_group_option: '策略组有路由器无法使用的选项，已忽略',
     // A node the page chose that the current kernel cannot use (select_node).
     mihomo_protocol_unsupported: '当前内核无法使用该协议，请切换到支持它的版本',
+    // The Hyper account (subscription helper: hyper methods and the hyper source).
+    subscription_token_unreachable: '暂时无法连接 Hyper 服务，请检查网络后重试',
+    locations_unreachable: '暂时无法连接 Hyper 服务，请检查网络后重试',
+    subscription_token_failed: 'Hyper 服务拒绝了订阅请求，请确认套餐是否有效',
+    locations_failed: 'Hyper 服务拒绝了节点列表请求，请稍后重试',
+    nodes_unreachable: '所有地区的节点都没能读取，已保留上次的节点，请稍后重试',
+    not_signed_in: '尚未登录 Hyper 账户',
+    no_subscription: '账户还没有可用的套餐',
+    no_countries: '账户下暂时没有可用的节点',
+    'not signed in': '尚未登录 Hyper 账户',
+    account_unavailable: '账户服务不可用，请重启 Hyper 服务后重试',
+    'missing credentials': '请输入邮箱和验证码',
+    'illegal email': '请输入正确的邮箱地址',
+    'illegal method': '请求方法不允许',
+    'path not allowed': '路由器不允许访问这个账户接口',
+    'idempotency key required': '支付请求缺少防重复标识，请刷新页面后重试',
+    'illegal date': '签到日期无效，请检查路由器时间',
+    'write failed': '无法保存签到记录，请检查路由器存储空间',
+    invalid_hyper_source: '账户订阅配置无效',
+    invalid_rule_toggle: '规则开关请求无效',
 };
 
 const taskText = {
@@ -337,6 +357,7 @@ const taskText = {
 };
 const taskStep = {
     configure: '修改设置', login: '登录', logout: '退出登录', site: '获取站点信息',
+    send_code: '发送验证码', api: '读取账户信息', checkin: '签到', rule_toggle: '切换服务端规则',
     preferences: '修改偏好', rollback: '回滚', revoke: '撤销授权',
     url: 'URL 测速', tcp: 'TCP 测速', versions: '获取版本列表', 'install-json': '安装', select: '切换版本',
 };

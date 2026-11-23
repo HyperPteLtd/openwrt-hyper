@@ -1,0 +1,301 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Plans and payment (pages/plans.js): the plan picker, the order preview and the open order. */
+.ow .ow-plans {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	min-width: 0;
+}
+.ow .ow-plans [tabindex='-1']:focus {
+	outline: none;
+}
+/* A control locked while another action runs reads as unavailable but keeps its focus. */
+.ow .ow-plans button[aria-disabled='true'] {
+	cursor: default;
+	opacity: 0.55;
+}
+
+/* The way back and the steps. */
+.ow .ow-plans-head {
+	gap: 12px;
+}
+.ow .ow-plans-back {
+	display: inline-flex;
+	align-items: center;
+	min-height: 34px;
+	color: var(--ow-accent);
+	font-weight: 550;
+	text-decoration: none;
+}
+.ow .ow-plans-back:hover {
+	text-decoration: underline;
+	text-underline-offset: 4px;
+}
+.ow .ow-plans-steps {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	font-size: 13px;
+}
+.ow .ow-plans-steps li {
+	padding: 5px 12px;
+	border-radius: 99px;
+	background: var(--ow-soft);
+	color: var(--ow-secondary);
+	white-space: nowrap;
+}
+.ow .ow-plans-steps li.is-done {
+	background: var(--ow-fill);
+	color: var(--ow-text);
+}
+.ow .ow-plans-steps li[aria-current='step'] {
+	background: var(--ow-teal);
+	color: #002c28;
+	font-weight: 650;
+}
+
+/* Picking a plan and its period. */
+.ow .ow-plans-pick {
+	gap: 22px;
+}
+.ow .ow-plans-plan {
+	gap: 10px;
+}
+.ow .ow-plans-plan-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 12px;
+}
+.ow .ow-plans-tiers {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(170px, 100%), 1fr));
+	gap: 12px;
+}
+.ow button.ow-plans-tier {
+	flex-direction: column;
+	gap: 6px;
+	min-height: 132px;
+	padding: 18px 12px;
+	border: 1px solid var(--ow-line);
+	border-radius: 16px;
+	background: var(--ow-soft);
+	text-align: center;
+	font-weight: 500;
+}
+.ow button.ow-plans-tier strong {
+	font-size: 24px;
+	font-weight: 750;
+	letter-spacing: -0.01em;
+}
+.ow button.ow-plans-tier s {
+	font-size: 12px;
+}
+.ow button.ow-plans-tier[aria-checked='true'] {
+	border-color: var(--ow-teal);
+	background: var(--ow-tint);
+	box-shadow: inset 0 0 0 1px var(--ow-teal);
+}
+.ow button.ow-plans-tier[aria-checked='true'] strong {
+	color: var(--ow-accent);
+}
+.ow .ow-plans-summary {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 12px 28px;
+	padding-top: 16px;
+	border-top: 1px solid var(--ow-line);
+}
+.ow .ow-plans-summary button {
+	min-width: 180px;
+}
+.ow .ow-plans-price {
+	font-size: 30px;
+	font-weight: 750;
+	line-height: 1.15;
+	color: var(--ow-accent);
+	letter-spacing: -0.02em;
+}
+
+/* The order preview and the open order: the details beside what to pay. */
+.ow .ow-plans-split {
+	display: grid;
+	grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+	gap: 16px;
+	align-items: start;
+}
+.ow .ow-plans-facts {
+	gap: 10px 16px;
+}
+.ow .ow-plans-facts dd {
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+.ow .ow-plans-facts dd.ow-plans-strong {
+	color: var(--ow-accent);
+	font-weight: 700;
+}
+.ow .ow-plans-coupon {
+	display: flex;
+	gap: 8px;
+	min-width: 0;
+}
+.ow .ow-plans-coupon input {
+	flex: 1 1 auto;
+}
+.ow .ow-plans-coupon button {
+	flex: none;
+}
+.ow .ow-plans-options {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	min-width: 0;
+}
+.ow .ow-plans-options legend {
+	padding: 0 0 6px;
+}
+.ow .ow-plans-tokens {
+	flex-direction: row;
+	flex-wrap: wrap;
+}
+.ow button.ow-plans-option {
+	justify-content: flex-start;
+	text-align: left;
+	border: 1px solid var(--ow-line);
+	background: var(--ow-panel);
+	font-weight: 500;
+}
+.ow button.ow-plans-option[aria-checked='true'] {
+	border-color: var(--ow-teal);
+	background: var(--ow-tint);
+	box-shadow: inset 0 0 0 1px var(--ow-teal);
+}
+.ow .ow-plans-option-text {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.ow .ow-plans-due > button {
+	width: 100%;
+}
+
+/* Paying: the countdown, then the payment action. */
+.ow .ow-plans-pay {
+	align-items: center;
+	text-align: center;
+	gap: 18px;
+}
+.ow .ow-plans-wait,
+.ow .ow-plans-center {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	max-width: 100%;
+}
+.ow .ow-plans-clock {
+	font-size: 28px;
+	font-weight: 800;
+	color: var(--ow-accent);
+}
+.ow .ow-plans-clock.is-urgent {
+	color: var(--ow-danger);
+}
+.ow .ow-plans-qr {
+	display: inline-flex;
+	padding: 12px;
+	border-radius: 16px;
+	background: #fff;
+	line-height: 0;
+	max-width: 100%;
+}
+.ow .ow-plans-qr svg {
+	display: block;
+	max-width: 100%;
+	height: auto;
+}
+.ow a.ow-plans-open {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: min(240px, 100%);
+	min-height: 40px;
+	padding: 8px 18px;
+	border-radius: 10px;
+	background: var(--ow-teal);
+	color: #002c28;
+	font-weight: 600;
+	text-decoration: none;
+}
+.ow a.ow-plans-open:hover {
+	filter: brightness(1.06);
+}
+.ow .ow-plans-crypto {
+	width: 100%;
+	max-width: 460px;
+	text-align: left;
+}
+.ow .ow-plans-crypto-amount {
+	font-size: 26px;
+	font-weight: 750;
+}
+.ow .ow-plans-address-row {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	max-width: 100%;
+}
+.ow .ow-plans-address {
+	padding: 8px 12px;
+	border-radius: 10px;
+	background: var(--ow-soft);
+	font-size: 12px;
+	overflow-wrap: anywhere;
+	user-select: all;
+}
+.ow .ow-plans-center .ow-warning {
+	max-width: 460px;
+}
+
+/* Paid, or closed without payment. */
+.ow .ow-plans-result {
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	min-height: 320px;
+}
+.ow .ow-plans-result .ow-feedback:not(:empty) {
+	width: auto;
+}
+.ow .ow-plans-success {
+	color: var(--ow-accent);
+}
+
+@container (max-width: 840px) {
+	.ow .ow-plans-split {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+@container (max-width: 650px) {
+	.ow .ow-plans-summary {
+		justify-content: space-between;
+	}
+	.ow .ow-plans-summary > .ow-muted {
+		flex-basis: 100%;
+	}
+	.ow .ow-plans-summary button {
+		flex: 1 1 100%;
+	}
+}

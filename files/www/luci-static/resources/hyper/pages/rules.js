@@ -1,6 +1,6 @@
 // The rules page: custom rules and the rule sets of the active subscription.
 import { attach, hush, diagnosticMessage, day, mainlandSets, isMainland, mainlandName, setLabel, setRefs } from '../dom.js';
-import { ids, actions, muted, badge, field, input, choice, read, date, form, confirm, importSource, reimport } from './sources.js';
+import { ids, actions, muted, badge, field, input, choice, read, date, form, confirm, syncHyper, write } from './common.js';
 
 const matchType = {
     domain: 'DOMAIN',
@@ -331,9 +331,7 @@ function ruleSetCard(u, source, primary, initial, hits) {
     ];
     const routes = setRoutes(initial.items);
     const feedback = u.h('div', { class: 'ow-muted', role: 'status', hidden: true });
-    const btn = u.button('更新订阅规则集', () =>
-        primary?.kind === 'file' ? reimport(u, source, feedback) : importSource(u, source, '', feedback),
-    );
+    const btn = u.button('同步服务端规则', () => syncHyper(u, feedback));
     btn.disabled = !primary?.ready || initial.local || names.every(isMainland);
     const cards = names.map((name) => {
         const builtIn = isMainland(name),
@@ -452,12 +450,13 @@ export async function rules(u) {
         primary = (u.sources || []).find((s) => s.source === source),
         ready = primary?.ready;
     const emptyPage = { items: [], positions: [], sets: {}, binary: {}, total: 0, local: false };
-    const [customResponse, groups, initial, hits] = await Promise.all([
+    const [customResponse, groups, initial, hits, catalog] = await Promise.all([
         u.rpc('custom_rules'),
         ready ? allGroups(u, source) : [],
         // As many rules as one read returns, so more of the rule sets show where they lead.
         ready ? read(u, 'rules', { source, limit: 256 }) : emptyPage,
         u.rpc('rule_hits').catch(() => ({})),
+        read(u, 'catalog').catch(() => ({ items: [] })),
     ]);
     const name = u.name,
         labels = new Map([...groups, ...(u.status.intent?.policy?.groups || [])].map((g) => [g.id, g.name]));
@@ -467,11 +466,54 @@ export async function rules(u) {
     return u.h(
         'div',
         { class: 'ow-dashboard ow-rules' },
-        u.h('div', { class: 'ow-side-stack ow-rules-builtin' }, ruleSetCard(u, source, primary, initial, hits)),
+        u.h('div', { class: 'ow-side-stack ow-rules-builtin' }, catalogCard(u, catalog.items || []), ruleSetCard(u, source, primary, initial, hits)),
         u.h(
             'div',
             { class: 'ow-side-stack ow-rules-custom' },
             customCard(u, customResponse.items || [], source, initial.local),
         ),
     );
+}
+
+// The Hyper server's rule lists, in the server's order: each can be turned off on this router.
+// A change takes effect by syncing the account again, which the router starts by itself.
+const policyName = { DIRECT: '直连', PROXY: '代理' };
+function catalogCard(u, items) {
+    const box = u.h('section', { class: 'ow-card' }, u.h('h2', {}, '服务端规则'));
+    const line = u.feedback(box, 'catalog');
+    if (!items.length) {
+        box.append(muted(u, '同步节点后，这里会列出服务端下发的分流规则'), line);
+        return box;
+    }
+    const list = u.h('ul', { class: 'ow-catalog' });
+    for (const item of items) {
+        const label = item.key + (item.server_enabled ? '' : '（服务端已停用）');
+        const toggle = u.h('input', { type: 'checkbox', role: 'switch', 'aria-label': label });
+        toggle.checked = !!item.enabled;
+        toggle.disabled = !item.server_enabled;
+        toggle.addEventListener('change', async () => {
+            const wanted = toggle.checked;
+            toggle.disabled = true;
+            line.hidden = false;
+            delete line.dataset.tone;
+            line.textContent = (wanted ? '正在启用 ' : '正在停用 ') + item.key + '…';
+            try {
+                await write(u, 'rule_toggle', { key: item.key, enabled: wanted });
+                line.textContent = (wanted ? '已启用 ' : '已停用 ') + item.key + '，正在重新同步规则';
+            } catch (e) {
+                toggle.checked = !wanted;
+                line.textContent = diagnosticMessage(e.message);
+                line.dataset.tone = 'error';
+            } finally {
+                toggle.disabled = !item.server_enabled;
+            }
+        });
+        list.append(u.h('li', { class: 'ow-row' },
+            u.h('div', { class: 'ow-stack ow-grow' },
+                u.h('strong', {}, item.key),
+                muted(u, [policyName[item.policy] || item.policy, item.entries ? item.entries + ' 条' : '', item.stale ? '本次未能下载，沿用上次' : ''].filter(Boolean).join(' · '))),
+            toggle));
+    }
+    box.append(list, line);
+    return box;
 }

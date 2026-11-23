@@ -1,23 +1,28 @@
 import { h, card, knownNames, pages, feedback, feedbackFor, say, hush, diagnosticMessage, nameMembers } from './dom.js';
 import { overview } from './pages/overview.js';
 import { proxy } from './pages/proxy.js';
-import { subscriptions } from './pages/sources.js';
+import { hyperAccount } from './pages/account.js';
+import { plans } from './pages/plans.js';
 import { rules } from './pages/rules.js';
 import { records } from './pages/records.js';
 
 const views = {
 	overview: ['概览', overview],
 	proxy: ['代理', proxy],
-	subscriptions: ['订阅', subscriptions],
+	account: ['账户', hyperAccount],
 	rules: ['规则', rules],
 	logs: ['日志', records],
 	connections: ['连接记录', records],
+	// Reached from the account page, not the navigation.
+	plans: ['套餐', plans],
 };
+const hidden = new Set(['plans']);
 const aliases = {
 	nodes: 'proxy',
 	groups: 'proxy',
-	subscriptions: 'subscriptions',
-	subs: 'subscriptions',
+	subscriptions: 'account',
+	subs: 'account',
+	login: 'account',
 	devices: 'overview',
 	settings: 'overview',
 	events: 'logs',
@@ -48,7 +53,7 @@ export function mount(root, invoke) {
 		),
 		nav,
 	);
-	for (const [page, [name]] of Object.entries(views)) nav.append(h('a', { href: '#' + page }, name));
+	for (const [page, [name]] of Object.entries(views)) if (!hidden.has(page)) nav.append(h('a', { href: '#' + page }, name));
 	root.replaceChildren(header, alert, main);
 	let scope,
 		disconnected = false,
@@ -288,8 +293,9 @@ export function mount(root, invoke) {
 		const controller = new AbortController();
 		scope = controller;
 		const { page, detail } = route();
+		const tab = page === 'plans' ? 'account' : page;
 		for (const a of nav.children) {
-			if (a.hash === '#' + page) a.setAttribute('aria-current', 'page');
+			if (a.hash === '#' + tab) a.setAttribute('aria-current', 'page');
 			else a.removeAttribute('aria-current');
 		}
 		main.setAttribute('aria-busy', 'true');

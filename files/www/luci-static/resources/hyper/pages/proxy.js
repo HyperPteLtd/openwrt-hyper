@@ -30,8 +30,8 @@ export async function proxy(ui) {
 			h('h2', {}, '代理'),
 			card(
 				null,
-				empty('选择订阅后可查看节点'),
-				ui.button('管理订阅', () => ui.go('subscriptions'), 'ow-primary'),
+				empty('登录 Hyper 账户并同步后可查看节点'),
+				ui.button('前往账户', () => ui.go('account'), 'ow-primary'),
 			),
 		);
 	const { intent } = ui.status,

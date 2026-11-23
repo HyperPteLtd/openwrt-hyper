@@ -139,8 +139,8 @@ function sourceCard(ui, setup) {
 		h(
 			'div',
 			{ class: 'ow-row' },
-			h('h2', {}, '订阅来源'),
-			ui.button('管理', () => ui.go('subscriptions'), 'ow-link'),
+			h('h2', {}, 'Hyper 账户'),
+			ui.button('管理', () => ui.go('account'), 'ow-link'),
 		),
 	);
 	box.classList.add('ow-sources');
@@ -153,7 +153,7 @@ function sourceCard(ui, setup) {
 		const b = ui.button(
 			'',
 			async () => {
-				if (active || !s.ready) ui.go('subscriptions', s.source);
+				if (active || !s.ready) ui.go('account');
 				else {
 					await ui.run('source', { source: s.source, revision: ui.status.intent.revision });
 					await ui.refresh();
@@ -188,7 +188,7 @@ function sourceCard(ui, setup) {
 	if (sources.length) {
 		const primary = sources.find(s => s.source === current);
 		const title = primary?.name || '选择订阅';
-		const link = ui.button('管理订阅', () => ui.go('subscriptions'), 'ow-link');
+		const link = ui.button('账户', () => ui.go('account'), 'ow-link');
 		box.append(h('details', { class: 'ow-source-mobile' },
 			h('summary', { 'aria-label': '切换订阅' },
 				h('span', { class: 'ow-avatar', 'aria-hidden': 'true' }, Array.from(title)[0]),
@@ -488,7 +488,7 @@ export async function overview(ui) {
 			return;
 		}
 		if (!cat.primary) {
-			ui.go('subscriptions', 'add');
+			ui.go('account');
 			return;
 		}
 		// Connecting again: what stopped the last attempt no longer applies, and what stops this
@@ -894,29 +894,9 @@ export async function overview(ui) {
 		updateRow('大陆域名与 IP 列表', h('small', { class: 'ow-muted' }, '每周自动更新'),
 			h('small', { class: 'ow-muted' }, ui.status.china_lists ? '更新于 ' + day(ui.status.china_lists) : '插件内置版本')),
 	);
-	// Without a subscription the setup opens once; the subscription card offers it again.
+	// Without the account's subscription the card offers the sign-in, which syncs the nodes.
 	let setup = null;
-	if (!ui.sources.some((s) => !s.revoked)) {
-		const [{ onboarding }, env, conflicts] = await Promise.all([
-			import('./sources.js'), ui.rpc('environment').catch(() => null), ui.rpc('conflicts').catch(() => null),
-		]);
-		const environment = environmentRows([
-			['内核', kernelSummary(ui, kernel, kernelUpdates, true)],
-			...firewallDetails(env),
-			['其他代理插件', conflictSummary(conflicts)],
-			['可用存储', bytes(env?.free_bytes)],
-		]);
-		const open = () => onboarding(ui, environment, setup);
-		setup = ui.button('打开初始化引导', open, 'ow-primary');
-		const key = 'hyper.setup.seen.' + location.pathname;
-		onShown.push(() => {
-			if (ui.memory.setupSeen) return;
-			try { if (sessionStorage.getItem(key)) return; } catch (_) {}
-			open();
-			ui.memory.setupSeen = true;
-			try { sessionStorage.setItem(key, '1'); } catch (_) {}
-		});
-	}
+	if (!ui.sources.some((s) => !s.revoked)) setup = ui.button('登录 Hyper 账户', () => ui.go('account'), 'ow-primary');
 	const grid = h(
 		'div',
 		{ class: 'ow-dashboard' },
