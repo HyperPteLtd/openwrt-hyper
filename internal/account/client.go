@@ -27,7 +27,10 @@ const EmailCodeTypeAuth = 2
 // SubscribePath is where subscription endpoints live under the API origin.
 const SubscribePath = "/api/subscribe"
 
-var errUnavailable = errors.New("api_unavailable")
+var (
+	errUnavailable = errors.New("api_unavailable")
+	errTimeout     = errors.New("timeout")
+)
 
 // Paths the browser may reach through the `api` method. Everything else is refused.
 var allowlist = []func() *regexp.Regexp{
@@ -197,7 +200,7 @@ func (c *Client) Request(ctx context.Context, method, path string, o Options) Re
 	if err != nil {
 		e := errUnavailable.Error()
 		if ctx.Err() != nil {
-			e = "timeout"
+			e = errTimeout.Error()
 		}
 		return Result{Error: e}
 	}

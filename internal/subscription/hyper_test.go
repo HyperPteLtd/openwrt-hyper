@@ -148,3 +148,21 @@ func TestHyperSourceValidation(t *testing.T) {
 		}
 	}
 }
+
+// A link the router cannot read leaves only that node out: the update applies at once and
+// keeps its rules, without asking for confirmation.
+func TestHyperLinkNoticesKeepRouting(t *testing.T) {
+	feed := hyperFeed("pw")
+	feed.Countries[1].Body = append(feed.Countries[1].Body, []byte("vmess://not-base64\n")...)
+	p, err := HyperProfile(NewHyperSource(nil), feed, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Notices) == 0 {
+		t.Fatal("no notice for the links left out")
+	}
+	c := Assess(p, nil, Policy{})
+	if c.Decision != "ready" || c.Profile.Local || len(c.Profile.Rules) == 0 || len(c.Profile.BinarySets) == 0 {
+		t.Fatalf("%s local=%v rules=%d notices=%+v", c.Decision, c.Profile.Local, len(c.Profile.Rules), c.Notices)
+	}
+}

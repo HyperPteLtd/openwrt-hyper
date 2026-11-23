@@ -48,6 +48,13 @@ var (
 	ErrLoginRequired = errors.New("login_required")
 	// ErrNoSubscription: the account has no subscription the router can use.
 	ErrNoSubscription = errors.New("no_subscription")
+
+	errTokenUnreachable     = errors.New("subscription_token_unreachable")
+	errTokenFailed          = errors.New("subscription_token_failed")
+	errLocationsUnreachable = errors.New("locations_unreachable")
+	errLocationsFailed      = errors.New("locations_failed")
+	errNoCountries          = errors.New("no_countries")
+	errNodes                = errors.New("nodes_unreachable")
 )
 
 // Reader reads one feed at a time (the caller serialises).
@@ -166,7 +173,7 @@ func (r *Reader) Read(ctx context.Context) (*Feed, error) {
 			msg = *res.Msg
 		}
 		r.logf("Failed to get the subscription token: %s", firstNonEmpty(msg, res.Error, fmt.Sprintf("HTTP %d", res.Status)))
-		return nil, failure("subscription_token", res)
+		return nil, failure(res, errTokenUnreachable, errTokenFailed)
 	}
 
 	loc, err := run.read(func(way string) account.Result {
@@ -180,9 +187,9 @@ func (r *Reader) Read(ctx context.Context) (*Feed, error) {
 	if !loc.OK || len(countries) == 0 {
 		r.logf("Failed to list countries (HTTP %d).", loc.Status)
 		if loc.OK {
-			return nil, errors.New("no_countries")
+			return nil, errNoCountries
 		}
-		return nil, failure("locations", loc)
+		return nil, failure(loc, errLocationsUnreachable, errLocationsFailed)
 	}
 	if len(countries) > MaxCountries {
 		countries = countries[:MaxCountries]
@@ -210,7 +217,7 @@ func (r *Reader) Read(ctx context.Context) (*Feed, error) {
 	}
 	if len(feed.Countries) == 0 {
 		r.logf("Every country failed.")
-		return nil, errors.New("nodes")
+		return nil, errNodes
 	}
 	feed.Catalog, err = run.catalog()
 	if errors.Is(err, ErrSessionChanged) {
@@ -222,12 +229,13 @@ func (r *Reader) Read(ctx context.Context) (*Feed, error) {
 	return feed, nil
 }
 
-// failure is a stable code for a failed read: transient ones (no answer, 408, 5xx) say so.
-func failure(what string, res account.Result) error {
-	if res.Status == 0 || res.Status == 408 || res.Status >= 500 {
-		return errors.New(what + "_unreachable")
+// failure is the stable code of a failed read: unreachable for a transient one (no answer, 408,
+// 429, 5xx), failed otherwise. The log has its HTTP status.
+func failure(res account.Result, unreachable, failed error) error {
+	if res.Status == 0 || res.Status == 408 || res.Status == 429 || res.Status >= 500 {
+		return unreachable
 	}
-	return fmt.Errorf("%s_http_%d", what, res.Status)
+	return failed
 }
 
 func (r *run) country(token string, c Location) ([]byte, error) {

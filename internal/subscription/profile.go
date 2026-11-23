@@ -345,6 +345,11 @@ func Assess(p Profile, previous *Profile, policy Policy) Candidate {
 			"dialer_proxy_unavailable", "dialer_proxy_cycle":
 			continue
 		}
+		// A share link the router could not read (link_*) only leaves that node out, as the
+		// node notices above do: the rest of the subscription routes as it is.
+		if strings.HasPrefix(n.Code, "link_") {
+			continue
+		}
 		if partialNotices[n.Code] {
 			partial = true
 		} else {

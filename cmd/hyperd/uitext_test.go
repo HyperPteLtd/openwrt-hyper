@@ -24,7 +24,7 @@ import (
 )
 
 // The LuCI pages read the router's codes and errors in Chinese: dom.js through diagnosticMessage
-// (the log, task errors, the service's problem, the kernel page, an action's error), sources.js
+// (the log, task errors, the service's problem, the kernel page, an action's error), common.js
 // for import notices and failed subscription operations, and records.js for the log's sources.
 // A code without a text there reaches the page raw, and a text whose code nothing emits any more
 // is dead weight.
@@ -43,7 +43,7 @@ const luci = "../../files/www/luci-static/resources/hyper/"
 // The dom.js maps diagnosticMessage reads.
 var diagnosticMaps = []string{"diagnosticText", "errorText", "providerErrors", "kernelErrors"}
 
-// The maps each kind of code is read from; sources.js reads notices first. A key of a map must be
+// The maps each kind of code is read from; common.js reads notices first. A key of a map must be
 // emitted as a kind that reads it.
 var readers = map[string][]string{
 	"source":  {"sources"},
@@ -77,7 +77,7 @@ var shownPackages = []string{"cmd/hyperd", "internal/router", "internal/control"
 
 // The subscription helper reports these packages' errors as codes (subscriptioncli.code): a
 // snake_case error as it is, an English one with underscores for its spaces.
-var failurePackages = []string{"internal/subscription", "internal/cli/subscriptioncli", "internal/proxyspec"}
+var failurePackages = []string{"internal/subscription", "internal/cli/subscriptioncli", "internal/proxyspec", "internal/hypersync"}
 
 // Errors that never reach the page.
 var unshown = []string{
@@ -1771,7 +1771,7 @@ func (s *routerSource) englishErrors(t *testing.T) func(string) bool {
 type luciText struct {
 	maps     map[string]map[string]bool
 	dom      string
-	sources  string // pages/sources.js
+	sources  string // pages/common.js
 	patterns []*regexp.Regexp
 	lines    map[string]*regexp.Regexp // diagnosticMessage's own: dns, network, wrapped
 }
@@ -1782,7 +1782,7 @@ func readLuci(t *testing.T) *luciText {
 	l := &luciText{maps: map[string]map[string]bool{}, lines: map[string]*regexp.Regexp{}}
 	for file, names := range map[string][]string{
 		"dom.js":           {"diagnosticText", "errorText", "providerErrors", "kernelErrors", "taskText", "taskStep", "taskStage"},
-		"pages/sources.js": {"notices", "pendingUpdates"},
+		"pages/common.js":  {"notices", "pendingUpdates"},
 		"pages/records.js": {"sources"},
 	} {
 		b, err := os.ReadFile(luci + file)
@@ -1791,7 +1791,7 @@ func readLuci(t *testing.T) *luciText {
 		}
 		if file == "dom.js" {
 			l.dom = string(b)
-		} else if file == "pages/sources.js" {
+		} else if file == "pages/common.js" {
 			l.sources = string(b)
 		}
 		for _, name := range names {

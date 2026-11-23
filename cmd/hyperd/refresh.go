@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -175,20 +173,14 @@ func retryDelay(attempts int, interval time.Duration) time.Duration {
 }
 
 // transientFailure reports a refresh that failed on the way to the Hyper account's service
-// rather than on what came back (hypersync): no answer, every country failed, or an answer of
-// 408, 429 or 5xx. A later attempt can succeed with nothing changed on the router. Credentials,
-// other HTTP answers, content the router cannot use and certificates (left to the clock retry)
-// are not transient.
+// rather than on what came back (hypersync): no answer or an answer of 408, 429 or 5xx (the
+// *_unreachable codes), or every country failing. A later attempt can succeed with nothing
+// changed on the router. Credentials, other HTTP answers, content the router cannot use and
+// certificates (left to the clock retry) are not transient.
 func transientFailure(code string) bool {
 	switch code {
-	case "subscription_token_unreachable", "locations_unreachable", "nodes":
+	case "subscription_token_unreachable", "locations_unreachable", "nodes_unreachable":
 		return true
-	}
-	for _, prefix := range []string{"subscription_token_http_", "locations_http_"} {
-		if status, ok := strings.CutPrefix(code, prefix); ok {
-			n, err := strconv.Atoi(status)
-			return err == nil && (n == http.StatusRequestTimeout || n == http.StatusTooManyRequests || n >= 500 && n <= 599)
-		}
 	}
 	return false
 }

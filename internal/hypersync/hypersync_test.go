@@ -171,7 +171,7 @@ func TestReadFailures(t *testing.T) {
 		t.Fatalf("%v %+v", err, feed)
 	}
 	f.countries["JP"] = ""
-	if _, err := r.Read(context.Background()); err == nil || err.Error() != "nodes" {
+	if _, err := r.Read(context.Background()); err == nil || err.Error() != "nodes_unreachable" {
 		t.Fatal(err)
 	}
 	f.unauthorized = true
