@@ -30,8 +30,12 @@ type Network struct {
 	Resolver string
 	LAN      map[string][]netip.Prefix
 	// FakeIP follows DNS protection where the router's own connections to fake addresses are
-	// captured too (fw4); elsewhere the core answers real addresses.
+	// captured too (fw4, RouterSelf); elsewhere the core answers real addresses.
 	FakeIP bool
+	// RouterSelf takes the router's own connections over as well (hyper.main.router_self).
+	RouterSelf bool
+	// LogLevel is the core's; empty means warning.
+	LogLevel string
 	// FailOpen and ChinaDirect are read by the network helper when it applies the takeover;
 	// Compile reads ChinaDirect for the fake-ip filter. ChinaDirect needs nftables sets, so it
 	// is off on fw3; chinaShortcut adds the mode.
@@ -350,7 +354,7 @@ func Compile(i Intent, p subscription.Profile, c kernel.TargetCapabilities, n Ne
 		defaultDNS = append([]string{resolver.String()}, defaultDNS...)
 	}
 	config := obj{"mode": "rule", "mixed-port": MixedPort, "allow-lan": false, "external-controller": "127.0.0.1:19761", "secret": secret, "ipv6": n.Family6,
-		"log-level": "warning", "profile": obj{"store-selected": false, "store-fake-ip": false}, "geodata-mode": true, "geo-auto-update": false,
+		"log-level": logLevel(n.LogLevel), "profile": obj{"store-selected": false, "store-fake-ip": false}, "geodata-mode": true, "geo-auto-update": false,
 		"hosts": obj{"probe.hyper.invalid": "192.0.2.1"}, "dns": obj{"enable": true, "listen": "", "enhanced-mode": "redir-host", "use-hosts": true,
 			"use-system-hosts": false, "ipv6": false, "default-nameserver": defaultDNS,
 			// As in OpenClash, the core answers no AAAA records even with IPv6 proxying on: under

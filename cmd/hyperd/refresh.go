@@ -185,9 +185,31 @@ func transientFailure(code string) bool {
 	return false
 }
 
+// refreshPlan is when the account is read: every interval, or daily at a router hour (at, -1
+// for none); interval 0 and no hour read it only on request.
+type refreshPlan struct {
+	interval time.Duration
+	at       int
+}
+
+func every(d time.Duration) refreshPlan { return refreshPlan{interval: d, at: -1} }
+
+// lastSlot is the latest time at the plan's hour, today or yesterday, not after now.
+func (p refreshPlan) lastSlot(now time.Time) time.Time {
+	slot := time.Date(now.Year(), now.Month(), now.Day(), p.at, 0, 0, 0, now.Location())
+	if slot.After(now) {
+		slot = slot.AddDate(0, 0, -1)
+	}
+	return slot
+}
+
 // dueForRefresh reports whether the scheduler reads a source again: only the Hyper account's
 // is read, never one a sign-out revoked, needing a sign-in or suspended.
-func dueForRefresh(src subscription.Status, now, attempt time.Time, interval time.Duration) bool {
+func dueForRefresh(src subscription.Status, now, attempt time.Time, plan refreshPlan) bool {
+	interval := plan.interval
+	if plan.at >= 0 {
+		interval = 24 * time.Hour
+	}
 	if src.Kind != subscription.HyperSource || src.LoginRequired || src.Revoked || src.Suspended || now.Sub(attempt) < 15*time.Minute {
 		return false
 	}
@@ -212,7 +234,15 @@ func dueForRefresh(src subscription.Status, now, attempt time.Time, interval tim
 	// Persisted timestamps are wall clock dates; an in-process attempt also
 	// carries a monotonic reading so a clock step cannot bypass its backoff.
 	// A ready source without a date, its status lost, is due: the refresh dates it.
-	return err != nil || updated.After(now) || now.Sub(updated) >= interval
+	if err != nil || updated.After(now) {
+		return true
+	}
+	// Daily: once the hour has come, unless read since. A router that was off at that hour
+	// catches up once.
+	if plan.at >= 0 {
+		return updated.Before(plan.lastSlot(now))
+	}
+	return now.Sub(updated) >= interval
 }
 
 func recoveredClock(src subscription.Status, now time.Time) bool {
@@ -254,10 +284,13 @@ func (s *app) schedule(ctx context.Context) {
 			return
 		}
 		s.retryBootstrapClock(now)
-		var interval time.Duration
+		plan := every(0)
 		if periodic {
-			if p, err := router.ReadPreferences(ctx); err == nil {
-				interval = time.Duration(p.UpdateHours) * time.Hour
+			if p, err := router.ReadPreferences(ctx); err == nil && p.UpdateHours > 0 {
+				plan = every(time.Duration(p.UpdateHours) * time.Hour)
+				if p.UpdateAt != nil && *p.UpdateAt >= 0 {
+					plan.at = *p.UpdateAt
+				}
 			}
 		}
 		list, err := subscription.OpenStore(router.Root + "/sources").List()
@@ -267,7 +300,7 @@ func (s *app) schedule(ctx context.Context) {
 		clockJobs := 0
 		for _, src := range list {
 			clock := !now.After(drainUntil) && recoveredClock(src, now)
-			if !clock && !dueForRefresh(src, now, attempt[src.Source], interval) {
+			if !clock && !dueForRefresh(src, now, attempt[src.Source], plan) {
 				continue
 			}
 			args := map[string]any{"source": src.Source, "scheduled": true}

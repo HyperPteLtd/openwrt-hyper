@@ -89,6 +89,7 @@ type app struct {
 	bootstrapCancel context.CancelFunc
 	bootstrapDone   chan struct{}
 	closing         bool
+	plugin          pluginState
 }
 
 func serve(ctx context.Context) error {
@@ -153,6 +154,7 @@ func serve(ctx context.Context) error {
 	go s.adoptHyper(legacyDisabled)
 	go s.schedule(jobsCtx)
 	go s.keepChinaLists(jobsCtx)
+	go s.keepPluginCurrent(jobsCtx)
 	done := make(chan struct{})
 	go func() { m.Run(ctx); close(done) }()
 	server := &http.Server{Handler: s, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 25 * time.Second, WriteTimeout: 70 * time.Second, MaxHeaderBytes: 4096}
@@ -225,6 +227,10 @@ func (s *app) handle(ctx context.Context, method string, r request) (any, error)
 			status.ChinaLists = t.UnixMilli()
 		}
 		status.SideRouter = router.SideRouter()
+		if p := s.pluginStatus(); p != nil {
+			b, _ := json.Marshal(p)
+			status.Plugin = b
+		}
 		if status.Phase == "starting" && s.sys != nil {
 			status.ConfirmationSeconds = s.sys.ConfirmationSeconds()
 		}
@@ -428,30 +434,7 @@ func (s *app) handle(ctx context.Context, method string, r request) (any, error)
 			return json.Marshal(s.sys.Checks(ctx, p.DNS))
 		})
 	case "plugin_check", "plugin_update":
-		action := "check"
-		if method == "plugin_update" {
-			action = "apply"
-		}
-		return s.runJob("plugin", method, func(ctx context.Context) (json.RawMessage, error) {
-			cmd := exec.CommandContext(ctx, "/usr/libexec/hyper/package-update", action)
-			out, e := cmd.Output()
-			if e != nil {
-				var exit *exec.ExitError
-				if errors.As(e, &exit) {
-					// The updater ends with one of its own fixed reasons; package-manager output
-					// before it stays private.
-					lines := strings.Split(strings.TrimSpace(string(exit.Stderr)), "\n")
-					if last := strings.TrimSpace(lines[len(lines)-1]); updaterReasons[last] {
-						return nil, errors.New(last)
-					}
-				}
-				return nil, errors.New("verified plugin update failed")
-			}
-			if json.Valid(out) {
-				return out, nil
-			}
-			return nil, nil
-		})
+		return s.pluginJob(method, false)
 	case "subscription_read", "subscription_write", "kernel_read", "kernel_write", "conflicts":
 		return s.dispatch(ctx, method, r)
 	}

@@ -794,6 +794,21 @@ export async function overview(ui) {
 		b.setAttribute('aria-checked', String(value));
 		return b;
 	}
+	function choose(label, options, value, fn) {
+		const select = h('select', { 'aria-label': label, 'data-focus-key': 'select:' + label },
+			...options.map(([v, name]) => h('option', { value: String(v) }, name)));
+		select.value = String(value);
+		select.addEventListener('change', async () => {
+			const v = options.find(([o]) => String(o) === select.value)[0];
+			try {
+				await fn(v);
+			} catch (e) {
+				if (e.name !== 'AbortError') ui.tell(label, diagnosticMessage(e.message), 'error');
+				select.value = String(value);
+			}
+		});
+		return select;
+	}
 	// A setting that fails to save says so on the line under its row.
 	const lined = (row, key) => [row, ui.feedback(row, key)];
 	const proxyPrefs = card(
@@ -815,6 +830,8 @@ export async function overview(ui) {
 		)),
 		lined(updateRow('大陆 IP 直连', toggle('大陆 IP 直连', !!prefs.bypass_cn, (v) => saveP({ bypass_cn: v })),
 			h('small', { class: 'ow-muted' }, '国内 IP 不经内核，更快；全局模式下不生效'))),
+		lined(updateRow('路由器自身流量走代理', toggle('路由器自身流量走代理', prefs.router_self !== false, (v) => saveP({ router_self: v })),
+			h('small', { class: 'ow-muted' }, '比如路由器上的软件更新、节点同步'))),
 		lined(h(
 			'div',
 			{ class: 'ow-row' },
@@ -876,6 +893,8 @@ export async function overview(ui) {
 			'记录连接',
 			toggle('记录连接', policy.record_connections !== false, (v) => savePolicy({ record_connections: v })),
 		)),
+		lined(h('div', { class: 'ow-row' }, '内核日志级别',
+			choose('内核日志级别', logLevels, prefs.log_level || 'warning', (v) => saveP({ log_level: v })))),
 		ui.button('查看日志', () => ui.go('logs'), 'ow-link'),
 	);
 	const updates = card(
@@ -886,8 +905,12 @@ export async function overview(ui) {
 			'订阅自动更新',
 			toggle('订阅自动更新', prefs.update_hours > 0, (on) => saveP({ update_hours: on ? ui.memory.updateHours || 6 : 0 })),
 		)),
-		prefs.update_hours > 0 && updateInterval(ui, prefs.update_hours, saveP),
+		...(prefs.update_hours > 0 ? updateSchedule(ui, prefs, saveP, choose) : []),
 		updateRow('Hyper 插件', ...pluginUpdate(ui)),
+		lined(updateRow('自动检查新版本', toggle('自动检查新版本', prefs.auto_check !== false, (v) => saveP({ auto_check: v })),
+			h('small', { class: 'ow-muted' }, '每天检查一次，有新版本时在这里提示'))),
+		lined(updateRow('自动更新插件', toggle('自动更新插件', !!prefs.auto_update, (v) => saveP({ auto_update: v })),
+			h('small', { class: 'ow-muted' }, '每天检查并自动安装新版本，安装时网络会短暂中断'))),
 		updateRow(...kernelSummary(ui, kernel, kernelUpdates)),
 		updateRow('内核存储位置', ...kernelStorage(ui, kernel, kernelUpdates, segment)),
 		// The router checks these lists itself once a week; there is nothing to press.
@@ -932,6 +955,23 @@ export async function overview(ui) {
 	return content;
 }
 
+const logLevels = [['silent', '静默'], ['error', '错误'], ['warning', '警告'], ['info', '信息'], ['debug', '调试']];
+
+// The account is read every few hours, or once a day at a chosen hour (router time).
+function updateSchedule(ui, prefs, saveP, choose) {
+	const daily = prefs.update_at >= 0;
+	const kind = h('div', { class: 'ow-row' }, '更新方式', choose('更新方式', [['every', '按间隔'], ['daily', '每天定时']],
+		daily ? 'daily' : 'every', (v) => saveP({ update_at: v === 'daily' ? ui.memory.updateAt ?? 4 : -1 })));
+	if (!daily) return [kind, ...updateInterval(ui, prefs.update_hours, saveP)];
+	ui.memory.updateAt = prefs.update_at;
+	const hours = Array.from({ length: 24 }, (_, n) => [n, String(n).padStart(2, '0') + ':00']);
+	return [kind, h('div', { class: 'ow-row' }, h('span', { class: 'ow-label' }, '更新时间', h('small', { class: 'ow-muted' }, '路由器本地时间')),
+		choose('更新时间', hours, prefs.update_at, (v) => {
+			ui.memory.updateAt = v;
+			return saveP({ update_at: v });
+		}))];
+}
+
 // 检查更新, then 更新到 vX only when a newer verified package exists.
 // Title with its note underneath on the left, the control on the right, centred on both.
 function updateRow(title, action, note) {
@@ -943,6 +983,13 @@ function pluginUpdate(ui) {
 	let candidate = '', latest = false;
 	const installed = ui.status.version && ui.status.version !== 'dev' ? ui.status.version : '';
 	note.textContent = installed ? '当前 v' + installed : '';
+	// What the daily check found.
+	const known = ui.status.plugin;
+	if (known?.available && known.candidate) {
+		candidate = known.candidate;
+		note.textContent = '发现新版本 ' + known.candidate.replace(/-r?\d+$/, '');
+	}
+	show();
 	function show(text) {
 		action.textContent = text || (candidate ? '更新到 ' + candidate : latest ? '已是最新' : '检查更新');
 		action.disabled = !!text || (latest && !candidate);

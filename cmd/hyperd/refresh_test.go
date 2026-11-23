@@ -36,15 +36,15 @@ func TestRefreshKeepsReferencesAndPassesSelections(t *testing.T) {
 func TestScheduledRefreshWaitsForFirstManualImport(t *testing.T) {
 	now := time.Now().UTC()
 	st := subscription.Status{Kind: hyper, UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339)}
-	if dueForRefresh(st, now, time.Time{}, time.Hour) {
+	if dueForRefresh(st, now, time.Time{}, every(time.Hour)) {
 		t.Fatal("scheduled an unimported source")
 	}
 	st.Ready = true
-	if !dueForRefresh(st, now, time.Time{}, time.Hour) {
+	if !dueForRefresh(st, now, time.Time{}, every(time.Hour)) {
 		t.Fatal("skipped a previously imported, due source")
 	}
 	st.UpdatedAt = now.Format(time.RFC3339)
-	if dueForRefresh(st, now, time.Time{}, time.Hour) {
+	if dueForRefresh(st, now, time.Time{}, every(time.Hour)) {
 		t.Fatal("scheduled a recently updated source")
 	}
 }
@@ -55,14 +55,14 @@ func TestScheduledRefreshWaitsForFirstManualImport(t *testing.T) {
 func TestReadySourceWithoutUpdateDateIsDue(t *testing.T) {
 	now := time.Now().UTC()
 	st := subscription.Status{Kind: hyper, Ready: true}
-	if !dueForRefresh(st, now, time.Time{}, 6*time.Hour) {
+	if !dueForRefresh(st, now, time.Time{}, every(6*time.Hour)) {
 		t.Fatal("ready source without a date never refreshed")
 	}
-	if dueForRefresh(st, now, now.Add(-time.Minute), 6*time.Hour) || dueForRefresh(st, now, time.Time{}, 0) {
+	if dueForRefresh(st, now, now.Add(-time.Minute), every(6*time.Hour)) || dueForRefresh(st, now, time.Time{}, every(0)) {
 		t.Fatal("refreshed within the spacing, or with automatic updates off")
 	}
 	st.Attempts, st.AttemptedAt = 1, now.Add(-time.Minute).Format(time.RFC3339)
-	if dueForRefresh(st, now, time.Time{}, 6*time.Hour) || !dueForRefresh(st, now.Add(14*time.Minute), time.Time{}, 6*time.Hour) {
+	if dueForRefresh(st, now, time.Time{}, every(6*time.Hour)) || !dueForRefresh(st, now.Add(14*time.Minute), time.Time{}, every(6*time.Hour)) {
 		t.Fatal("back-off of the attempt")
 	}
 }
@@ -70,14 +70,14 @@ func TestReadySourceWithoutUpdateDateIsDue(t *testing.T) {
 func TestMigrateRemoteSourceEvenWithAutomaticUpdatesDisabled(t *testing.T) {
 	now := time.Now()
 	src := subscription.Status{Kind: hyper, NeedsRefresh: true}
-	if !dueForRefresh(src, now, time.Time{}, 0) || dueForRefresh(src, now, now.Add(-time.Minute), 0) {
+	if !dueForRefresh(src, now, time.Time{}, every(0)) || dueForRefresh(src, now, now.Add(-time.Minute), every(0)) {
 		t.Fatal("migration must refresh a remote snapshot with bounded retries")
 	}
 	// Only the Hyper account's source is read on schedule, not one of a kind the router no
 	// longer reads.
 	for _, kind := range []string{"file", "external", subscription.FixtureSource} {
 		src.Kind = kind
-		if dueForRefresh(src, now, time.Time{}, 0) {
+		if dueForRefresh(src, now, time.Time{}, every(0)) {
 			t.Fatal("scheduled a source of kind", kind)
 		}
 	}
@@ -94,23 +94,23 @@ func TestFailingRefreshBacksOff(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	src := subscription.Status{Kind: hyper, Ready: true, UpdatedAt: now.Add(-48 * time.Hour).Format(time.RFC3339), Attempts: 3, AttemptedAt: now.Add(-50 * time.Minute).Format(time.RFC3339)}
-	if dueForRefresh(src, now, time.Time{}, 24*time.Hour) {
+	if dueForRefresh(src, now, time.Time{}, every(24*time.Hour)) {
 		t.Fatal("third failure retried before an hour")
 	}
-	if !dueForRefresh(src, now.Add(11*time.Minute), time.Time{}, 24*time.Hour) {
+	if !dueForRefresh(src, now.Add(11*time.Minute), time.Time{}, every(24*time.Hour)) {
 		t.Fatal("backoff never ends")
 	}
 	src.NeedsRefresh, src.Ready = true, false
-	if dueForRefresh(src, now, time.Time{}, 0) {
+	if dueForRefresh(src, now, time.Time{}, every(0)) {
 		t.Fatal("migration retries skip the backoff")
 	}
 	// A start date after now means the clock was set back: only the in-process spacing applies.
 	src.AttemptedAt = now.Add(time.Hour).Format(time.RFC3339)
-	if !dueForRefresh(src, now, time.Time{}, 0) || dueForRefresh(src, now, now.Add(-time.Minute), 0) {
+	if !dueForRefresh(src, now, time.Time{}, every(0)) || dueForRefresh(src, now, now.Add(-time.Minute), every(0)) {
 		t.Fatal("future start date not handled")
 	}
 	src.Attempts, src.AttemptedAt = 0, ""
-	if !dueForRefresh(src, now, now.Add(-16*time.Minute), 0) {
+	if !dueForRefresh(src, now, now.Add(-16*time.Minute), every(0)) {
 		t.Fatal("successful source delayed")
 	}
 }
@@ -124,20 +124,20 @@ func TestFailedFirstImportRetriesOnlyTransientFailures(t *testing.T) {
 	for _, code := range []string{"subscription_token_unreachable", "locations_unreachable", "nodes_unreachable"} {
 		src := subscription.Status{Kind: hyper, LastFailure: code, Attempts: 1, AttemptedAt: at}
 		for _, interval := range []time.Duration{0, 24 * time.Hour} {
-			if dueForRefresh(src, now.Add(14*time.Minute), time.Time{}, interval) || !dueForRefresh(src, now.Add(15*time.Minute), time.Time{}, interval) {
+			if dueForRefresh(src, now.Add(14*time.Minute), time.Time{}, every(interval)) || !dueForRefresh(src, now.Add(15*time.Minute), time.Time{}, every(interval)) {
 				t.Fatal("transient failure not retried after its back-off", code, interval)
 			}
 		}
 		// Back-off doubles with each attempt; the in-process spacing still applies.
 		src.Attempts = 3
-		if dueForRefresh(src, now.Add(59*time.Minute), time.Time{}, 0) || !dueForRefresh(src, now.Add(time.Hour), time.Time{}, 0) || dueForRefresh(src, now.Add(time.Hour), now.Add(50*time.Minute), 0) {
+		if dueForRefresh(src, now.Add(59*time.Minute), time.Time{}, every(0)) || !dueForRefresh(src, now.Add(time.Hour), time.Time{}, every(0)) || dueForRefresh(src, now.Add(time.Hour), now.Add(50*time.Minute), every(0)) {
 			t.Fatal("retry ignored the back-off", code)
 		}
 	}
 	for _, code := range []string{"", "update_failed", "subscription_token_failed", "locations_failed",
 		"subscription_tls_untrusted", "no_usable_nodes", "no_countries", "decrypt", "invalid_source_kind"} {
 		src := subscription.Status{Kind: hyper, LastFailure: code, Attempts: 1, AttemptedAt: now.Add(-7 * time.Hour).Format(time.RFC3339)}
-		if dueForRefresh(src, now, time.Time{}, time.Hour) {
+		if dueForRefresh(src, now, time.Time{}, every(time.Hour)) {
 			t.Fatal("retried a failure a retry cannot change", code)
 		}
 	}
@@ -148,7 +148,7 @@ func TestFailedFirstImportRetriesOnlyTransientFailures(t *testing.T) {
 		{Kind: hyper, Suspended: true},
 	} {
 		src.LastFailure = "locations_unreachable"
-		if dueForRefresh(src, now, time.Time{}, time.Hour) {
+		if dueForRefresh(src, now, time.Time{}, every(time.Hour)) {
 			t.Fatalf("retried %+v", src)
 		}
 	}
@@ -190,7 +190,7 @@ func TestOfflineFirstImportCompletesBySchedule(t *testing.T) {
 			t.Fatal(err, st.Ready, st.Attempts)
 		}
 		wait := retryDelay(attempts, 0)
-		if dueForRefresh(st, at.Add(wait-time.Minute), time.Time{}, 0) || !dueForRefresh(st, at.Add(wait), time.Time{}, 0) {
+		if dueForRefresh(st, at.Add(wait-time.Minute), time.Time{}, every(0)) || !dueForRefresh(st, at.Add(wait), time.Time{}, every(0)) {
 			t.Fatal("not retried after its back-off", st.LastFailure, attempts)
 		}
 	}
@@ -230,7 +230,7 @@ func TestOfflineFirstImportCompletesBySchedule(t *testing.T) {
 	if _, err := f.Refresh(t.Context(), store, "gone", subscription.Policy{}); err == nil {
 		t.Fatal("404 imported")
 	}
-	if st := status("gone"); st.LastFailure != "subscription_token_failed" || dueForRefresh(st, time.Now().Add(7*time.Hour), time.Time{}, 0) {
+	if st := status("gone"); st.LastFailure != "subscription_token_failed" || dueForRefresh(st, time.Now().Add(7*time.Hour), time.Time{}, every(0)) {
 		t.Fatal("permanent failure retried", st.LastFailure)
 	}
 }
@@ -277,7 +277,7 @@ func TestManualRefreshPreemptsOnlySameSource(t *testing.T) {
 func TestClockChangeRepairsFutureScheduleWithoutFlooding(t *testing.T) {
 	now := time.Now()
 	src := subscription.Status{Kind: hyper, Ready: true, UpdatedAt: now.Add(time.Hour * 24).Format(time.RFC3339)}
-	if !dueForRefresh(src, now, time.Time{}, time.Hour) || dueForRefresh(src, now, now.Add(-time.Minute), time.Hour) || dueForRefresh(src, now, time.Time{}, 0) {
+	if !dueForRefresh(src, now, time.Time{}, every(time.Hour)) || dueForRefresh(src, now, now.Add(-time.Minute), every(time.Hour)) || dueForRefresh(src, now, time.Time{}, every(0)) {
 		t.Fatal("clock rollback should allow one refresh respecting backoff and settings")
 	}
 	src.RetryAfterClock = true
@@ -337,7 +337,7 @@ func TestPendingUpdateKeepsBackoff(t *testing.T) {
 		// The update interval has long passed: only the back-off holds the next download.
 		st.UpdatedAt = at.Add(-2 * interval).Format(time.RFC3339)
 		wait := retryDelay(attempt, interval)
-		if dueForRefresh(st, at.Add(wait-time.Minute), time.Time{}, interval) || !dueForRefresh(st, at.Add(wait), time.Time{}, interval) {
+		if dueForRefresh(st, at.Add(wait-time.Minute), time.Time{}, every(interval)) || !dueForRefresh(st, at.Add(wait), time.Time{}, every(interval)) {
 			t.Fatal("pending update ignored the back-off", attempt)
 		}
 	}
@@ -351,5 +351,28 @@ func TestPendingUpdateKeepsBackoff(t *testing.T) {
 	}
 	if heldUpdate("kernel/install-json", json.RawMessage(`{"pending_update":{"code":"update_blocked"}}`)) != "" {
 		t.Fatal("other task logged as held")
+	}
+}
+
+// With a daily hour the account is read once that hour has come, and once to catch up after a
+// day the router missed it.
+func TestDailyRefreshHour(t *testing.T) {
+	plan := refreshPlan{interval: 6 * time.Hour, at: 4}
+	day := time.Date(2026, 11, 23, 0, 0, 0, 0, time.Local)
+	at := func(h, m int) time.Time { return day.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute) }
+	read := func(when time.Time) subscription.Status {
+		return subscription.Status{Kind: hyper, Ready: true, UpdatedAt: when.UTC().Format(time.RFC3339)}
+	}
+	if dueForRefresh(read(at(-20, 0)), at(3, 59), time.Time{}, plan) {
+		t.Fatal("read before the hour")
+	}
+	if !dueForRefresh(read(at(-20, 0)), at(4, 0), time.Time{}, plan) {
+		t.Fatal("not read at the hour")
+	}
+	if dueForRefresh(read(at(4, 1)), at(23, 0), time.Time{}, plan) {
+		t.Fatal("read twice a day")
+	}
+	if !dueForRefresh(read(at(-48, 0)), at(2, 0), time.Time{}, plan) {
+		t.Fatal("a missed day is not caught up")
 	}
 }

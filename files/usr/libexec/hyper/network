@@ -545,7 +545,7 @@ apply() {
  # since the router's own lookups also get fake addresses. The core's group is always known:
  # the manager passes it (gid= below).
  local_proxy=1
- if [ "$backend" != fw4 ]; then local_proxy=0; fi
+ if [ "$backend" != fw4 ] || [ "$(uci -q get hyper.main.router_self)" = 0 ]; then local_proxy=0; fi
  fake_ip=0
  if [ "$dns" = 1 ] && [ "$local_proxy" = 1 ]; then fake_ip=1; fi
  # The China IP shortcut needs nftables sets; on fw3 the core still routes these itself. The

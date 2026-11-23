@@ -277,7 +277,9 @@ func networkOptions(ctx context.Context) (Network, error) {
 	n := Network{Method: uci(ctx, "method"), DNS: uci(ctx, "dns") == "1", Family6: ipv6Uplink(ctx),
 		Domestic: upstreams(uci(ctx, "dns_domestic"), DomesticDNS), Foreign: upstreams(uci(ctx, "dns_foreign"), ForeignDNS)}
 	fw4 := fw4Active(ctx)
-	n.FakeIP = n.DNS && fw4
+	n.RouterSelf = uci(ctx, "router_self") != "0"
+	n.LogLevel = logLevel(uci(ctx, "log_level"))
+	n.FakeIP = n.DNS && fw4 && n.RouterSelf
 	n.FailOpen = uci(ctx, "fail_open") != "0"
 	n.ChinaDirect = uci(ctx, "bypass_cn") == "1" && fw4
 	var e error

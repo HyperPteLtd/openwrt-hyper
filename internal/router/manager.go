@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -38,6 +39,8 @@ type Status struct {
 	SideRouter          bool   `json:"side_router,omitempty"` // see SideRouter
 	// When the China lists in use were downloaded; unset for the packaged copies.
 	ChinaLists int64 `json:"china_lists,omitempty"`
+	// What the last plugin update check found (cmd/hyperd pluginState).
+	Plugin json.RawMessage `json:"plugin,omitempty"`
 }
 type Timing struct{ Start, Stop, Heartbeat, Retry time.Duration }
 

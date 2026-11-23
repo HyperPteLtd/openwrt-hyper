@@ -12,7 +12,16 @@ import (
 )
 
 type Preferences struct {
-	UpdateHours int      `json:"update_hours"`
+	UpdateHours int `json:"update_hours"`
+	// UpdateAt is the hour of the day (router time) the account is read at instead of every
+	// UpdateHours; -1 clears it. RouterSelf takes the router's own connections over too.
+	// LogLevel is the core's. AutoCheck looks for a new plugin version daily, AutoUpdate also
+	// installs it. Omitted, each keeps its saved value.
+	UpdateAt    *int     `json:"update_at,omitempty"`
+	RouterSelf  *bool    `json:"router_self,omitempty"`
+	LogLevel    string   `json:"log_level,omitempty"`
+	AutoCheck   *bool    `json:"auto_check,omitempty"`
+	AutoUpdate  *bool    `json:"auto_update,omitempty"`
 	Enabled     bool     `json:"enabled"`
 	Method      string   `json:"method"`
 	DNS         bool     `json:"dns"`
@@ -31,6 +40,12 @@ func (p Preferences) Validate() error {
 	}
 	if p.Method != "tproxy" && p.Method != "tun" {
 		return errors.New("unsupported network method")
+	}
+	if p.UpdateAt != nil && (*p.UpdateAt < -1 || *p.UpdateAt > 23) {
+		return errors.New("invalid subscription refresh hour")
+	}
+	if p.LogLevel != "" && !slices.Contains(LogLevels, p.LogLevel) {
+		return errors.New("invalid core log level")
 	}
 	for _, list := range [][]string{p.DNSDomestic, p.DNSForeign} {
 		if list != nil && (len(list) == 0 || len(list) > 4) {
@@ -58,7 +73,8 @@ func (p Preferences) Validate() error {
 // SameNetwork reports whether two preference sets produce the same takeover.
 func (p Preferences) SameNetwork(o Preferences) bool {
 	return p.Method == o.Method && p.DNS == o.DNS && slices.Equal(p.Networks, o.Networks) &&
-		sameBit(p.FailOpen, o.FailOpen) && sameBit(p.BypassCN, o.BypassCN) &&
+		sameBit(p.FailOpen, o.FailOpen) && sameBit(p.BypassCN, o.BypassCN) && sameBit(p.RouterSelf, o.RouterSelf) &&
+		(p.LogLevel == "" || o.LogLevel == "" || p.LogLevel == o.LogLevel) &&
 		sameList(p.DNSDomestic, o.DNSDomestic) && sameList(p.DNSForeign, o.DNSForeign)
 }
 
@@ -77,6 +93,11 @@ func ReadPreferences(ctx context.Context) (Preferences, error) {
 	p.BypassCN = &cn
 	p.DNSDomestic = upstreams(uci(ctx, "dns_domestic"), DomesticDNS)
 	p.DNSForeign = upstreams(uci(ctx, "dns_foreign"), ForeignDNS)
+	at := UpdateHour(uci(ctx, "update_at"))
+	p.UpdateAt = &at
+	self, check, update := uci(ctx, "router_self") != "0", uci(ctx, "auto_check") != "0", uci(ctx, "auto_update") == "1"
+	p.RouterSelf, p.AutoCheck, p.AutoUpdate = &self, &check, &update
+	p.LogLevel = logLevel(uci(ctx, "log_level"))
 	return p, p.Validate()
 }
 func SavePreferences(ctx context.Context, p Preferences) error {
@@ -100,6 +121,19 @@ func SavePreferences(ctx context.Context, p Preferences) error {
 	}
 	if p.BypassCN != nil {
 		b.WriteString("set hyper.main.bypass_cn='" + bit(*p.BypassCN) + "'\n")
+	}
+	for k, v := range map[string]*bool{"router_self": p.RouterSelf, "auto_check": p.AutoCheck, "auto_update": p.AutoUpdate} {
+		if v != nil {
+			b.WriteString("set hyper.main." + k + "='" + bit(*v) + "'\n")
+		}
+	}
+	if p.UpdateAt != nil && *p.UpdateAt < 0 {
+		b.WriteString("delete hyper.main.update_at\n")
+	} else if p.UpdateAt != nil {
+		b.WriteString("set hyper.main.update_at='" + strconv.Itoa(*p.UpdateAt) + "'\n")
+	}
+	if p.LogLevel != "" {
+		b.WriteString("set hyper.main.log_level='" + p.LogLevel + "'\n")
 	}
 	for k, list := range map[string][]string{"dns_domestic": p.DNSDomestic, "dns_foreign": p.DNSForeign} {
 		if list != nil {
@@ -139,6 +173,25 @@ var upstreamPattern = regexp.MustCompile(`^((https|tls|quic)://[A-Za-z0-9.:\[\]_
 // validUpstream accepts DoH, DoT, DoQ or a plain resolver address; quotes and
 // spaces are excluded so the value is safe in UCI and YAML.
 func validUpstream(v string) bool { return len(v) <= 200 && upstreamPattern.MatchString(v) }
+
+// LogLevels are the core's, quietest first.
+var LogLevels = []string{"silent", "error", "warning", "info", "debug"}
+
+// logLevel is a saved level, warning when unset or unknown.
+func logLevel(saved string) string {
+	if slices.Contains(LogLevels, saved) {
+		return saved
+	}
+	return "warning"
+}
+
+// UpdateHour is a saved refresh hour, -1 when none.
+func UpdateHour(saved string) int {
+	if h, err := strconv.Atoi(saved); err == nil && h >= 0 && h <= 23 && saved == strconv.Itoa(h) {
+		return h
+	}
+	return -1
+}
 
 var (
 	DomesticDNS = []string{"https://223.5.5.5/dns-query", "https://120.53.53.53/dns-query"}

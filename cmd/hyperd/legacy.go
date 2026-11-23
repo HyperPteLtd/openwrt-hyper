@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/HyperPteLtd/openwrt-hyper/internal/router"
@@ -105,6 +106,22 @@ func migrateLegacy(ctx context.Context, m *router.Manager) (disabled []string, e
 		b.WriteString("set hyper.main.dns='" + bit(uciGet(ctx, "hyper.infra.dns_redirect") != "0") + "'\n")
 		b.WriteString("set hyper.main.fail_open='1'\n")
 		b.WriteString("set hyper.main.update_hours='" + hours + "'\n")
+		// 0.x read the account daily at its sync hour (04:00 unless chosen).
+		at := router.UpdateHour(uciGet(ctx, "hyper.subscription.auto_update_time"))
+		if at < 0 {
+			at = 4
+		}
+		b.WriteString("set hyper.main.update_at='" + strconv.Itoa(at) + "'\n")
+		b.WriteString("set hyper.main.router_self='" + bit(uciGet(ctx, "hyper.control.proxy_router_self") != "0") + "'\n")
+		b.WriteString("set hyper.main.auto_check='" + bit(uciGet(ctx, "hyper.update.auto_check") != "0") + "'\n")
+		b.WriteString("set hyper.main.auto_update='" + bit(uciGet(ctx, "hyper.update.auto_update") == "1") + "'\n")
+		level := uciGet(ctx, "hyper.config.log_level")
+		if level == "warn" {
+			level = "warning"
+		}
+		if slices.Contains(router.LogLevels, level) {
+			b.WriteString("set hyper.main.log_level='" + level + "'\n")
+		}
 		for _, n := range networks {
 			b.WriteString("add_list hyper.main.network='" + n + "'\n")
 		}

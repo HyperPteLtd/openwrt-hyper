@@ -369,7 +369,30 @@ func TestDNSSplitsDomesticAndProxiedUpstreams(t *testing.T) {
 	if a.SameNetwork(b) || !a.SameNetwork(Preferences{}) {
 		t.Fatal("China IP switch must restart only when it changes")
 	}
+	if (Preferences{RouterSelf: &on}).SameNetwork(Preferences{RouterSelf: &off}) || (Preferences{LogLevel: "info"}).SameNetwork(Preferences{LogLevel: "debug"}) ||
+		!(Preferences{LogLevel: "info"}).SameNetwork(Preferences{}) {
+		t.Fatal("the router's own traffic and the log level apply when they change")
+	}
+	lan := map[string][]netip.Prefix{"br-lan": {netip.MustParsePrefix("192.168.3.1/24")}}
+	if c := configForTest(t, i, p, Network{Method: "tproxy", LogLevel: "debug", LAN: lan}); c["log-level"] != "debug" {
+		t.Fatal("log level", c["log-level"])
+	}
+	if c := configForTest(t, i, p, Network{Method: "tproxy", LAN: lan}); c["log-level"] != "warning" {
+		t.Fatal("default log level", c["log-level"])
+	}
+	base := Preferences{Method: "tproxy", Networks: []string{"lan"}}
+	for _, bad := range []Preferences{{UpdateAt: ptr(24)}, {UpdateAt: ptr(-2)}, {LogLevel: "loud"}} {
+		bad.Method, bad.Networks = base.Method, base.Networks
+		if bad.Validate() == nil {
+			t.Errorf("accepted %+v", bad)
+		}
+	}
+	if UpdateHour("4") != 4 || UpdateHour("") != -1 || UpdateHour("04") != -1 || UpdateHour("24") != -1 {
+		t.Fatal("refresh hour")
+	}
 }
+
+func ptr[T any](v T) *T { return &v }
 
 func TestFakeIPFollowsDNSProtection(t *testing.T) {
 	p := baseProfile(t, "p")
