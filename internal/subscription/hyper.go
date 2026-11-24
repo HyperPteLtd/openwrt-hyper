@@ -308,6 +308,26 @@ func hyperRules(s Source, c *hypersync.Catalog, previous *Profile) ([]BinarySet,
 	return sets, rules
 }
 
+// HyperSetLabels names a Hyper profile's catalog sets for the pages, whose tags carry only the
+// list's ID: each tag's list key and kind (domain, keyword or ip).
+func HyperSetLabels(p Profile) map[string]map[string]string {
+	sets := map[string]bool{}
+	for _, s := range p.BinarySets {
+		sets[s.Tag] = true
+	}
+	labels := map[string]map[string]string{}
+	for _, l := range p.Lists {
+		for _, kind := range []string{"domain", "keyword", "ip"} {
+			for _, policy := range []string{"direct", "proxy"} {
+				if tag := hyperSetPrefix + rulekey.ID(l.Key) + "-" + kind + "-" + policy; sets[tag] {
+					labels[tag] = map[string]string{"list": l.Key, "kind": kind}
+				}
+			}
+		}
+	}
+	return labels
+}
+
 // hyperRule is the rule of one catalog set, its policy taken from the tag.
 func hyperRule(set BinarySet) string {
 	target := HyperGroup

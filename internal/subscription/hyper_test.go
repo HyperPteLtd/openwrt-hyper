@@ -169,3 +169,17 @@ func TestHyperLinkNoticesKeepRouting(t *testing.T) {
 		t.Fatalf("%s local=%v rules=%d notices=%+v", c.Decision, c.Profile.Local, len(c.Profile.Rules), c.Notices)
 	}
 }
+
+// The pages name a catalog set by its list and kind, which its tag carries only as an ID.
+func TestHyperSetLabels(t *testing.T) {
+	p, err := HyperProfile(NewHyperSource(nil), hyperFeed("pw"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels := HyperSetLabels(p)
+	cn := "list-" + rulekey.ID("中国常用域名") + "-domain-direct"
+	if len(labels) != len(p.BinarySets) || labels[cn]["list"] != "中国常用域名" || labels[cn]["kind"] != "domain" ||
+		labels["list-streaming-keyword-proxy"]["kind"] != "keyword" {
+		t.Fatal(labels)
+	}
+}

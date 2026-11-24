@@ -1,6 +1,6 @@
 import { t } from '../i18n.js';
 // The rules page: custom rules and the rule sets of the active subscription.
-import { attach, hush, diagnosticMessage, day, mainlandSets, isMainland, mainlandName, setLabel, setRefs } from '../dom.js';
+import { attach, hush, diagnosticMessage, day, mainlandSets, isMainland, mainlandName, setLabel, setRefs, learnListSets } from '../dom.js';
 import { ids, actions, muted, badge, field, input, choice, read, date, form, confirm, syncHyper, write } from './common.js';
 
 const matchType = {
@@ -213,7 +213,7 @@ async function setDetail(u, source, name, info) {
     const china = u.status.china_lists;
     const facts = [
         [t('来源'), info.builtIn ? t('内置，每周自动更新') : t('订阅')],
-        [t('条目'), info.builtIn ? '—' : t('{0} 条{1}', (info.count ?? '—'), (info.binary ? t('（二进制格式，无法逐条列出）') : ''))],
+        [t('条目'), info.builtIn ? '—' : t('{0} 条{1}', (info.count ?? '—'), (info.opaque ? t('（二进制格式，无法逐条列出）') : ''))],
         [t('更新时间'), info.builtIn ? (china ? day(china) : t('插件内置版本')) : date(info.primary?.updated_at)],
     ];
     u.dialog(
@@ -233,6 +233,7 @@ async function setDetail(u, source, name, info) {
         if (info.builtIn && info.local) rows.push({ match: { rule_set: name }, target: '@direct' });
         else if (source) {
             const data = await read(u, 'rules', { source, limit: limitRules, rule_set: tag });
+            learnListSets(data.labels);
             data.items.forEach((r, i) => rows.push({ ...r, position: data.positions?.[i] }));
         }
         list.replaceChildren(
@@ -302,7 +303,7 @@ function setCard(u, name, info, hits, routes, open) {
                 'span',
                 { class: 'ow-set-tags' },
                 badge(u, info.builtIn ? t('内置') : t('订阅')),
-                info.binary
+                info.opaque
                     ? u.h('span', { class: 'ow-badge ow-badge-plain', title: t('二进制格式，无法逐条列出') }, t('二进制'))
                     : null,
             ),
@@ -337,11 +338,13 @@ function ruleSetCard(u, source, primary, initial, hits) {
     const cards = names.map((name) => {
         const builtIn = isMainland(name),
             binary = !builtIn && !!initial.binary?.[name],
+            // A file the router keeps; a text one (the account's lists) is not opaque.
+            opaque = binary && initial.formats?.[name] !== 'text',
             count = binary ? initial.entries?.[name] : initial.sets[name];
         // A local profile sends the mainland lists direct, as their details say.
         const route = routes.get(name) || (builtIn && initial.local ? ['@direct'] : null);
-        return setCard(u, name, { builtIn, binary, count }, hits, route, () =>
-            setDetail(u, source, name, { builtIn, binary, count, primary, mode, local: initial.local }),
+        return setCard(u, name, { builtIn, binary, opaque, count }, hits, route, () =>
+            setDetail(u, source, name, { builtIn, binary, opaque, count, primary, mode, local: initial.local }),
         );
     });
     return u.h(
@@ -459,6 +462,7 @@ export async function rules(u) {
         u.rpc('rule_hits').catch(() => ({})),
         read(u, 'catalog').catch(() => ({ items: [] })),
     ]);
+    learnListSets(initial.labels);
     const name = u.name,
         labels = new Map([...groups, ...(u.status.intent?.policy?.groups || [])].map((g) => [g.id, g.name]));
     u = { ...u, ruleGroups: groups, name: (id) => labels.get(id) || name(id) };

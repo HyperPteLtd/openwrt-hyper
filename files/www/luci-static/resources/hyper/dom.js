@@ -128,7 +128,14 @@ export const mainlandName = (tag) => mainlandTags.get(tag) || tag;
 // the proxy must carry, such as Google Play's. They are no mainland list and have no card.
 const routerSets = { 'hyper-cn-proxied': t('需代理的大陆域名') };
 // A rule set as the pages show it.
+// The Hyper account's lists, by the tag of each of their sets (subscription rules' labels).
+const listKinds = { domain: t('域名'), keyword: t('域名关键词'), ip: 'IP' };
+const listSets = new Map();
+export function learnListSets(labels) {
+	for (const [tag, l] of Object.entries(labels || {})) listSets.set(tag, l.list + ' · ' + (listKinds[l.kind] || l.kind));
+}
 export function setLabel(name) {
+	if (listSets.has(name)) return listSets.get(name);
 	const core = mainlandName(name);
 	if (isMainland(core)) return mainlandSets[core].label;
 	return Object.hasOwn(routerSets, core) ? routerSets[core] : name;

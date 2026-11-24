@@ -82,8 +82,8 @@ export function fixture({ signedOut = false } = {}) {
 			if (a === 'list') return { ok: true, data: sources };
 			if (a === 'account') return { ok: true, data: signedOut ? { signed_in: false } : { signed_in: true, email: 'user@example.com' } };
 			if (a === 'catalog') return { ok: true, data: { items: [
-				{ key: 'Streaming', policy: 'proxy', server_enabled: true, entries: 120, enabled: true },
-				{ key: 'Games', policy: 'direct', server_enabled: true, entries: 40, enabled: false },
+				{ key: 'Streaming', policy: 'PROXY', server_enabled: true, entries: 120, enabled: true },
+				{ key: 'Games', policy: 'DIRECT', server_enabled: true, entries: 40, enabled: false },
 			] } };
 			if (a === 'checkin_status') return { ok: true, data: { result: true, dates: [] } };
 			if (a === 'status') return { ok: true, data: sources.find((s) => s.source === r.args.source) };
@@ -92,7 +92,7 @@ export function fixture({ signedOut = false } = {}) {
 			if (a === 'rules') {
 				const tags = ['list-streaming-domain-proxy', '@hyper-geosite-cn', '@hyper-geoip-cn'];
 				const items = tags.map((tag) => ({ match: tag.startsWith('@') ? { clash: 'RULE-SET,' + tag } : { rule_set: tag }, rule_set: tag, target: tag.startsWith('@') ? '@direct' : hyperGroup }));
-				return { ok: true, data: { items, total: items.length, positions: items.map((_, i) => i + 1), sets: Object.fromEntries(tags.map((x) => [x, 1])), entries: { 'list-streaming-domain-proxy': 120 }, binary: {} } };
+				return { ok: true, data: { items, total: items.length, positions: items.map((_, i) => i + 1), sets: Object.fromEntries(tags.map((x) => [x, 1])), entries: { 'list-streaming-domain-proxy': 120 }, binary: { 'list-streaming-domain-proxy': true }, formats: { 'list-streaming-domain-proxy': 'text' }, labels: { 'list-streaming-domain-proxy': { list: 'Streaming', kind: 'domain' } } } };
 			}
 			const rows = a === 'nodes' ? nodes : a === 'groups' ? groups : [];
 			return { ok: true, data: { items: rows, total: rows.length } };

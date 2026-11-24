@@ -152,14 +152,17 @@ func run(ctx context.Context, store *sub.Store, method string, in input, f sub.F
 			}
 			entries := map[string]int{}
 			binary := map[string]bool{}
+			formats := map[string]string{}
 			for _, def := range p.BinarySets {
 				entries[def.Tag] = def.Entries
 				binary[def.Tag] = true
+				formats[def.Tag] = def.Format
 				if _, ok := counts[def.Tag]; !ok {
 					counts[def.Tag] = 0
 				}
 			}
-			return map[string]any{"items": paginate(selected, in.Offset, in.Limit), "positions": paginate(positions, in.Offset, in.Limit), "total": len(selected), "sets": counts, "entries": entries, "binary": binary, "final": v.Final, "local": v.Local}, nil, nil
+			return map[string]any{"items": paginate(selected, in.Offset, in.Limit), "positions": paginate(positions, in.Offset, in.Limit), "total": len(selected), "sets": counts, "entries": entries, "binary": binary, "final": v.Final, "local": v.Local,
+				"labels": sub.HyperSetLabels(p), "formats": formats}, nil, nil
 		default:
 			v.Nodes = paginate(v.Nodes, in.Offset, in.Limit)
 			v.Groups = paginate(v.Groups, in.Offset, in.Limit)

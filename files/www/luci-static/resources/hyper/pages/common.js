@@ -312,6 +312,11 @@ export function money(amount, currency = DEFAULT_CURRENCY, scale = MINOR_SCALE) 
     return value + ' ' + currency.unit;
 }
 export const UNIT_LABEL = { Year: t('年'), Month: t('个月'), Week: t('周'), Day: t('天'), Hour: t('小时'), NoLimit: '' };
+// A plan's length: a count and its unit, one unit in the singular in English (1 month).
+export function duration(quantity, unit) {
+    const label = UNIT_LABEL[unit || ''] ?? unit ?? '';
+    return quantity + ' ' + (locale === 'en-US' && Number(quantity) === 1 && label.endsWith('s') ? label.slice(0, -1) : label);
+}
 // Order status, as the Hyper app reads it: 1 pending, 2/5 paid, 3 cancelled, 4 closed.
 export function orderPhase(status) {
     if (status === 1) return 'pending';

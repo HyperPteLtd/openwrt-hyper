@@ -10,7 +10,7 @@ import { t } from '../i18n.js';
 import { say, empty, diagnosticMessage } from '../dom.js';
 import {
     api, apiError, ids, actions, muted, badge, input, localizedText, siteCurrency, resolveCurrency, amountScale,
-    money, UNIT_LABEL, DEFAULT_CURRENCY, syncHyper,
+    money, UNIT_LABEL, duration, DEFAULT_CURRENCY, syncHyper,
 } from './common.js';
 
 // --- payment-v2 -----------------------------------------------------------------------------------
@@ -427,7 +427,6 @@ export function qrMatrix(text) {
 const stepNames = [t('选择套餐'), t('确认订单'), t('支付'), t('完成')];
 const stepIndex = { pick: 0, confirm: 1, order: 2, done: 3, closed: 2 };
 const transient = (r) => !!r?.thrown || r?.error === 'api_unavailable' || r?.error === 'timeout';
-const unitOf = (plan) => UNIT_LABEL[plan?.unit_time || ''] ?? plan?.unit_time ?? '';
 
 export async function plans(ui) {
     const h = ui.h;
@@ -613,7 +612,6 @@ export async function plans(ui) {
         const scale = amountScale(st.units),
             currency = resolveCurrency(st.units, st.currency);
         for (const p of st.plans) {
-            const unit = unitOf(p);
             box.append(
                 h(
                     'div',
@@ -625,7 +623,7 @@ export async function plans(ui) {
                         p.discount.map((tier) =>
                             radio(
                                 [
-                                    h('span', {}, tier.quantity + ' ' + unit),
+                                    h('span', {}, duration(tier.quantity, p.unit_time)),
                                     h('strong', {}, money(tier.sell_price, currency, scale)),
                                     tier.original_price && tier.original_price > tier.sell_price ? h('s', { class: 'ow-muted' }, money(tier.original_price, currency, scale)) : null,
                                     tier.recommend ? badge(ui, t('推荐')) : null,
@@ -656,7 +654,7 @@ export async function plans(ui) {
                 h(
                     'div',
                     { class: 'ow-plans-summary' },
-                    muted(ui, plan.name + ' · ' + tier.quantity + ' ' + unitOf(plan)),
+                    muted(ui, plan.name + ' · ' + duration(tier.quantity, plan.unit_time)),
                     h('strong', { class: 'ow-plans-price' }, money(tier.sell_price, currency, scale)),
                     buy,
                 ),
@@ -710,7 +708,7 @@ export async function plans(ui) {
                 'dl',
                 { class: 'ow-facts ow-plans-facts' },
                 fact(t('套餐'), plan.name),
-                fact(t('时长'), c.quantity + ' ' + unitOf(plan)),
+                fact(t('时长'), duration(c.quantity, plan.unit_time)),
                 fact(t('原价'), money(p.price, currency)),
                 p.discount ? fact(t('优惠'), '-' + money(p.discount, currency)) : null,
                 p.coupon_discount ? fact(t('优惠码'), '-' + money(p.coupon_discount, currency)) : null,
@@ -1075,9 +1073,9 @@ export async function plans(ui) {
         }
         if (!isSession(r.data)) return fail(t('支付服务返回的数据不完整，请稍后重试'));
         st.payPlan = plan?.name || '';
-        st.duration = c.quantity + ' ' + unitOf(plan);
+        st.duration = duration(c.quantity, plan.unit_time);
         st.preparingSince = null;
-        savePending({ order_no: r.data.order_no, plan: st.payPlan, quantity: c.quantity, unit: unitOf(plan), time: Date.now() });
+        savePending({ order_no: r.data.order_no, plan: st.payPlan, quantity: c.quantity, unit: UNIT_LABEL[plan.unit_time || ''] ?? plan.unit_time ?? '', time: Date.now() });
         setSession(r.data, true);
     }
 
