@@ -8,7 +8,7 @@ import { t } from '../i18n.js';
 import { h, card, bytes, diagnosticMessage } from '../dom.js';
 import {
     HYPER, account, api, apiError, read, write, syncHyper, pendingUpdates, actions, muted, badge, field, input, form, confirm, date,
-    localizedText, expiryText, membershipCounters, siteCurrency, money, formatDate, DEFAULT_CURRENCY,
+    localizedText, expiryText, membershipCounters, siteCurrency, money, formatDate, DEFAULT_CURRENCY, siteURL,
 } from './common.js';
 
 const emailPattern = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -87,10 +87,11 @@ function signIn(ui) {
 
 async function signedIn(ui, state) {
     const get = (path, query) => api(ui, 'GET', path, query ? { query } : {}).catch((e) => ({ ok: false, error: e.message }));
-    const [info, subs, notices] = await Promise.all([
+    const [info, subs, notices, site] = await Promise.all([
         get('/v1/public/user/info'),
         get('/v1/public/user/subscribe'),
         get('/v1/public/announcement/list', { page: 1, size: 30 }),
+        get('/v1/common/site/config'),
     ]);
     if (ui.signal.aborted) return h('div');
     const list = subs?.ok ? subs.data?.list || [] : [];
@@ -98,12 +99,12 @@ async function signedIn(ui, state) {
     return h(
         'div',
         { class: 'ow-account' },
-        h('div', { class: 'ow-account-grid' }, profileCard(ui, state, info, active, subs), syncCard(ui)),
+        h('div', { class: 'ow-account-grid' }, profileCard(ui, state, info, active, subs, siteURL(site)), syncCard(ui)),
         announcementsCard(ui, notices),
     );
 }
 
-function profileCard(ui, state, info, active, subs) {
+function profileCard(ui, state, info, active, subs, site) {
     const user = info?.ok ? info.data || {} : {};
     const name = user.nickname || state.email || '';
     const box = card('');
@@ -127,7 +128,8 @@ function profileCard(ui, state, info, active, subs) {
             h('div', { class: 'ow-stack ow-grow' },
                 h('strong', {}, planName),
                 muted(ui, active ? expiryText(active.expire_time, active.status) : t('购买套餐后，这台路由器就能连接'))),
-            ui.button(active ? t('续费 / 升级') : t('购买套餐'), () => ui.go('plans'), 'ow-primary')),
+            // On the website, in a new tab: the router sells nothing itself.
+            ui.button((active ? t('续费 / 升级') : t('购买套餐')) + ' ↗', () => window.open(site, '_blank', 'noopener'), 'ow-primary')),
         active
             ? h('dl', { class: 'ow-metrics' },
                 h('div', {}, h('dt', {}, t('已用流量')), h('dd', {}, metrics.used == null ? '--' : bytes(metrics.used))),

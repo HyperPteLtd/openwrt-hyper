@@ -171,9 +171,13 @@ func TestTXTDiscovery(t *testing.T) {
 
 func TestAllowedPath(t *testing.T) {
 	for p, want := range map[string]bool{
-		"/v1/public/user/info":                              true,
-		"/v2/orders/abc_1/payment":                          true,
-		"/v1/public/order/detail":                           true,
+		"/v1/public/user/info":                true,
+		"/v1/public/announcement/list":        true,
+		"/v1/public/user/device/kick_offline": true,
+		// Purchases are the website's.
+		"/v2/orders/abc_1/payment":                          false,
+		"/v1/public/order/detail":                           false,
+		"/v2/orders/purchase":                               false,
 		"/v1/public/user/info?x=1":                          false,
 		"/v1/public/order/../../admin":                      false,
 		"/v1/admin/users":                                   false,

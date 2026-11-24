@@ -238,7 +238,7 @@ const diagnosticText = {
     dns_file_collision: t('dnsmasq 已有同名上游配置，请检查 99-hyper-upstream.conf 的归属'),
     'network apply failed at fault_flow_offload': t('防火墙已启用流量分载，现有连接可能绕过故障保护。请关闭防火墙流量分载，或启用故障时回退直连'),
     'network apply failed at service_stopping': t('正在停止服务，本次接管已取消'),
-    'network apply failed at dns_only_firewall': t('仅 DNS 保护需要 firewall4（nftables）防火墙'),
+    'network apply failed at dns_only_firewall': t('直连时的 DNS 保护需要 firewall4（nftables）防火墙'),
     kernel_validation_timeout: t('内核配置校验超时'),
     kernel_storage_reserve: t('剩余空间不足以保存配置和恢复预留空间'),
     kernel_storage_full: t('保存内核状态时空间已满'),

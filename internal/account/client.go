@@ -32,16 +32,12 @@ var (
 	errTimeout     = errors.New("timeout")
 )
 
-// Paths the browser may reach through the `api` method. Everything else is refused.
+// Paths the browser may reach through the `api` method: what the account pages read, and
+// signing a device out. Everything else, purchases included (the website's), is refused.
 var allowlist = []func() *regexp.Regexp{
-	lazyre.New(`^/v1/auth/(check|login|register|reset)$`),
-	lazyre.New(`^/v1/common/(site/config|site/tos|site/privacy|send_code|check_verification_code|heartbeat|exchange-rate)$`),
-	lazyre.New(`^/v1/public/(announcement|document|order|payment|portal|subscribe|ticket|coupon)/`),
-	lazyre.New(`^/v1/public/user/(info|subscribe|devices|device/kick_offline|password|profile|notify|affiliate/count|affiliate/list|balance_log|commission_log|login_log|logout)$`),
-	lazyre.New(`^/v1/public/app/(check|latest)$`),
-	lazyre.New(`^/v2/subscribe/locations$`),
-	lazyre.New(`^/v2/orders/purchase$`),
-	lazyre.New(`^/v2/orders/[A-Za-z0-9_.-]{1,64}/(payment|payment/selection|cancel)$`),
+	lazyre.New(`^/v1/common/site/config$`),
+	lazyre.New(`^/v1/public/announcement/list$`),
+	lazyre.New(`^/v1/public/user/(info|subscribe|devices|device/kick_offline|affiliate/count)$`),
 }
 
 // AllowedPath reports whether the browser may call path through the router.

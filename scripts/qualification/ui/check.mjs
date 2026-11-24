@@ -1,6 +1,7 @@
 // Load every page of the LuCI interface in Chinese and in English against fixture.js and check
 // that each renders without errors and that the English pages hold no Chinese of the interface's
-// own. Screenshots go to HYPER_UI_OUTPUT (build/ui-check).
+// own, as LuCI's language (the page's lang) decides. Screenshots go to HYPER_UI_OUTPUT
+// (build/ui-check).
 //   HYPER_PLAYWRIGHT=…/playwright/index.mjs node scripts/qualification/ui/check.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -41,11 +42,8 @@ const server = http.createServer(async (req, res) => {
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
-const views = ['overview', 'proxy', 'account', 'rules', 'logs', 'connections', 'plans'];
+const views = ['overview', 'proxy', 'account', 'rules', 'logs', 'connections'];
 const han = /[　-〿一-鿿！-｠]/;
-// Text the service or the router supplies, not the interface: the language names on the
-// language choice read in their own language.
-const ownWords = ['简体中文'];
 
 const browser = await chromium.launch();
 const failures = [];
@@ -67,7 +65,7 @@ try {
 			if (/无法加载页面|Can't load the page/.test(text)) failures.push(`${name}: the page failed to load: ${text.split('\n').slice(0, 12).join(' ¦ ')}`);
 			assert.ok(text.trim().length > 20, `${name}: an empty page`);
 			if (english) {
-				const lines = text.split('\n').filter((l) => han.test(ownWords.reduce((s, w) => s.replaceAll(w, ''), l)));
+				const lines = text.split('\n').filter((l) => han.test(l));
 				if (lines.length) failures.push(`${name}: Chinese on the English page: ${lines.slice(0, 8).join(' ¦ ')}`);
 			} else if (!han.test(text)) {
 				failures.push(`${name}: no Chinese on the Chinese page`);
@@ -98,18 +96,33 @@ try {
 		if (errors.length) failures.push(`${lang} account dialogs: ${errors.join(' | ')}`);
 		await tab.close();
 	}
-	// The language choice: English chosen on a Chinese router reloads the page in English and stays.
-	const tab = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-	await tab.goto(`${base}/?lang=zh-cn#overview`);
-	const choice = tab.getByRole('combobox', { name: '界面语言' });
-	await choice.waitFor();
-	await Promise.all([tab.waitForEvent('load'), choice.selectOption('en-US')]);
-	await tab.getByRole('link', { name: 'Overview' }).waitFor();
-	await tab.reload();
-	await tab.getByRole('link', { name: 'Overview' }).waitFor();
-	await tab.getByRole('combobox', { name: 'Interface language' }).selectOption('auto');
-	await tab.getByRole('link', { name: '概览' }).waitFor({ timeout: 10000 });
-	await tab.close();
+	// 直连 with DNS protection keeps DNS alone (dns_only); DNS protection off in 直连 stops it all.
+	{
+		const tab = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+		await tab.goto(`${base}/?lang=zh-cn#overview`);
+		const mode = (name) => tab.locator('.ow-modes').getByRole('button', { name, exact: true });
+		const dns = tab.getByRole('switch', { name: 'DNS 保护', exact: true });
+		const state = () => tab.evaluate(async () => {
+			const prefs = await window.model.rpc('network_preferences');
+			return { mode: window.model.saved.mode, dns: prefs.dns, dnsOnly: prefs.dns_only };
+		});
+		await mode('直连').click();
+		await tab.locator('.ow-modes small').waitFor();
+		let st = await state();
+		assert.deepEqual(st, { mode: 'smart', dns: true, dnsOnly: true }, '直连 with DNS protection is DNS-only');
+		assert.equal(await mode('直连').getAttribute('aria-pressed'), 'true');
+		assert.equal(await dns.getAttribute('aria-checked'), 'true');
+		await dns.click();
+		await tab.locator('.ow-modes small').waitFor({ state: 'detached' });
+		st = await state();
+		assert.deepEqual(st, { mode: 'direct', dns: false, dnsOnly: false }, 'DNS protection off in 直连 stops the proxy');
+		assert.equal(await dns.getAttribute('aria-checked'), 'false');
+		await mode('智能').click();
+		await tab.waitForFunction(() => window.model.saved.mode === 'smart');
+		st = await state();
+		assert.deepEqual(st, { mode: 'smart', dns: false, dnsOnly: false });
+		await tab.close();
+	}
 } finally {
 	await browser.close();
 	server.close();

@@ -1,4 +1,4 @@
-import { t, languagePreference, setLanguagePreference } from '../i18n.js';
+import { t } from '../i18n.js';
 import { diagnosticMessage, day, pluginName, conflictItem } from '../dom.js';
 import { h, card, bytes, field, empty, segment, modeNames, clock, resultName, say, hush, attach } from '../dom.js';
 import { installBundled } from './versions.js';
@@ -400,6 +400,20 @@ export async function overview(ui) {
 		await ui.run('save_network', { args: { ...prefs, ...changes } });
 		await ui.refresh();
 	};
+	// 直连 with DNS protection keeps the core for DNS alone (hyper.main.dns_only, the router's
+	// DNS-only takeover); without it the proxy stops (mode direct). The selector shows 直连 for both.
+	const dnsOnly = !!prefs.dns_only;
+	const shownMode = dnsOnly ? 'direct' : intent.mode;
+	const chooseMode = async (mode, dns) => {
+		if (mode === 'direct' && dns) {
+			if (!dnsOnly || !prefs.dns) await ui.run('save_network', { args: { ...prefs, dns: true, dns_only: true } });
+			if (intent.mode !== 'smart') await ui.run('mode', { mode: 'smart', revision: intent.revision });
+		} else {
+			if (dnsOnly || prefs.dns !== dns) await ui.run('save_network', { args: { ...prefs, dns, dns_only: false } });
+			if (intent.mode !== mode) await ui.run('mode', { mode, revision: intent.revision });
+		}
+		await ui.refresh();
+	};
 	const savePolicy = async (changes) => {
 		await ui.run('policy', { revision: intent.revision, policy: { ...policy, ...changes } });
 		await ui.refresh();
@@ -644,11 +658,9 @@ export async function overview(ui) {
 		{ class: 'ow-modes' },
 		field(
 			t('代理模式'),
-			focusKeys(segment(ui, t('代理模式'), modeNames, intent.mode, async (mode) => {
-				await ui.run('mode', { mode, revision: intent.revision });
-				await ui.refresh();
-			}), 'mode'),
+			focusKeys(segment(ui, t('代理模式'), modeNames, shownMode, (mode) => chooseMode(mode, prefs.dns)), 'mode'),
 		),
+		dnsOnly ? h('small', { class: 'ow-muted' }, t('直连时只由内核解析 DNS，所有流量直连')) : null,
 	);
 	const right = h('div', { class: 'ow-route-side' }, modes, ui.feedback(modes));
 	if (intent.mode === 'global') {
@@ -813,15 +825,14 @@ export async function overview(ui) {
 			toggle(t('开机启动'), prefs.enabled, (v) => saveP({ enabled: v })),
 		)),
 	);
-	const dnsOnly = !!prefs.dns_only;
-	const dnsSwitch = toggle(t('DNS 保护'), prefs.dns || dnsOnly, (v) => saveP({ dns: v }));
-	if (dnsOnly) dnsSwitch.disabled = true;
+	// In 直连 the switch chooses between DNS protection alone and nothing at all.
+	const dnsSwitch = toggle(t('DNS 保护'), shownMode === 'direct' ? dnsOnly : prefs.dns, (v) => (shownMode === 'direct' ? chooseMode('direct', v) : saveP({ dns: v })));
 	const dnsPrefs = card(
 		'DNS',
 		lined(updateRow(t('DNS 保护'), dnsSwitch,
-			h('small', { class: 'ow-muted' }, dnsOnly ? t('仅 DNS 保护时始终开启') : t('由内核解析，防污染')))),
-		lined(updateRow(t('仅 DNS 保护'), toggle(t('仅 DNS 保护'), dnsOnly, (v) => saveP({ dns_only: v, ...(v ? { dns: true } : {}) })),
-			h('small', { class: 'ow-muted' }, t('只加密 DNS 查询，防劫持和污染；所有流量直连，不经过代理')))),
+			h('small', { class: 'ow-muted' }, shownMode === 'direct'
+				? t('直连时开启：只由内核解析 DNS，防劫持和污染')
+				: t('由内核解析，防污染')))),
 		upstreamRow(ui, t('国内域名'), t('直连解析'), 'domestic', prefs.dns_domestic, (v) => saveP({ dns_domestic: v })),
 		upstreamRow(ui, t('其他域名'), t('经代理加密解析'), 'foreign', prefs.dns_foreign, (v) => saveP({ dns_foreign: v })),
 	);
@@ -894,13 +905,6 @@ export async function overview(ui) {
 		updateRow(t('大陆域名与 IP 列表'), h('small', { class: 'ow-muted' }, t('每周自动更新')),
 			h('small', { class: 'ow-muted' }, ui.status.china_lists ? t('更新于 {0}', day(ui.status.china_lists)) : t('插件内置版本'))),
 	);
-	// This browser's choice: the pages follow LuCI's language unless one is chosen here.
-	const general = card(
-		t('界面'),
-		lined(h('div', { class: 'ow-row' }, h('span', { class: 'ow-label' }, t('界面语言'), h('small', { class: 'ow-muted' }, t('默认跟随路由器的 LuCI 语言'))),
-			choose(t('界面语言'), [['auto', t('跟随路由器')], ['zh-CN', t('简体中文')], ['en-US', 'English']], languagePreference(),
-				(v) => setLanguagePreference(v)))),
-	);
 	const grid = h(
 		'div',
 		{ class: 'ow-dashboard' },
@@ -912,7 +916,6 @@ export async function overview(ui) {
 		dnsPrefs,
 		repair,
 		updates,
-		general,
 	);
 	// The service's problem sits under the power button's status line, not above the page.
 	const content = h('div', { class: 'ow-stack' }, grid);

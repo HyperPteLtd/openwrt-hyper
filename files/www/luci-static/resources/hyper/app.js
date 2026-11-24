@@ -3,7 +3,6 @@ import { h, card, knownNames, pages, feedback, feedbackFor, say, hush, diagnosti
 import { overview } from './pages/overview.js';
 import { proxy } from './pages/proxy.js';
 import { hyperAccount } from './pages/account.js';
-import { plans } from './pages/plans.js';
 import { rules } from './pages/rules.js';
 import { records } from './pages/records.js';
 
@@ -14,15 +13,14 @@ const views = {
 	rules: [t('规则'), rules],
 	logs: [t('日志'), records],
 	connections: [t('连接记录'), records],
-	// Reached from the account page, not the navigation.
-	plans: [t('套餐'), plans],
 };
-const hidden = new Set(['plans']);
 const aliases = {
 	nodes: 'proxy',
 	groups: 'proxy',
 	subscriptions: 'account',
 	subs: 'account',
+	// Purchases are the website's.
+	plans: 'account',
 	login: 'account',
 	devices: 'overview',
 	settings: 'overview',
@@ -54,7 +52,7 @@ export function mount(root, invoke) {
 		),
 		nav,
 	);
-	for (const [page, [name]] of Object.entries(views)) if (!hidden.has(page)) nav.append(h('a', { href: '#' + page }, name));
+	for (const [page, [name]] of Object.entries(views)) nav.append(h('a', { href: '#' + page }, name));
 	root.replaceChildren(header, alert, main);
 	let scope,
 		disconnected = false,
@@ -294,7 +292,7 @@ export function mount(root, invoke) {
 		const controller = new AbortController();
 		scope = controller;
 		const { page, detail } = route();
-		const tab = page === 'plans' ? 'account' : page;
+		const tab = page;
 		for (const a of nav.children) {
 			if (a.hash === '#' + tab) a.setAttribute('aria-current', 'page');
 			else a.removeAttribute('aria-current');

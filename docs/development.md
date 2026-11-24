@@ -22,7 +22,7 @@ go test -race ./...
 node scripts/check-luci.mjs
 ```
 
-`check-luci.mjs` 按浏览器加载的方式检查 LuCI 页面：`view/` 下为 LuCI 求值的函数体，其余为 ES 模块，并确认相对导入存在。页面就是 LuCI 原生 JavaScript，没有构建步骤。它同时检查英文：页面上的每段文字都写成 `t('中文')`（带参数时 `t('当前 {0}', v)`），[en.js](../files/www/luci-static/resources/hyper/en.js) 以中文为键给出英文；缺英文、多余的键或 `t()` 之外的中文都会失败（注释和正则表达式除外）。语言由 [i18n.js](../files/www/luci-static/resources/hyper/i18n.js) 决定：默认跟随 LuCI 的语言，在概览的“界面语言”中按浏览器保存选择，切换后重新载入页面；账户接口的服务端文字按同一语言请求。`cmd/hyperd` 的 `TestEmittedCodesReadInChinese` 读取 Go 源码，hyperd 报出的错误码或任务名在页面没有中文时失败
+`check-luci.mjs` 按浏览器加载的方式检查 LuCI 页面：`view/` 下为 LuCI 求值的函数体，其余为 ES 模块，并确认相对导入存在。页面就是 LuCI 原生 JavaScript，没有构建步骤。它同时检查英文：页面上的每段文字都写成 `t('中文')`（带参数时 `t('当前 {0}', v)`），[en.js](../files/www/luci-static/resources/hyper/en.js) 以中文为键给出英文；缺英文、多余的键或 `t()` 之外的中文都会失败（注释和正则表达式除外）。语言由 [i18n.js](../files/www/luci-static/resources/hyper/i18n.js) 按 LuCI 的语言决定，账户接口的服务端文字按同一语言请求。`cmd/hyperd` 的 `TestEmittedCodesReadInChinese` 读取 Go 源码，hyperd 报出的错误码或任务名在页面没有中文时失败
 
 页面在浏览器中的检查需要 Playwright（`npm install playwright` 与 `npx playwright install chromium`）：
 
@@ -30,7 +30,7 @@ node scripts/check-luci.mjs
 HYPER_PLAYWRIGHT=/path/to/node_modules/playwright/index.mjs node scripts/qualification/ui/check.mjs
 ```
 
-它用 [fixture.js](../scripts/qualification/ui/fixture.js) 扮演已登录（及未登录）的路由器，逐页以中文和英文打开，页面报错或英文页面出现界面自身的中文时失败，并检查语言切换；截图保存在 `build/ui-check`
+它用 [fixture.js](../scripts/qualification/ui/fixture.js) 扮演已登录（及未登录）的路由器，逐页以中文和英文打开，页面报错、页面无法加载或英文页面出现界面自身的中文时失败，并检查账户卡片的弹窗和直连时的 DNS 保护；截图保存在 `build/ui-check`
 
 安装测试和实验室脚本需要不依赖账户的订阅：设置 `HYPER_FIXTURE_DIR`（路由器上从不设置）后，`fixture` 类型的订阅从 `<目录>/<订阅 ID>.yaml` 读取；由 `/etc/init.d/hyper start` 启动时，init 脚本会把调用者的这个变量传给服务
 

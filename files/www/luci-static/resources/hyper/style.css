@@ -1,7 +1,6 @@
 @import url('./pages/proxy.css');
 @import url('./pages/records.css');
 @import url('./pages/account.css');
-@import url('./pages/plans.css');
 
 /* Hyper's own look, as 0.x had it: a dark canvas and the lime accent, whatever LuCI's theme. */
 .ow {

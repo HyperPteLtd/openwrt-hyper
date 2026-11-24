@@ -3,7 +3,7 @@ import { t, locale } from '../i18n.js';
 // Copyright (C) 2026 Hyper Pte. Ltd.
 //
 // What the Hyper pages share: small controls, the Hyper account API through the router, the
-// account's subscription sync, and how plans, amounts and dates read.
+// account's subscription sync, the website, and how plans, amounts and dates read.
 import { datetime, diagnosticMessage, tlsMessage } from '../dom.js';
 
 export const HYPER = 'hyper';
@@ -150,7 +150,7 @@ export const pendingUpdates = {
 };
 const noticeText = (n) => [n.at, n.resource, notices[n.code] || diagnosticMessage(n.code)].filter(Boolean).join(' · ');
 
-export function syncFailure(err) {
+function syncFailure(err) {
     return tlsMessage(err?.tls) || diagnosticMessage(err?.message ?? String(err));
 }
 
@@ -248,7 +248,7 @@ export function localizedText(value, fallback = '') {
 }
 
 // Hyper timestamps are milliseconds in newer builds and seconds in older ones.
-export function toDate(ts) {
+function toDate(ts) {
     const n = Number(ts);
     if (!n || n <= 0 || !Number.isFinite(n)) return null;
     return new Date(n > 1e12 ? n : n * 1000);
@@ -286,10 +286,9 @@ export function membershipCounters(s) {
 }
 
 export const DEFAULT_CURRENCY = { unit: 'USD', symbol: '$' };
-export const MINOR_SCALE = 100;
 const record = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 // Backend currency codes are uppercase letters and digits, at most 16 characters.
-export function resolveCurrency(value, fallback = DEFAULT_CURRENCY) {
+function resolveCurrency(value, fallback = DEFAULT_CURRENCY) {
     const source = record(value);
     const rawUnit = typeof source.currency_unit === 'string' ? source.currency_unit.trim().toUpperCase() : '';
     const unit = /^[A-Z0-9]{1,16}$/.test(rawUnit) ? rawUnit : fallback.unit;
@@ -298,29 +297,16 @@ export function resolveCurrency(value, fallback = DEFAULT_CURRENCY) {
     return { unit, symbol };
 }
 export const siteCurrency = (config) => resolveCurrency(record(config).currency);
-export function amountScale(units) {
-    const scale = units?.amount_scale;
-    return typeof scale === 'number' && Number.isSafeInteger(scale) && scale > 0 ? scale : MINOR_SCALE;
-}
-// Account and order/pre amounts use scale 100; plan lists declare theirs. The backend's currency
-// code is shown as it is, without conversion, as the mobile app does.
-export function money(amount, currency = DEFAULT_CURRENCY, scale = MINOR_SCALE) {
+// Account amounts are in hundredths. The backend's currency code is shown as it is, without
+// conversion, as the mobile app does.
+export function money(amount, currency = DEFAULT_CURRENCY) {
     if (amount == null || !Number.isFinite(Number(amount))) return '--';
-    const divisor = amountScale({ amount_scale: scale });
-    const digits = Math.max(2, Math.ceil(Math.log10(divisor)));
-    const value = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: digits }).format(Number(amount) / divisor);
+    const value = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(amount) / 100);
     return value + ' ' + currency.unit;
 }
-export const UNIT_LABEL = { Year: t('年'), Month: t('个月'), Week: t('周'), Day: t('天'), Hour: t('小时'), NoLimit: '' };
-// A plan's length: a count and its unit, one unit in the singular in English (1 month).
-export function duration(quantity, unit) {
-    const label = UNIT_LABEL[unit || ''] ?? unit ?? '';
-    return quantity + ' ' + (locale === 'en-US' && Number(quantity) === 1 && label.endsWith('s') ? label.slice(0, -1) : label);
-}
-// Order status, as the Hyper app reads it: 1 pending, 2/5 paid, 3 cancelled, 4 closed.
-export function orderPhase(status) {
-    if (status === 1) return 'pending';
-    if (status === 2 || status === 5) return 'paid';
-    if (status === 3 || status === 4) return 'closed';
-    return 'unknown';
+// Plans are bought and renewed on the website, which the service's site config names.
+const HYPER_SITE = 'https://www.hypervpn.app';
+export function siteURL(site) {
+    const host = site?.ok ? site.data?.site?.host : '';
+    return typeof host === 'string' && /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host) ? 'https://' + host : HYPER_SITE;
 }
