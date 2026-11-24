@@ -53,6 +53,7 @@ func run(args []string) error {
 	token := f.String("token", "", "")
 	config := f.String("config", "", "")
 	stageOnly := f.Bool("stage-only", false, "")
+	again := f.Bool("again", false, "")
 	var expected []uint64
 	f.Func("expected", "", func(s string) error {
 		if len(expected) > 0 {
@@ -91,10 +92,15 @@ func run(args []string) error {
 	var result any = struct{}{}
 	switch args[0] {
 	case "bootstrap":
-		if len(args) != 1 {
-			return errors.New("bootstrap takes no options")
+		// --again: a later attempt of the daemon's on a router still without a core.
+		if len(args) != 1 && (len(args) != 2 || !*again) {
+			return errors.New("bootstrap takes only --again")
 		}
-		result, e = m.Bootstrap(ctx)
+		if *again {
+			result, e = m.BootstrapAgain(ctx)
+		} else {
+			result, e = m.Bootstrap(ctx)
+		}
 	case "status":
 		result, e = m.Status()
 	case "capabilities":

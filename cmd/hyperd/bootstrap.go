@@ -109,7 +109,12 @@ func (s *app) queueBootstrap(retry bool) {
 			Staged string `json:"staged"`
 		}
 		out, err := retryFirstKernel(ctx, []time.Duration{5 * time.Second, 15 * time.Second}, func(ctx context.Context) (json.RawMessage, error) {
-			return child(ctx, "hyper-kernel", []string{"bootstrap"}, nil)
+			// A retry clears what an attempt it follows left behind, as a restart mid-download does.
+			args := []string{"bootstrap"}
+			if retry {
+				args = append(args, "--again")
+			}
+			return child(ctx, "hyper-kernel", args, nil)
 		})
 		if manualCtx.Err() != nil && s.ctx.Err() == nil {
 			return json.RawMessage(`{"skipped":"manual_operation"}`), nil

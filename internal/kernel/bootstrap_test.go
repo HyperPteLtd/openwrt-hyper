@@ -251,3 +251,42 @@ func TestBootstrapLatestPreservesCertificateValidityFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A later attempt clears what an interrupted one left (the daemon restarted mid-download, as a
+// package upgrade does) and installs; the first one leaves it alone, and kernel state ends both.
+func TestBootstrapAgainClearsAnInterruptedAttempt(t *testing.T) {
+	withLine(t)
+	m := newFixture(t).mgr
+	const release, tag = "hyper-v2.4.1", "v2.4.1"
+	name := assetName(tag, m.Target)
+	raw := mihomoArchive(t, tag, m.Target)
+	meta, _ := json.Marshal(stableFixture(release, []releaseAsset{{Name: name, Size: int64(len(raw)), Digest: "sha256:" + Digest(raw)}}))
+	serveReleases(t, map[string][]byte{releaseAPI + "/latest": meta, origin + "/" + release + "/" + name: raw})
+	if err := m.setup(); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(m.Root, "slots", ".unpack-1"), filepath.Join(m.Root, "meta", "v2.4.0"), filepath.Join(m.Temp, "slots", ".unpack-2")} {
+		if err := os.MkdirAll(p, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(m.Temp, ".archive-1"), []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if out, err := m.Bootstrap(ctx); err != nil || out["skipped"] != "existing_kernel" {
+		t.Fatal(out, err)
+	}
+	out, err := m.BootstrapAgain(ctx)
+	if err != nil || out["staged"] != tag {
+		t.Fatal(out, err)
+	}
+	for _, p := range []string{filepath.Join(m.Root, "slots", ".unpack-1"), filepath.Join(m.Temp, "slots", ".unpack-2"), filepath.Join(m.Temp, ".archive-1")} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatal("left", p, err)
+		}
+	}
+	if out, err = m.BootstrapAgain(ctx); err != nil || out["skipped"] != "existing_kernel" {
+		t.Fatal(out, err)
+	}
+}

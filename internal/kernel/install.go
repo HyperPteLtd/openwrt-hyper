@@ -414,6 +414,18 @@ func (m *Manager) forget(p *pick, s *state) {
 // Bootstrap reserves the same payload space as manual installations. Inspect
 // persisted picks and unreferenced payloads before reclaim can remove anything.
 func (m *Manager) Bootstrap(ctx context.Context) (map[string]string, error) {
+	return m.bootstrap(ctx, false)
+}
+
+// BootstrapAgain is a later attempt of the router's own, on a router still without a core:
+// what an attempt it interrupted left behind (a download or unpacked payload no state refers
+// to, cached metadata) does not hold it back; reclaim clears it first, as for an
+// administrator's installation. Any kernel state still ends it.
+func (m *Manager) BootstrapAgain(ctx context.Context) (map[string]string, error) {
+	return m.bootstrap(ctx, true)
+}
+
+func (m *Manager) bootstrap(ctx context.Context, again bool) (map[string]string, error) {
 	if err := m.setup(); err != nil {
 		return nil, err
 	}
@@ -432,7 +444,15 @@ func (m *Manager) Bootstrap(ctx context.Context) (map[string]string, error) {
 	if s.Revision != 0 || s.Selected != nil || s.Active != nil || s.Previous != nil || s.Staged != nil || s.RuntimeCopy != nil || s.Pending != nil || s.Repair || len(s.Evict) > 0 {
 		return map[string]string{"skipped": "existing_kernel"}, nil
 	}
+	if again {
+		if err := m.locked(m.reclaim); err != nil {
+			return nil, err
+		}
+	}
 	for _, dir := range []string{filepath.Join(m.Root, "meta"), filepath.Join(m.Root, "slots"), filepath.Join(m.Temp, "slots")} {
+		if again && dir == filepath.Join(m.Root, "meta") {
+			continue
+		}
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			return nil, err

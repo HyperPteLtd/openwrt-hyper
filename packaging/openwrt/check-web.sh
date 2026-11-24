@@ -139,7 +139,14 @@ stage=core-download
 # line (scripts/core.lock) and selects it, known by its version alone.
 core_selected() { hyper-kernel status | jsonfilter -e '@.selected' | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+'; }
 for i in $(seq 1 150); do core_selected && break; sleep 2; done
-core_selected || { hyper-kernel status >&2; logread -e hyper 2>/dev/null | tail -n 20 >&2; exit 1; }
+if ! core_selected; then
+ # The daemon's view, with its last download attempt (bootstrap), and what the kernel directories hold.
+ hyper-kernel status >&2
+ rpc_call kernel_read '{"action":"status"}' || :
+ cat /tmp/web-result >&2
+ ls -la /etc/hyper/kernel /etc/hyper/kernel/slots /etc/hyper/kernel/meta /tmp/hyper/kernel /tmp/hyper/kernel/slots >&2 2>&1 || :
+ exit 1
+fi
 echo "The daemon downloaded and selected the core $(hyper-kernel status | jsonfilter -e '@.selected') ($(hyper-kernel status | jsonfilter -e '@.mode'))"
 stage=probe-source
 # A second listener can be closed independently of uhttpd serving the authenticated RPC.
