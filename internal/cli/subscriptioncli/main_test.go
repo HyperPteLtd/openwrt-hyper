@@ -147,3 +147,22 @@ func TestLabFixture(t *testing.T) {
 		t.Fatal(string(b), err)
 	}
 }
+
+// configure sets up a test's fixture source, and nothing else: no account source, and none at
+// all on a router, which serves no fixtures.
+func TestConfigureFixtureOnly(t *testing.T) {
+	store := sub.OpenStore(t.TempDir())
+	previous := sub.Fixture
+	t.Cleanup(func() { sub.Fixture = previous })
+	sub.Fixture = nil
+	if _, _, err := run(context.Background(), store, "configure", input{Config: &sub.Source{ID: "lab", Name: "Lab", Kind: sub.FixtureSource}}, sub.Fetcher{}); err == nil {
+		t.Fatal("configured a fixture without a lab")
+	}
+	sub.Fixture = labFixture(t.TempDir())
+	if _, _, err := run(context.Background(), store, "configure", input{Config: &sub.Source{ID: "hyper", Name: "Hyper", Kind: sub.HyperSource}}, sub.Fetcher{}); err == nil {
+		t.Fatal("configured the account's source")
+	}
+	if _, changed, err := run(context.Background(), store, "configure", input{Config: &sub.Source{ID: "lab", Name: "Lab", Kind: sub.FixtureSource}}, sub.Fetcher{}); err != nil || len(changed) != 1 {
+		t.Fatal(changed, err)
+	}
+}

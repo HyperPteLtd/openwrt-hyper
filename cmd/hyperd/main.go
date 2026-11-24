@@ -479,7 +479,8 @@ func (s *app) dispatch(ctx context.Context, method string, r request) (any, erro
 		}
 		return child(ctx, bin, arg, body)
 	case "subscription_write":
-		if !slices.Contains([]string{"login", "refresh", "rollback", "revoke", "logout", "send_code", "api", "checkin", "rule_toggle"}, r.Action) {
+		// configure takes a test's fixture source only; a router has none (HYPER_FIXTURE_DIR).
+		if !slices.Contains([]string{"login", "refresh", "rollback", "revoke", "logout", "send_code", "api", "checkin", "rule_toggle", "configure"}, r.Action) {
 			return nil, errors.New("unknown subscription operation")
 		}
 		lane = ""

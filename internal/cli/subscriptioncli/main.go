@@ -50,6 +50,8 @@ type input struct {
 	Enabled        *bool           `json:"enabled,omitempty"`
 	// adopt: the server lists a router upgraded from 0.x had switched off.
 	Disabled []string `json:"disabled,omitempty"`
+	// configure: a test's fixture source (labFixture).
+	Config *sub.Source `json:"config,omitempty"`
 }
 type result struct {
 	TLS            *tlsdiag.Diagnostic `json:"tls,omitempty"`
@@ -195,6 +197,13 @@ func run(ctx context.Context, store *sub.Store, method string, in input, f sub.F
 	case "revoke":
 		e := store.Revoke(in.Source)
 		return nil, []string{in.Source}, e
+	case "configure":
+		// Fixture sources only, which exist only with HYPER_FIXTURE_DIR (labFixture).
+		if in.Config == nil {
+			return nil, nil, errors.New("invalid_request")
+		}
+		e := store.Configure(*in.Config)
+		return nil, []string{in.Config.ID}, e
 	default:
 		return nil, nil, errors.New("unknown_method")
 	}
