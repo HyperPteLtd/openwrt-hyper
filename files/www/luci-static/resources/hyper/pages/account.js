@@ -2,8 +2,9 @@ import { t } from '../i18n.js';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Hyper Pte. Ltd.
 //
-// The Hyper account: sign-in by email code, the plan, the account's node sync, invitations,
-// signed-in devices, the daily check-in and announcements. The session stays on the router.
+// The Hyper account: sign-in by email code, the plan, the account's node sync and announcements,
+// and the panels the overview's account card opens: the daily check-in, invitations and the
+// signed-in devices. The session stays on the router.
 import { h, card, bytes, diagnosticMessage } from '../dom.js';
 import {
     HYPER, account, api, apiError, read, write, syncHyper, pendingUpdates, actions, muted, badge, field, input, form, confirm, date,
@@ -86,24 +87,18 @@ function signIn(ui) {
 
 async function signedIn(ui, state) {
     const get = (path, query) => api(ui, 'GET', path, query ? { query } : {}).catch((e) => ({ ok: false, error: e.message }));
-    const [info, subs, devices, site, affiliate, notices] = await Promise.all([
+    const [info, subs, notices] = await Promise.all([
         get('/v1/public/user/info'),
         get('/v1/public/user/subscribe'),
-        get('/v1/public/user/devices'),
-        get('/v1/common/site/config'),
-        get('/v1/public/user/affiliate/count'),
         get('/v1/public/announcement/list', { page: 1, size: 30 }),
     ]);
     if (ui.signal.aborted) return h('div');
-    const currency = site?.ok ? siteCurrency(site.data) : DEFAULT_CURRENCY;
     const list = subs?.ok ? subs.data?.list || [] : [];
     const active = list.find((s) => s.status === 1) || list[0];
     return h(
         'div',
         { class: 'ow-account' },
         h('div', { class: 'ow-account-grid' }, profileCard(ui, state, info, active, subs), syncCard(ui)),
-        h('div', { class: 'ow-account-grid' }, checkinCard(ui), inviteCard(ui, info, affiliate, currency)),
-        devicesCard(ui, devices),
         announcementsCard(ui, notices),
     );
 }
@@ -178,55 +173,76 @@ function syncCard(ui) {
     return box;
 }
 
-function inviteCard(ui, info, affiliate, currency) {
-    const user = info?.ok ? info.data || {} : {};
-    const counts = affiliate?.ok ? affiliate.data || {} : {};
-    const box = card(t('邀请好友'));
-    const status = h('span', { class: 'ow-muted', role: 'status' });
-    const code = user.refer_code
-        ? h('div', { class: 'ow-row' },
-            h('strong', { class: 'ow-mono' }, user.refer_code),
-            ui.button(t('复制'), async () => {
-                try {
-                    await navigator.clipboard.writeText(user.refer_code);
-                    status.textContent = t('已复制');
-                } catch (_) {
-                    status.textContent = t('请手动复制邀请码');
-                }
-                setTimeout(() => { status.textContent = ''; }, 1500);
-            }, 'ow-link'),
-            status)
-        : muted(ui, t('没有邀请码'));
-    box.append(
-        muted(ui, t('好友注册时填写你的邀请码，购买后你会获得返佣')),
-        code,
-        h('dl', { class: 'ow-metrics' },
-            h('div', {}, h('dt', {}, t('佣金')), h('dd', {}, money(user.commission, currency))),
-            h('div', {}, h('dt', {}, t('已邀请')), h('dd', {}, counts.registers ?? '--')),
-            h('div', {}, h('dt', {}, t('累计返佣')), h('dd', {}, money(counts.total_commission, currency)))),
-    );
+// Invitations and signed-in devices open from the overview's account card in a dialog; each
+// reads the service when it opens.
+const serviceGet = (ui, path) => api(ui, 'GET', path).catch((e) => ({ ok: false, error: e.message }));
+function loading(ui, fill) {
+    const box = h('div', { class: 'ow-stack', 'aria-busy': 'true' }, muted(ui, t('正在读取…')));
+    fill(box).finally(() => box.setAttribute('aria-busy', 'false'));
     return box;
 }
-
-function devicesCard(ui, devices) {
-    const box = card(t('已登录的设备'));
-    const line = ui.feedback(box, 'devices');
-    const items = devices?.ok ? devices.data?.list || [] : [];
-    if (!devices?.ok) box.append(muted(ui, apiError(devices, t('设备列表暂时无法读取'))));
-    else if (!items.length) box.append(muted(ui, t('没有设备记录')));
-    else
-        box.append(h('ul', { class: 'ow-account-devices' }, ...items.map((d) => h('li', { class: 'ow-row' },
-            h('strong', { class: 'ow-grow' }, d.current ? t('本路由器') : d.platform || d.user_agent || t('设备')),
-            muted(ui, d.ip || '--'),
-            badge(ui, d.online ? t('在线') : t('离线')),
-            muted(ui, d.last_login_at ? t('登录于 {0}', formatDate(d.last_login_at)) : '--'),
-            d.current ? muted(ui, t('当前')) : ui.button(t('下线'), async () => {
-                const r = await api(ui, 'PUT', '/v1/public/user/device/kick_offline', { body: { id: d.id } });
-                if (!r?.ok) throw new Error(apiError(r, t('下线失败')));
-                await ui.refresh();
-            }, 'ow-link ow-danger-text')))));
-    box.append(line);
-    return box;
+export function invitePanel(ui) {
+    return loading(ui, async (box) => {
+        const [info, affiliate, site] = await Promise.all([
+            serviceGet(ui, '/v1/public/user/info'),
+            serviceGet(ui, '/v1/public/user/affiliate/count'),
+            serviceGet(ui, '/v1/common/site/config'),
+        ]);
+        if (ui.signal.aborted) return;
+        const currency = site?.ok ? siteCurrency(site.data) : DEFAULT_CURRENCY;
+        const user = info?.ok ? info.data || {} : {};
+        const counts = affiliate?.ok ? affiliate.data || {} : {};
+        const status = h('span', { class: 'ow-muted', role: 'status' });
+        const code = user.refer_code
+            ? h('div', { class: 'ow-row' },
+                h('strong', { class: 'ow-mono' }, user.refer_code),
+                ui.button(t('复制'), async () => {
+                    try {
+                        await navigator.clipboard.writeText(user.refer_code);
+                        status.textContent = t('已复制');
+                    } catch (_) {
+                        status.textContent = t('请手动复制邀请码');
+                    }
+                    setTimeout(() => { status.textContent = ''; }, 1500);
+                }, 'ow-link'),
+                status)
+            : muted(ui, info?.ok ? t('没有邀请码') : apiError(info, t('请求失败')));
+        box.replaceChildren(
+            muted(ui, t('好友注册时填写你的邀请码，购买后你会获得返佣')),
+            code,
+            h('dl', { class: 'ow-metrics' },
+                h('div', {}, h('dt', {}, t('佣金')), h('dd', {}, money(user.commission, currency))),
+                h('div', {}, h('dt', {}, t('已邀请')), h('dd', {}, counts.registers ?? '--')),
+                h('div', {}, h('dt', {}, t('累计返佣')), h('dd', {}, money(counts.total_commission, currency)))),
+        );
+    });
+}
+export function devicesPanel(ui) {
+    const line = h('p', { class: 'ow-muted', role: 'status', hidden: true });
+    const fill = async (box) => {
+        const devices = await serviceGet(ui, '/v1/public/user/devices');
+        if (ui.signal.aborted) return;
+        const items = devices?.ok ? devices.data?.list || [] : [];
+        if (!devices?.ok) box.replaceChildren(muted(ui, apiError(devices, t('设备列表暂时无法读取'))));
+        else if (!items.length) box.replaceChildren(muted(ui, t('没有设备记录')));
+        else
+            box.replaceChildren(h('ul', { class: 'ow-account-devices' }, ...items.map((d) => h('li', { class: 'ow-row' },
+                h('strong', { class: 'ow-grow' }, d.current ? t('本路由器') : d.platform || d.user_agent || t('设备')),
+                muted(ui, d.ip || '--'),
+                badge(ui, d.online ? t('在线') : t('离线')),
+                muted(ui, d.last_login_at ? t('登录于 {0}', formatDate(d.last_login_at)) : '--'),
+                d.current ? muted(ui, t('当前')) : ui.button(t('下线'), async () => {
+                    const r = await api(ui, 'PUT', '/v1/public/user/device/kick_offline', { body: { id: d.id } });
+                    if (!r?.ok) {
+                        line.hidden = false;
+                        line.textContent = apiError(r, t('下线失败'));
+                        return;
+                    }
+                    await fill(box);
+                }, 'ow-link ow-danger-text')))));
+        box.append(line);
+    };
+    return loading(ui, fill);
 }
 
 function announcementsCard(ui, notices) {
@@ -273,10 +289,10 @@ export function monthView(year, month, checked, today) {
 }
 const stateLabel = { checked: t('已签到'), 'today-checked': t('今天，已签到'), today: t('今天，未签到'), missed: t('未签到'), future: '' };
 
-function checkinCard(ui) {
-    const box = card(t('每日签到'));
-    box.classList.add('ow-checkin');
-    const line = ui.feedback(box, 'checkin');
+// The daily check-in, opened from the header's button in a dialog (app.js), as 0.x had it.
+export function checkinPanel(ui) {
+    const box = h('div', { class: 'ow-checkin ow-stack' });
+    const line = ui.feedback(box);
     const now = new Date();
     let view = [now.getFullYear(), now.getMonth()];
     let dates = [];

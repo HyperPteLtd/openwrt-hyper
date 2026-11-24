@@ -301,9 +301,10 @@ export function mount(root, invoke) {
 		}
 		main.setAttribute('aria-busy', 'true');
 		try {
-			const [status, sourceList] = await Promise.all([
+			const [status, sourceList, signIn] = await Promise.all([
 				rpc('status'),
 				rpc('subscription_read', { action: 'list', args: {} }),
+				rpc('subscription_read', { action: 'account', args: {} }).catch(() => null),
 			]);
 			if (controller.signal.aborted) return;
 			status.intent = status.saved;
@@ -394,6 +395,8 @@ export function mount(root, invoke) {
 				timer = setTimeout(tick, interval);
 				controller.signal.addEventListener('abort', () => clearTimeout(timer), { once: true });
 			};
+			// Signed in or not, and as whom (the overview's account card).
+			ui.account = signIn?.ok ? signIn.data : null;
 			const content = await views[page][1](ui);
 			if (controller.signal.aborted) return;
 			const focused = document.activeElement,

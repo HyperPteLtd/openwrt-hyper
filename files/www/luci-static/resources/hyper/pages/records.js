@@ -6,7 +6,7 @@ const sources = {
 	service: t('服务'),
 	core: t('代理内核'),
 	task: t('后台任务'),
-	subscription: t('订阅'),
+	subscription: t('节点同步'),
 	dns: 'DNS',
 	firewall: t('防火墙'),
 	kernel: t('内核'),

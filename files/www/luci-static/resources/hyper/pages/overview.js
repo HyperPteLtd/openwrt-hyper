@@ -1,7 +1,8 @@
 import { t, languagePreference, setLanguagePreference } from '../i18n.js';
 import { diagnosticMessage, day, pluginName, conflictItem } from '../dom.js';
 import { h, card, bytes, field, empty, segment, modeNames, clock, resultName, say, hush, attach } from '../dom.js';
-import { installBundled, kernelStorage, kernelSummary } from './versions.js';
+import { installBundled } from './versions.js';
+import { checkinPanel, invitePanel, devicesPanel } from './account.js';
 
 const states = {
 	running: t('已连接'),
@@ -130,80 +131,52 @@ function environmentRows(fields) {
 	return h('div', { class: 'ow-environment' },
 		fields.map(([key, value]) => h('div', {}, h('span', {}, key), h('strong', {}, value))));
 }
-function sourceCard(ui, setup) {
-	const current = ui.status.intent.source;
-	const sources = [...ui.sources.filter((s) => !s.revoked)].sort(
-		(a, b) => Number(b.source === current) - Number(a.source === current),
-	);
+// The Hyper account: a sign-in until there is one, then whose it is, its plan and its nodes.
+function accountCard(ui) {
+	const account = ui.account;
 	const box = card(
 		'',
-		h(
-			'div',
-			{ class: 'ow-row' },
+		h('div', { class: 'ow-row' },
 			h('h2', {}, t('Hyper 账户')),
-			ui.button(t('管理'), () => ui.go('account'), 'ow-link'),
-		),
+			account?.signed_in ? ui.button(t('管理'), () => ui.go('account'), 'ow-link') : null),
 	);
 	box.classList.add('ow-sources');
-	// Switching fails here; a subscription added from the setup reports its import here too.
-	box.append(ui.feedback(box, 'sources'));
-	// Each subscription is listed twice, for the phone's menu and the wide list.
-	function item(s, list) {
-		const active = s.source === current,
-			p = s.usage || s.plan;
-		const b = ui.button(
-			'',
-			async () => {
-				if (active || !s.ready) ui.go('account');
-				else {
-					await ui.run('source', { source: s.source, revision: ui.status.intent.revision });
-					await ui.refresh();
-				}
-			},
-			'ow-source-line' + (active ? ' is-active' : ''),
+	if (!account?.signed_in) {
+		box.append(
+			h('p', { class: 'ow-muted' }, t('登录后自动同步节点和分流规则')),
+			ui.button(t('登录'), () => ui.go('account'), 'ow-primary'),
 		);
-		b.setAttribute('aria-label', (active ? t('管理') : t('切换至')) + ' ' + (s.name || s.source));
-		b.dataset.focusKey = 'source:' + list + ':' + s.source;
-		const tail = h(
-			'div',
-			{ class: 'ow-source-sub' },
-			p?.total > 0
-				? h('span', {}, bytes(p.upload + p.download) + ' / ' + bytes(p.total))
-				: h('span', {}, t('{0} 个节点', s.node_count || 0)),
-			p?.expireAt ? h('span', {}, t('到期 {0}', day(p.expireAt))) : null,
-		);
-		const content = h(
-			'div',
-			{ class: 'ow-source-info' },
-			h('strong', {}, s.name || s.source),
-			p?.total > 0 && h('progress', { max: p.total, value: Math.min(p.total, p.upload + p.download) }),
-			tail,
-		);
-		b.append(
-			h('span', { class: 'ow-avatar' }, Array.from(s.name || t('订阅'))[0]),
-			content,
-			h('small', {}, active ? t('当前订阅') : s.ready ? t('切换') : t('管理')),
-		);
-		return b;
+		return box;
 	}
-	if (sources.length) {
-		const primary = sources.find(s => s.source === current);
-		const title = primary?.name || t('选择订阅');
-		const link = ui.button(t('账户'), () => ui.go('account'), 'ow-link');
-		box.append(h('details', { class: 'ow-source-mobile' },
-			h('summary', { 'aria-label': t('切换订阅') },
-				h('span', { class: 'ow-avatar', 'aria-hidden': 'true' }, Array.from(title)[0]),
-				h('span', { class: 'ow-source-info' }, h('strong', {}, title), h('small', {}, t('切换订阅'))),
-			),
-			h('div', { class: 'ow-stack' }, ...sources.map((s) => item(s, 'menu')), link),
-		));
-	}
-	// Without a subscription the card offers the setup that adds the first one.
-	if (!sources.length)
-		box.append(setup
-			? h('div', { class: 'ow-source-setup' }, h('p', {}, t('添加第一个订阅，开始配置全屋代理。')), setup)
-			: empty(t('尚未添加订阅')));
-	if (sources.length) box.append(h('div', { class: 'ow-source-list' }, ...sources.map((s) => item(s, 'list'))));
+	// A dialog keeps its own reads while the overview redraws behind it.
+	const panel = (title, make) => {
+		const scope = new AbortController();
+		const d = ui.dialog(title, make({ ...ui, signal: scope.signal }));
+		d.addEventListener('close', () => scope.abort(), { once: true });
+	};
+	const s = ui.sources.find((x) => x.source === 'hyper' && !x.revoked);
+	const p = s?.usage || s?.plan;
+	const email = account.email || '';
+	const used = p ? (p.upload || 0) + (p.download || 0) : 0;
+	// Like h(), leaving out what a condition left out: append() would show null as text.
+	box.append(...[
+		h('div', { class: 'ow-row ow-account-identity' },
+			h('span', { class: 'ow-avatar', 'aria-hidden': 'true' }, (Array.from(email)[0] || 'H').toUpperCase()),
+			h('div', { class: 'ow-stack ow-grow' },
+				h('strong', {}, email || t('Hyper 账户')),
+				h('small', { class: 'ow-muted' }, !s?.ready ? t('还没有同步过节点')
+					: s.updated_at ? t('{0} 个节点 · {1}', s.node_count || 0, t('更新于 {0}', day(s.updated_at)))
+					: t('{0} 个节点', s.node_count || 0)))),
+		p?.total > 0 ? h('progress', { max: p.total, value: Math.min(p.total, used), 'aria-label': t('已用套餐流量') }) : null,
+		p ? h('div', { class: 'ow-row' },
+			h('small', { class: 'ow-muted' }, p.total > 0 ? bytes(used) + ' / ' + bytes(p.total) : t('不限')),
+			p.expireAt ? h('small', { class: 'ow-muted' }, t('到期 {0}', day(p.expireAt))) : null) : null,
+		s?.last_failure ? h('small', { class: 'ow-muted', 'data-tone': 'error' }, t('同步失败 · {0}{1}', diagnosticMessage(s.last_failure), '')) : null,
+		h('div', { class: 'ow-actions ow-account-actions' },
+			ui.button(t('每日签到'), () => panel(t('每日签到'), checkinPanel), 'ow-primary'),
+			ui.button(t('邀请好友'), () => panel(t('邀请好友'), invitePanel)),
+			ui.button(t('已登录的设备'), () => panel(t('已登录的设备'), devicesPanel))),
+	].filter((child) => child != null));
 	return box;
 }
 function deviceCard(ui, devices) {
@@ -619,7 +592,7 @@ export async function overview(ui) {
 		sub,
 		powerLine,
 		power,
-		h('strong', { class: 'ow-plan-label' }, cat.primary?.name || t('尚未选择订阅')),
+		h('strong', { class: 'ow-plan-label' }, cat.primary ? 'Hyper' : t('尚未登录 Hyper 账户')),
 		h('small', { class: 'ow-muted' }, devices.unavailable ? t('等待局域网接口') : t('{0} 台局域网设备', devices.items.length)),
 		running && ui.status.side_router && h('small', { class: 'ow-muted' }, t('旁路由模式：设备的网关和 DNS 都需要指向本机')),
 		h(
@@ -720,7 +693,7 @@ export async function overview(ui) {
 				h('h3', {}, t('全局节点')),
 				ui.button(t('管理代理'), () => ui.go('proxy'), 'ow-link'),
 			),
-			...(nodes.length ? [grid, gridLine] : [empty(t('当前订阅没有可用节点'))]),
+			...(nodes.length ? [grid, gridLine] : [empty(t('账户下暂时没有可用的节点'))]),
 		);
 	} else if (intent.mode === 'direct') {
 		right.append(
@@ -908,8 +881,8 @@ export async function overview(ui) {
 		lined(h(
 			'div',
 			{ class: 'ow-row' },
-			t('订阅自动更新'),
-			toggle(t('订阅自动更新'), prefs.update_hours > 0, (on) => saveP({ update_hours: on ? ui.memory.updateHours || 6 : 0 })),
+			t('节点自动同步'),
+			toggle(t('节点自动同步'), prefs.update_hours > 0, (on) => saveP({ update_hours: on ? ui.memory.updateHours || 6 : 0 })),
 		)),
 		...(prefs.update_hours > 0 ? updateSchedule(ui, prefs, saveP, choose) : []),
 		updateRow(t('Hyper 插件'), ...pluginUpdate(ui)),
@@ -917,8 +890,6 @@ export async function overview(ui) {
 			h('small', { class: 'ow-muted' }, t('每天检查一次，有新版本时在这里提示')))),
 		lined(updateRow(t('自动更新插件'), toggle(t('自动更新插件'), !!prefs.auto_update, (v) => saveP({ auto_update: v })),
 			h('small', { class: 'ow-muted' }, t('每天检查并自动安装新版本，安装时网络会短暂中断')))),
-		updateRow(...kernelSummary(ui, kernel, kernelUpdates)),
-		updateRow(t('内核存储位置'), ...kernelStorage(ui, kernel, kernelUpdates, segment)),
 		// The router checks these lists itself once a week; there is nothing to press.
 		updateRow(t('大陆域名与 IP 列表'), h('small', { class: 'ow-muted' }, t('每周自动更新')),
 			h('small', { class: 'ow-muted' }, ui.status.china_lists ? t('更新于 {0}', day(ui.status.china_lists)) : t('插件内置版本'))),
@@ -930,15 +901,12 @@ export async function overview(ui) {
 			choose(t('界面语言'), [['auto', t('跟随路由器')], ['zh-CN', t('简体中文')], ['en-US', 'English']], languagePreference(),
 				(v) => setLanguagePreference(v)))),
 	);
-	// Without the account's subscription the card offers the sign-in, which syncs the nodes.
-	let setup = null;
-	if (!ui.sources.some((s) => !s.revoked)) setup = ui.button(t('登录 Hyper 账户'), () => ui.go('account'), 'ow-primary');
 	const grid = h(
 		'div',
 		{ class: 'ow-dashboard' },
 		hero,
 		// Subscriptions share the column beside the hero.
-		h('div', { class: 'ow-side-stack' }, sourceCard(ui, setup)),
+		h('div', { class: 'ow-side-stack' }, accountCard(ui)),
 		devices.unavailable ? card(t('设备'),empty(t('局域网接口尚未就绪')),ui.button(t('重新检测'),ui.refresh,'ow-link')) : deviceCard(ui, devices.items),
 		proxyPrefs,
 		dnsPrefs,

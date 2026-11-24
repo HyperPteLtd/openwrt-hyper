@@ -32,7 +32,7 @@ const server = http.createServer(async (req, res) => {
 		const file = url.pathname === '/fixture.js' ? path.join(here, 'fixture.js') : path.resolve(assets, '.' + url.pathname);
 		if (url.pathname !== '/fixture.js' && !file.startsWith(assets + path.sep)) throw Error('path');
 		const data = await fs.readFile(file);
-		res.setHeader('Content-Type', file.endsWith('.css') ? 'text/css' : 'text/javascript');
+		res.setHeader('Content-Type', file.endsWith('.css') ? 'text/css' : file.endsWith('.svg') ? 'image/svg+xml' : 'text/javascript');
 		res.end(data);
 	} catch {
 		res.writeHead(404);
@@ -63,6 +63,8 @@ try {
 			await tab.waitForTimeout(1500);
 			if (errors.length) failures.push(`${name}: ${errors.join(' | ')}`);
 			const text = await tab.evaluate(() => document.body.innerText);
+			// A page that throws while it renders shows its error in a card instead.
+			if (/无法加载页面|Can't load the page/.test(text)) failures.push(`${name}: the page failed to load: ${text.split('\n').slice(0, 12).join(' ¦ ')}`);
 			assert.ok(text.trim().length > 20, `${name}: an empty page`);
 			if (english) {
 				const lines = text.split('\n').filter((l) => han.test(ownWords.reduce((s, w) => s.replaceAll(w, ''), l)));
@@ -73,6 +75,28 @@ try {
 			await tab.screenshot({ path: path.join(output, name + '.png'), fullPage: true });
 			await tab.close();
 		}
+	}
+	// The account card's daily check-in, invitations and signed-in devices open in dialogs.
+	for (const [lang, english] of [['zh-cn', false], ['en', true]]) {
+		const tab = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+		const errors = [];
+		tab.on('pageerror', (e) => errors.push(e.message));
+		await tab.goto(`${base}/?lang=${lang}#overview`);
+		const buttons = tab.locator('.ow-account-actions button');
+		await buttons.first().waitFor();
+		for (const [i, name] of ['checkin', 'invite', 'devices'].entries()) {
+			await buttons.nth(i).click();
+			const dialog = tab.locator('dialog[open]');
+			await dialog.locator('.ow-modal-body [aria-busy="false"], .ow-calendar').first().waitFor();
+			await tab.waitForTimeout(300);
+			const text = await dialog.innerText();
+			if (english && han.test(text)) failures.push(`en ${name}: Chinese in the dialog: ${text.split('\n').filter((l) => han.test(l)).join(' ¦ ')}`);
+			await tab.screenshot({ path: path.join(output, `${english ? 'en' : 'zh'}-${name}.png`) });
+			await tab.keyboard.press('Escape');
+			await dialog.waitFor({ state: 'detached' });
+		}
+		if (errors.length) failures.push(`${lang} account dialogs: ${errors.join(' | ')}`);
+		await tab.close();
 	}
 	// The language choice: English chosen on a Chinese router reloads the page in English and stays.
 	const tab = await browser.newPage({ viewport: { width: 1280, height: 900 } });
