@@ -72,7 +72,7 @@ serve_release() {
 serve_release ""
 # The shell stays PID 1 and reaps orphans while it waits. The router lives an hour at
 # most, should this script die before its cleanup.
-target=$(DOCKER_DEFAULT_PLATFORM="$target_platform" docker create --network "$network" --cap-add NET_ADMIN -e "HYPER_PACKAGE_ARCH=$package_arch" --entrypoint sh "$rootfs" -c 'for _ in 1 2 3 4 5 6; do sleep 600; done')
+target=$(DOCKER_DEFAULT_PLATFORM="$target_platform" docker create --network "$network" --cap-add NET_ADMIN -e "HYPER_PACKAGE_ARCH=$package_arch" -e "HYPER_EMULATED=${HYPER_EMULATED:-0}" --entrypoint sh "$rootfs" -c 'for _ in 1 2 3 4 5 6; do sleep 600; done')
 docker start "$target" >/dev/null
 docker cp "$base/retry.sh" "$target:/tmp/hyper-retry"
 docker cp "$base/check-web.sh" "$target:/tmp/check-web"

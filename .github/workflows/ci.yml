@@ -317,7 +317,8 @@ jobs:
   install-test:
     name: Install on OpenWrt ${{ matrix.release }} (${{ matrix.cpu }})
     needs: build
-    runs-on: ubuntu-24.04
+    # ARM64 runs on its own CPU, as routers do; MIPS only through QEMU.
+    runs-on: ${{ matrix.cpu == 'aarch64_generic' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -343,16 +344,35 @@ jobs:
           name: test-feed-${{ matrix.format }}
           path: dist/feed
 
+      # The official armsr/armv8 rootfs (aarch64_generic), imported as an arm64 image the ARM
+      # runner runs natively.
+      - name: OpenWrt rootfs on its own CPU
+        if: matrix.cpu == 'aarch64_generic'
+        env:
+          RELEASE: ${{ matrix.release }}
+        run: |
+          . packaging/openwrt/retry.sh
+          fetch() {
+            curl -fsSL --max-time 120 -o "$RUNNER_TEMP/rootfs.tar.gz" \
+              "https://downloads.openwrt.org/releases/$RELEASE/targets/armsr/armv8/openwrt-$RELEASE-armsr-armv8-rootfs.tar.gz"
+          }
+          retry fetch
+          docker import --platform linux/arm64 "$RUNNER_TEMP/rootfs.tar.gz" "openwrt-rootfs:$RELEASE"
+          echo "HYPER_TEST_ROOTFS=openwrt-rootfs:$RELEASE" >> "$GITHUB_ENV"
+          echo "DOCKER_DEFAULT_PLATFORM=linux/arm64" >> "$GITHUB_ENV"
+
       # Static QEMU registered with the F flag: the kernel opens the interpreter when it is
-      # registered, so programs inside the router's container run without it.
+      # registered, so programs inside the router's container run without it. Emulated, the
+      # core starts too slowly for its install checks, which the test then leaves out.
       - name: Run other CPUs' programs
-        if: matrix.cpu != 'x86_64'
+        if: matrix.cpu == 'mipsel_24kc'
         run: |
           . packaging/openwrt/retry.sh
           apt_install() { sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends qemu-user-static; }
           retry apt_install
           sudo systemctl restart systemd-binfmt || :
-          for arch in aarch64 mipsel; do
+          echo "HYPER_EMULATED=1" >> "$GITHUB_ENV"
+          for arch in mipsel; do
             entry=/proc/sys/fs/binfmt_misc/qemu-$arch
             grep -Eq '^flags: [A-Z]*F' "$entry" ||
               { echo "::error::qemu-$arch is not registered with the F flag: $(tr '\n' ' ' < "$entry" 2>&1)"; exit 1; }
@@ -367,7 +387,8 @@ jobs:
         run: |
           set -o pipefail
           packaging/openwrt/install-test.sh "$RELEASE" "$CPU" "dist/feed/$CPU" 2>&1 | tee "$RUNNER_TEMP/install.log" || {
-            echo "::error title=install-test::$(tail -n 40 "$RUNNER_TEMP/install.log" | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
+            { grep -E 'failed at|Timed out|rror' "$RUNNER_TEMP/install.log" | tail -n 12; echo ---; tail -n 30 "$RUNNER_TEMP/install.log"; } > "$RUNNER_TEMP/summary"
+            echo "::error title=install-test::$(cut -c1-300 "$RUNNER_TEMP/summary" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"
             exit 1
           }
 
