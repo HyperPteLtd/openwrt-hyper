@@ -1104,7 +1104,7 @@ export const en = {
 	"默认顺序": "Default order",
 	"（二进制格式，无法逐条列出）": " (binary format, entries can't be listed)",
 	"（服务端已停用）": " (disabled by the server)",
-	"＋ 添加规则": "＋ Add rule",
+	"＋ 添加规则": "+ Add rule",
 	"，{0}": ", {0}",
 	"；": "; ",
 };

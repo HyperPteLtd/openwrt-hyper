@@ -122,7 +122,8 @@ function profileCard(ui, state, info, active, subs) {
         }), 'ow-link ow-danger-text');
     const metrics = membershipCounters(active);
     const planName = localizedText(active?.subscribe?.name, active ? t('套餐') : t('还没有套餐'));
-    box.append(
+    // Like h(), skipping what a condition left out: append() would show null as text.
+    box.append(...[
         h('div', { class: 'ow-row ow-account-identity' },
             h('span', { class: 'ow-avatar', 'aria-hidden': 'true' }, (Array.from(name)[0] || '?').toUpperCase()),
             h('div', { class: 'ow-stack ow-grow' }, h('strong', {}, name || '--'), muted(ui, state.email || '')),
@@ -140,7 +141,7 @@ function profileCard(ui, state, info, active, subs) {
             : null,
         !subs?.ok ? muted(ui, apiError(subs, t('套餐信息暂时无法读取'))) : null,
         line,
-    );
+    ].filter((child) => child != null));
     return box;
 }
 

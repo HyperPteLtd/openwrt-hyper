@@ -1005,7 +1005,7 @@ function pluginUpdate(ui) {
 	}
 	show();
 	function show(text) {
-		action.textContent = text || (candidate ? t('更新到 {0}', candidate) : latest ? t('已是最新') : t('检查更新'));
+		action.textContent = text || (candidate ? t('更新到 {0}', candidate.replace(/-r?\d+$/, '')) : latest ? t('已是最新') : t('检查更新'));
 		action.disabled = !!text || (latest && !candidate);
 		action.classList.toggle('ow-primary', !text && !!candidate);
 		action.classList.toggle('ow-link', !!text || !candidate);
@@ -1017,7 +1017,7 @@ function pluginUpdate(ui) {
 			if (candidate) {
 				show(t('正在更新…'));
 				await ui.run('plugin_update', {});
-				note.textContent = t('已安装 {0}，刷新页面后生效', candidate);
+				note.textContent = t('已安装 {0}，刷新页面后生效', candidate.replace(/-r?\d+$/, ''));
 				candidate = '';
 				latest = true;
 				return;
