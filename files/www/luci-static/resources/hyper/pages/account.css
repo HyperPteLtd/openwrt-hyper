@@ -110,7 +110,7 @@
 .ow .ow-calendar > li.is-checked,
 .ow .ow-calendar > li.is-today-checked {
 	background: var(--ow-teal);
-	color: #002c28;
+	color: var(--ow-ink);
 	font-weight: 600;
 }
 .ow .ow-calendar > li.is-today {

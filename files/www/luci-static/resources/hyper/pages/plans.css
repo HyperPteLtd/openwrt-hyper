@@ -53,7 +53,7 @@
 }
 .ow .ow-plans-steps li[aria-current='step'] {
 	background: var(--ow-teal);
-	color: #002c28;
+	color: var(--ow-ink);
 	font-weight: 650;
 }
 
@@ -233,7 +233,7 @@
 	padding: 8px 18px;
 	border-radius: 10px;
 	background: var(--ow-teal);
-	color: #002c28;
+	color: var(--ow-ink);
 	font-weight: 600;
 	text-decoration: none;
 }

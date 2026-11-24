@@ -3,28 +3,32 @@
 @import url('./pages/account.css');
 @import url('./pages/plans.css');
 
+/* Hyper's own look, as 0.x had it: a dark canvas and the lime accent, whatever LuCI's theme. */
 .ow {
-	--ow-bg: #fff;
-	--ow-panel: #fff;
-	--ow-text: #0b0f12;
-	--ow-secondary: #4a5560;
-	--ow-line: #e4e7ea;
-	--ow-soft: #f4f6f7;
-	--ow-fill: #eef0f2;
-	--ow-teal: #00b3a4;
-	--ow-accent: #00665e;
-	--ow-tint: #e3f7f5;
-	--ow-violet: #7756e8;
-	--ow-danger: #ad2d25;
-	--ow-warning: #7b420a;
-	--ow-warning-tint: #fff0d9;
+	--ow-bg: #000;
+	--ow-panel: #141414;
+	--ow-text: #fafafa;
+	--ow-secondary: #a1a1a1;
+	--ow-line: #2a2a2a;
+	--ow-soft: #0a0a0a;
+	--ow-fill: #222;
+	--ow-teal: #c3ff2e;
+	--ow-accent: #c3ff2e;
+	--ow-ink: #111;
+	--ow-tint: #20240f;
+	--ow-violet: #7db7ff;
+	--ow-danger: #ff7a7f;
+	--ow-warning: #ff9f43;
+	--ow-warning-tint: #1f1a0e;
+	color-scheme: dark;
+	accent-color: var(--ow-accent);
 	color: var(--ow-text);
 	background: var(--ow-bg);
 	font:
-		14px/1.45 -apple-system,
+		14px/1.45 Inter,
+		-apple-system,
 		BlinkMacSystemFont,
 		'PingFang SC',
-		Inter,
 		'Microsoft YaHei',
 		sans-serif;
 	font-variant-numeric: tabular-nums;
@@ -32,25 +36,6 @@
 	padding: clamp(12px, 2vw, 28px);
 	border-radius: 16px;
 	container-type: inline-size;
-}
-@media (prefers-color-scheme: dark) {
-	.ow {
-		--ow-bg: #0c1013;
-		--ow-panel: #171c21;
-		--ow-text: #eef2f4;
-		--ow-secondary: #a8b1b8;
-		--ow-line: #30373e;
-		--ow-soft: #12171b;
-		--ow-fill: #282e34;
-		--ow-teal: #26cbbb;
-		--ow-accent: #50dfd0;
-		--ow-tint: #103a36;
-		--ow-violet: #ad96ff;
-		--ow-danger: #ff8c82;
-		--ow-warning: #edbf66;
-		--ow-warning-tint: #36280f;
-		color-scheme: dark;
-	}
 }
 .ow *,
 .ow *::before,
@@ -185,7 +170,7 @@
 	outline-offset: 2px;
 }
 .ow button.ow-primary {
-	color: #002c28;
+	color: var(--ow-ink);
 	background: var(--ow-teal);
 }
 .ow button.ow-danger {
@@ -344,11 +329,9 @@
 	margin: 14px 0 11px;
 	transition: background-color 0.15s, box-shadow 0.15s, color 0.15s;
 }
-@media (prefers-color-scheme: dark) {
-	/* White on the dark theme's light red reads at 2.3:1; this red keeps the label above 4.5:1. */
-	.ow button.ow-power {
-		--ow-power-red: #d0352c;
-	}
+/* White on a light red reads at 2.3:1; this red keeps the label above 4.5:1. */
+.ow button.ow-power {
+	--ow-power-red: #d0352c;
 }
 .ow button.ow-power.on {
 	color: #fff;
@@ -639,7 +622,7 @@
 .ow .ow-source-card[data-kind='platform'] .ow-avatar {
 	background: var(--ow-teal);
 	border-color: transparent;
-	color: #002c28;
+	color: var(--ow-ink);
 }
 .ow .ow-source-kind {
 	grid-area: kind;
@@ -731,11 +714,24 @@
 	font-size: 16px;
 	font-weight: 650;
 }
+/* Drawn here: browsers trade a light accent-color for a darker one. */
 .ow progress {
+	appearance: none;
 	width: 100%;
 	height: 5px;
-	accent-color: var(--ow-teal);
 	border: 0;
+	border-radius: 99px;
+	overflow: hidden;
+	background: var(--ow-fill);
+}
+.ow progress::-webkit-progress-bar {
+	background: var(--ow-fill);
+}
+.ow progress::-webkit-progress-value {
+	background: var(--ow-accent);
+}
+.ow progress::-moz-progress-bar {
+	background: var(--ow-accent);
 }
 /* Devices span two rows beside a 2x2 block: proxy, DNS, recovery, updates. */
 .ow .ow-devices {
@@ -926,12 +922,12 @@
 	padding: 0 0 9px 124px;
 }
 .ow .ow-level.warn {
-	background: #ffebc8;
-	color: #774609;
+	background: var(--ow-warning-tint);
+	color: var(--ow-warning);
 }
 .ow .ow-level.error {
-	background: #ffe0dd;
-	color: #992d26;
+	background: #251214;
+	color: var(--ow-danger);
 }
 .ow .ow-table {
 	width: 100%;
