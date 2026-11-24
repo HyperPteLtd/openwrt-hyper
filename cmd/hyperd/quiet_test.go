@@ -17,6 +17,8 @@ func TestRoutineTasksStayOutOfTheLog(t *testing.T) {
 		{"latency/url", nil, true}, {"latency/tcp", cancelled, true}, {"latency/url", failed, false},
 		{"health_check", nil, true}, {"configure/mode", nil, true}, {"configure/mode", failed, false},
 		{"subscription_write/refresh", nil, false}, {"kernel/install", cancelled, false},
+		// The account pages read the service at every view; a failed read is news.
+		{"subscription_write/api", nil, true}, {"subscription_write/api", failed, false},
 	} {
 		if quietTask(tc.action, tc.err) != tc.quiet {
 			t.Error(tc.action, tc.err)

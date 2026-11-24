@@ -628,9 +628,12 @@ func (s *app) runJob(lane, action string, fn func(context.Context) (json.RawMess
 // connectivity checks show their results where they were started, and a settings change
 // already logs itself as a service event. Failures are still logged, except a test that a
 // newer one cancelled.
+// quietTask: routine work the pages start stays out of the log when it goes as expected. The
+// account pages read the Hyper service through subscription_write/api at every view.
 func quietTask(action string, e error) bool {
 	routine := strings.HasPrefix(action, "latency/") || action == "health_check"
-	return routine && (e == nil || errors.Is(e, context.Canceled)) || e == nil && strings.HasPrefix(action, "configure/")
+	return routine && (e == nil || errors.Is(e, context.Canceled)) ||
+		e == nil && (strings.HasPrefix(action, "configure/") || action == "subscription_write/api")
 }
 
 func call(ctx context.Context, method string, data []byte) ([]byte, error) {
