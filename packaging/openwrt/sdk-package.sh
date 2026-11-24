@@ -133,6 +133,8 @@ fi
 # The package manager keeps an administrator's /etc/config/hyper and leaves the new default
 # beside it. hyperd reads defaults for what is unset, and carries 0.x's sections over.
 rm -f "$root/etc/config/hyper-opkg" "$root/etc/config/hyper.apk-new"
+# 1.0.0 carried the core; opkg removes its files on the upgrade but leaves their directories.
+rmdir "$root/usr/share/hyper/core" "$root/usr/share/licenses/luci-app-hyper/core" 2>/dev/null || :
 exec sh "$root/usr/libexec/hyper/activate-runtime"
 HOOK
 cat > "$input/prerm" <<'HOOK'
