@@ -1,11 +1,10 @@
 name: CI
 
-# Build and test OpenWrt packages. Release on qualifying main commits or v* tags; a push to
-# next only builds and tests, for packages to try on a router.
+# Build and test OpenWrt packages. Release on qualifying main commits or v* tags.
 
 on:
   push:
-    branches: [main, next]
+    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
