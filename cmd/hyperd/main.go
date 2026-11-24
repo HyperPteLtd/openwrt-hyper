@@ -88,8 +88,10 @@ type app struct {
 	journalError    error
 	bootstrapCancel context.CancelFunc
 	bootstrapDone   chan struct{}
-	closing         bool
-	plugin          pluginState
+	// bootstrapNext: when a router without a core may next try to download one (s.mu).
+	bootstrapNext time.Time
+	closing       bool
+	plugin        pluginState
 }
 
 func serve(ctx context.Context) error {
@@ -150,7 +152,6 @@ func serve(ctx context.Context) error {
 		sys.Records().Log("service", "warn", "initial_subscription_select_failed")
 	}
 	s.queueFirstKernel()
-	s.useBundledKernel()
 	go s.adoptHyper(legacyDisabled)
 	go s.schedule(jobsCtx)
 	go s.keepChinaLists(jobsCtx)

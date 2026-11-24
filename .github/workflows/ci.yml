@@ -95,14 +95,14 @@ jobs:
             packaging/openwrt/{activate-runtime,runtime-abi,package-update,package-recovery}
           for script in packaging/openwrt/*.sh scripts/kernel/*.sh; do sh -n "$script"; done
 
-      # The core every package carries, on loopback: its controller contract and the router's
-      # use of it, then, as real root, its launch with every capability.
-      - name: The bundled core on loopback
+      # The core routers download (scripts/core.lock), on loopback: its controller contract and
+      # the router's use of it, then, as real root, its launch with every capability.
+      - name: The core on loopback
         run: |
           set -eu
           mkdir "$RUNNER_TEMP/core"
           sh packaging/openwrt/fetch-core.sh amd64 "$RUNNER_TEMP/core"
-          gzip -dc "$RUNNER_TEMP"/core/core/*.gz > "$RUNNER_TEMP/mihomo"
+          gzip -dc "$RUNNER_TEMP"/core/*.gz > "$RUNNER_TEMP/mihomo"
           chmod 755 "$RUNNER_TEMP/mihomo"
           "$RUNNER_TEMP/mihomo" -v
           go test -c -o "$RUNNER_TEMP/router.test" ./internal/router
@@ -186,32 +186,10 @@ jobs:
           VERSION: ${{ needs.test.outputs.version }}
         run: packaging/openwrt/build-runtime.sh "$ABI" "$VERSION" dist/runtime
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/core-cache
-          key: core-${{ matrix.abi }}-${{ hashFiles('scripts/core.lock') }}
-
-      # The pinned release build, checked against scripts/core.lock (cached or downloaded).
-      - name: Fetch the core
-        env:
-          ABI: ${{ matrix.abi }}
-          HYPER_CORE_CACHE: ${{ runner.temp }}/core-cache
-        run: |
-          mkdir -p "dist/core/$ABI"
-          packaging/openwrt/fetch-core.sh "$ABI" "dist/core/$ABI"
-
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runtime-${{ matrix.abi }}
           path: dist/runtime/
-          if-no-files-found: error
-          retention-days: 7
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: core-${{ matrix.abi }}
-          path: dist/core/
-          compression-level: 0
           if-no-files-found: error
           retention-days: 7
 
@@ -242,12 +220,6 @@ jobs:
           merge-multiple: true
           path: dist/runtime
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: core-*
-          merge-multiple: true
-          path: dist/core
-
       # Each package with its upgrade fixture (0.0.0) for the install tests.
       - name: Package every architecture
         env:
@@ -256,7 +228,6 @@ jobs:
           VERSION: ${{ needs.test.outputs.version }}
           HYPER_FEED_MODE: test
           HYPER_RUNTIME_DIR: dist/runtime
-          HYPER_CORE_DIR: dist/core
         run: |
           arches=$(go run ./cmd/hyper-release arches "$FORMAT")
           . packaging/openwrt/retry.sh
@@ -285,8 +256,8 @@ jobs:
             sh packaging/openwrt/release-names.sh "dist/feed/$arch" "$VERSION" "$FORMAT" "$arch"
             name=$(go run ./cmd/hyper-release package-name "$VERSION" "$FORMAT" "$arch")
             (cd "dist/feed/$arch" && sha256sum --check SHA256SUMS)
-            # Each package carries its CPU's core.
-            [ "$(stat -c %s "dist/feed/$arch/$name")" -gt 15000000 ] || { echo "::error::$name is too small to carry the core"; exit 1; }
+            # Routers download the core: no package carries one.
+            [ "$(stat -c %s "dist/feed/$arch/$name")" -lt 15000000 ] || { echo "::error::$name carries a core"; exit 1; }
             cp "dist/feed/$arch/$name" dist/release/
           done
           ls -la dist/release

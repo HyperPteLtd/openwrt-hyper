@@ -185,3 +185,20 @@ func TestClockRetriesOnlyLastFailedBootstrapAfterValidityRestored(t *testing.T) 
 		}
 	}
 }
+
+// A router without a core tries again every bootstrapRetryAfter, never while a kernel task runs.
+func TestCoreMissingRetryWaitsItsTurn(t *testing.T) {
+	now := time.Now()
+	s := &app{ctx: t.Context(), jobs: map[string]job{"1": {ID: "1", Action: bootstrapAction, Stage: "running"}}, order: []string{"1"}}
+	if s.coreMissingDue(now) || !s.bootstrapNext.IsZero() {
+		t.Fatal("retried while the kernel task runs")
+	}
+	s.jobs["1"] = job{ID: "1", Action: bootstrapAction, Stage: "failed"}
+	// The status helper is missing here: due, but nothing to retry for.
+	if s.coreMissingDue(now) || !s.bootstrapNext.Equal(now.Add(bootstrapRetryAfter)) {
+		t.Fatal(s.bootstrapNext)
+	}
+	if s.coreMissingDue(now.Add(bootstrapRetryAfter-time.Second)) || !s.bootstrapNext.Equal(now.Add(bootstrapRetryAfter)) {
+		t.Fatal("retried before its time")
+	}
+}

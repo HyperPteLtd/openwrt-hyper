@@ -1,9 +1,7 @@
 #!/bin/sh
-# Download the core pinned in scripts/core.lock for one runtime ABI (packaging/openwrt/runtime-abi)
-# into an empty directory, laid out as the package carries it:
-#   core/      /usr/share/hyper/core: the raw build under the name the router knows it by
-#              (internal/kernel rawAsset with CORE_TAG) and the pin.json naming it
-#   licenses/  the core's source and the notices its release publishes for this build
+# Download the core release pinned in scripts/core.lock for one runtime ABI
+# (packaging/openwrt/runtime-abi) into an empty directory: its raw build, checked against the
+# pin, for the tests that run the real core. Routers download their core on their own.
 # HYPER_CORE_CACHE, if set, is a directory of release assets already downloaded; they are
 # checked against the pins like a download.
 set -eu
@@ -51,25 +49,8 @@ download() {
 expected=$(printf '%s\n' "$CORE_SHA256" | awk -v t="$target" '$1 == t { n++; h = $2 } END { if (n == 1) print h }')
 [ -n "$expected" ] || { echo "scripts/core.lock pins no core for $target" >&2; exit 1; }
 asset=mihomo-linux-$asset_target-$CORE_RELEASE.gz
-name=mihomo-linux-$asset_target-$CORE_TAG.gz
 fetch "$asset" "$expected"
 gzip -t "$work/$asset"
-mkdir -p "$work/out/core" "$work/out/licenses"
-size=$(wc -c < "$work/$asset" | tr -d ' ')
-mv "$work/$asset" "$work/out/core/$name"
-printf '{"tag":"%s","name":"%s","size":%s,"sha256":"%s"}\n' "$CORE_TAG" "$name" "$size" "$expected" > "$work/out/core/pin.json"
-printf '%s\n' "$CORE_NOTICES" | awk -v t="$target" '$1 == t { print $2, $3 }' > "$work/notices"
-while read -r notice sum; do
- case "$notice" in NOTICE-*.txt) ;; *) echo "Invalid notice name: $notice" >&2; exit 1 ;; esac
- fetch "$notice" "$sum"
- mv "$work/$notice" "$work/out/licenses/$notice"
-done < "$work/notices"
-cat > "$work/out/licenses/SOURCE" <<SOURCE
-The core in /usr/share/hyper/core is mihomo, licensed under GPL-3.0-or-later, as built and
-published unchanged by https://github.com/$CORE_REPO, release $CORE_RELEASE
-($asset). Its source is that release's tag of the same repository.
-SOURCE
-chmod 755 "$work/out/core" "$work/out/licenses"
-chmod 644 "$work/out/core/"* "$work/out/licenses/"*
-mv "$work/out/core" "$work/out/licenses" "$output/"
-echo "Core $CORE_TAG for $target: $name ($size bytes)" >&2
+chmod 644 "$work/$asset"
+mv "$work/$asset" "$output/"
+echo "Core $CORE_TAG for $target: $asset" >&2

@@ -34,7 +34,7 @@ HYPER_PLAYWRIGHT=/path/to/node_modules/playwright/index.mjs node scripts/qualifi
 
 安装测试和实验室脚本需要不依赖账户的订阅：设置 `HYPER_FIXTURE_DIR`（路由器上从不设置）后，`fixture` 类型的订阅从 `<目录>/<订阅 ID>.yaml` 读取；由 `/etc/init.d/hyper start` 启动时，init 脚本会把调用者的这个变量传给服务
 
-CI 还以 root 在独立网络命名空间里运行随包内核（`internal/control`、`internal/router` 的真实内核测试），用 shellcheck 检查路由器脚本，并在官方 OpenWrt rootfs 容器中安装软件包（[install-test.sh](../packaging/openwrt/install-test.sh)）：离线安装、LuCI 与 rpcd 调用、daemon 安装随包内核、插件自更新的各项校验、从最新正式版升级以及卸载
+CI 还以 root 在独立网络命名空间里运行 core.lock 固定的内核（`internal/control`、`internal/router` 的真实内核测试），用 shellcheck 检查路由器脚本，并在官方 OpenWrt rootfs 容器中安装软件包（[install-test.sh](../packaging/openwrt/install-test.sh)）：离线安装、LuCI 与 rpcd 调用、daemon 首次启动下载并选用内核、插件自更新的各项校验、从最新正式版升级以及卸载
 
 ## 路由器运行结构
 
@@ -47,15 +47,17 @@ procd 运行 `hyperd serve` 与 `hyperd guard`。rpcd 插件 `/usr/libexec/rpcd/
 
 ### 从 0.x 升级
 
-0.x 的软件包依赖与本版本相同，因此 0.x 离线更新无需新依赖。新包的 preinst 停止 0.x 服务并释放它的接管，路由器既放不下内核时拒绝安装。`/etc/config/hyper` 是 conffile，升级后仍是 0.x 的分区；hyperd 首次启动时（[legacy.go](../cmd/hyperd/legacy.go)）把它们迁移为 `hyper.main` 和路由意图，自定义关键词名单变为自定义规则，关闭的分流规则在登录状态下交给账户订阅，然后删除 0.x 的文件。会话和设备标识不变
+0.x 的软件包依赖与本版本相同，因此 0.x 离线更新无需新依赖。新包的 preinst 停止 0.x 服务并释放它的接管。`/etc/config/hyper` 是 conffile，升级后仍是 0.x 的分区；hyperd 首次启动时（[legacy.go](../cmd/hyperd/legacy.go)）把它们迁移为 `hyper.main` 和路由意图，自定义关键词名单变为自定义规则，关闭的分流规则在登录状态下交给账户订阅，然后删除 0.x 的文件。会话和设备标识不变
 
 ## 内核
 
-每个软件包携带本 CPU 的内核，来源与各架构的 SHA-256 固定在 [core.lock](../scripts/core.lock)。[fetch-core.sh](../packaging/openwrt/fetch-core.sh) 下载并校验发布的原始构建，以 `CORE_TAG` 命名，写出 `pin.json`，连同来源说明装入 `/usr/share/hyper/core` 与许可证目录
+路由器自己下载内核，与插件分开更新。[core.lock](../scripts/core.lock) 的 `CORE_REPO` 和 `CORE_LINE` 在构建时写入 hyperd（`internal/kernel` 的 `Repository`、`ReleaseLine`）：只认该发布线的正式版（`<line>-vX.Y.Z`），以版本号 `vX.Y.Z` 记录和显示。每次下载都按原发布的 SHA-256 校验，GitHub 不可达时改用加速地址
 
-路由器上 `hyper-kernel` 依据 `pin.json` 离线安装：首次启动、升级带来新版本时由 hyperd 安装并在校验配置后选用。没有选择存储位置时优先放闪存，空间不足时放内存，重启后从插件重新解压。此版本不提供在线内核下载
+首次启动时 hyperd 下载最新正式版：优先放闪存，空间不足时放内存，重启后重新下载；路由器已开启（例如从 0.x 升级）时下载后直接选用。没有内核的路由器（开机时 WAN 未就绪、离线安装）每 10 分钟重试一次。概览「更新」卡片可检查更新、更新到新版本和切换存储位置
 
-更新内核：修改 `core.lock` 中的 `CORE_RELEASE`、`CORE_TAG`，以及该发布 sha256sums 中每个架构的 `CORE_SHA256` 和 `CORE_NOTICES` 行
+1.0.0 随包安装的内核（记录中没有仓库、按版本命名）继续有效，放在内存的会从对应发布重新下载
+
+`CORE_TAG` 与 `CORE_SHA256` 固定测试用的内核：CI 在回环上运行它，[fetch-core.sh](../packaging/openwrt/fetch-core.sh) 下载并校验。更新时修改 `CORE_TAG` 以及该发布 sha256sums 中各架构的 `CORE_SHA256` 行
 
 ## 支持的架构
 
@@ -81,7 +83,7 @@ procd 运行 `hyperd serve` 与 `hyperd guard`。rpcd 插件 `/usr/libexec/rpcd/
 HYPER_PACKAGE_ARCH=aarch64_cortex-a53 sh packaging/openwrt/build.sh 24.10.8 x86_64 1.0.0 dist/feed
 ```
 
-`build.sh` 编译 hyperd、获取内核，在对应版本的官方 SDK 中生成 IPK（24.10）或 APK（25.12）。软件包内容是预编译程序，任一架构的 SDK 都可为所有架构打包，CI 用 x86_64 SDK。`HYPER_FEED_MODE=test` 同时生成 0.0.0 升级测试包；[release-names.sh](../packaging/openwrt/release-names.sh) 把输出改为发布文件名
+`build.sh` 编译 hyperd，在对应版本的官方 SDK 中生成 IPK（24.10）或 APK（25.12）。软件包内容是预编译程序，任一架构的 SDK 都可为所有架构打包，CI 用 x86_64 SDK。`HYPER_FEED_MODE=test` 同时生成 0.0.0 升级测试包；[release-names.sh](../packaging/openwrt/release-names.sh) 把输出改为发布文件名
 
 ## 版本与发布
 
@@ -92,7 +94,7 @@ HYPER_PACKAGE_ARCH=aarch64_cortex-a53 sh packaging/openwrt/build.sh 24.10.8 x86_
 ## 许可证与来源
 
 - 插件采用 [GPL-3.0-or-later](../LICENSE)
-- 随包内核为 mihomo（GPL-3.0-or-later），使用 [core.lock](../scripts/core.lock) 固定的发布构建，不做修改；来源说明随包安装在 `/usr/share/licenses/luci-app-hyper/core/`，同时附带该构建发布的第三方声明
+- 内核为 mihomo（GPL-3.0-or-later），路由器从 [core.lock](../scripts/core.lock) 的 `CORE_REPO` 发布下载，插件不分发内核
 - hyperd 链接的 Go 模块许可证由 `hyper-release licenses` 收集并随包安装
 
 报告问题时不要提交登录凭据、订阅链接或未经脱敏的用户数据

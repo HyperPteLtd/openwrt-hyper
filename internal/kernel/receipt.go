@@ -30,7 +30,8 @@ type receipt struct {
 func (r receipt) verified(tag, target string) (*Verified, error) {
 	plat, ok := platforms[target]
 	a := r.Asset
-	if !ok || r.Schema != 1 || r.Repository != Repository || r.Tag != tag || r.Target != target || (a.Name != assetName(tag, target) && a.Name != rawAsset(tag, target)) || a.Arch != plat.arch || a.FloatABI != plat.float || a.Endian != plat.endian {
+	// The 1.0.0 package installed the core it carried under no repository, named by its version.
+	if !ok || r.Schema != 1 || r.Repository != Repository && r.Repository != "" || r.Tag != tag || r.Target != target || (a.Name != assetName(tag, target) && !rawBuild(a.Name, tag, target)) || a.Arch != plat.arch || a.FloatABI != plat.float || a.Endian != plat.endian {
 		return nil, errors.New("invalid installed release identity")
 	}
 	seen, err := checkMembers(a)
@@ -106,7 +107,7 @@ func inspectArchive(ctx context.Context, file, tag, target string, p pin) (mater
 
 	plat := platforms[target]
 	a := Asset{Name: p.Name, Arch: plat.arch, Endian: plat.endian, FloatABI: plat.float, Size: p.Size, SHA256: p.Hash}
-	if p.Name == rawAsset(tag, target) {
+	if rawBuild(p.Name, tag, target) {
 		hash := sha256.New()
 		size, e := io.Copy(hash, io.LimitReader(limited, maxAsset+1))
 		if e != nil || size == 0 || size > maxAsset {

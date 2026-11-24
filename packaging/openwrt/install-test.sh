@@ -90,7 +90,7 @@ sh "$base/test-nft.sh" "$target" "$release" "$arch"
 docker network disconnect "$network" "$target"
 test "$(docker inspect -f '{{len .NetworkSettings.Networks}}' "$target")" = 0
 in_target sh /tmp/check-installed offline-install
-in_target sh /tmp/check-web
+in_target env HYPER_OFFLINE=1 sh /tmp/check-web
 in_target sh /tmp/check-installed uninstall
 docker network connect "$network" "$target"
 echo "Verified offline single-package installation, all four commands and LuCI RPC on $release ($arch)"

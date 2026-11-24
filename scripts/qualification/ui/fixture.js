@@ -24,7 +24,13 @@ export function fixture({ signedOut = false } = {}) {
 		revision: 5, mode: 'smart', enabled: !signedOut, source: signedOut ? '' : 'hyper', choices: {},
 		policy: signedOut ? {} : { rules: customRules, devices: [{ address: '02:00:00:01:00:02', target: '@direct' }] },
 	};
-	const kernel = { target: 'arm64', selected: 'v1.0.1', active: 'v1.0.1', bundled: 'v1.0.1', mode: 'double', trust_ready: true };
+	// The router knows a core release by its version alone; v1.0.2 is the newer stable one.
+	const kernel = { target: 'arm64', selected: 'v1.0.1', active: 'v1.0.1', mode: 'double', trust_ready: true };
+	const versions = [
+		{ tag: 'v0.0.0-alpha.123abcd', prerelease: true, installable: true },
+		{ tag: 'v1.0.2', prerelease: false, installable: true },
+		{ tag: 'v1.0.1', prerelease: false, installable: true },
+	];
 	let prefs = {
 		method: 'tproxy', dns: true, update_hours: 6, update_at: -1, enabled: !signedOut, networks: ['lan'], fail_open: true,
 		bypass_cn: false, router_self: true, log_level: 'warning', auto_check: true, auto_update: false, dns_only: false,
@@ -117,9 +123,10 @@ export function fixture({ signedOut = false } = {}) {
 				{ mac: '02:00:00:01:00:02', name: 'Work laptop', addresses: ['192.168.1.31'], reachability: 'reachable' },
 			] };
 		case 'kernel_read':
-			return kernel;
+			return r.action === 'versions' ? job(versions) : kernel;
 		case 'kernel_write':
 			kernel.mode = r.args?.mode || kernel.mode;
+			kernel.selected = kernel.active = r.args?.tag || kernel.selected;
 			return job({ selected: kernel.selected });
 		case 'conflicts':
 			return { resources: [], blocked: false };

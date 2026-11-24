@@ -123,18 +123,24 @@ for toggle in false true; do
 done
 echo 'Authenticated LuCI RPC persisted both fail-open settings to the UCI file'
 # Under emulation (HYPER_EMULATED) the core starts too slowly for the kernel manager's checks:
-# the probes and the core's installation are left to the native runs.
+# the probes and the core's download are left to the native runs.
 if [ "${HYPER_EMULATED:-0}" = 1 ]; then
- echo 'Emulated: skipped the TCP probes and the installation of the core'
+ echo 'Emulated: skipped the TCP probes and the download of the core'
  exit 0
 fi
-stage=bundled-core
-# The daemon installs the package's core offline and selects it.
-tag=$(jsonfilter -i /usr/share/hyper/core/pin.json -e '@.tag')
-core_selected() { [ "$(hyper-kernel status | jsonfilter -e '@.selected')" = "$tag" ]; }
+# Offline (HYPER_OFFLINE, the offline installation) the router cannot download its core: the
+# core and the probes after it are left to the runs with a network.
+if [ "${HYPER_OFFLINE:-0}" = 1 ]; then
+ echo 'Offline: skipped the download of the core and the TCP probes'
+ exit 0
+fi
+stage=core-download
+# On its first start the daemon downloads the newest stable core of the build's repository and
+# line (scripts/core.lock) and selects it, known by its version alone.
+core_selected() { hyper-kernel status | jsonfilter -e '@.selected' | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+'; }
 for i in $(seq 1 150); do core_selected && break; sleep 2; done
-core_selected
-echo "The daemon installed and selected the package's core $tag ($(hyper-kernel status | jsonfilter -e '@.mode'))"
+core_selected || { hyper-kernel status >&2; logread -e hyper 2>/dev/null | tail -n 20 >&2; exit 1; }
+echo "The daemon downloaded and selected the core $(hyper-kernel status | jsonfilter -e '@.selected') ($(hyper-kernel status | jsonfilter -e '@.mode'))"
 stage=probe-source
 # A second listener can be closed independently of uhttpd serving the authenticated RPC.
 uhttpd -f -h /www -p 127.0.0.1:18890 >/tmp/web-peer.log 2>&1 & peer=$!

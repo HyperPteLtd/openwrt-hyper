@@ -18,6 +18,9 @@ import (
 
 const bootstrapAction = "kernel/bootstrap"
 
+// bootstrapRetryAfter: how long a router without a core waits between downloads (coreMissingDue).
+const bootstrapRetryAfter = 10 * time.Minute
+
 func (s *app) queueFirstKernel() {
 	dir := filepath.Join(router.Root, "mihomo-kernel")
 	ready, err := firstInstallPending(dir)
@@ -35,12 +38,35 @@ func (s *app) queueFirstKernel() {
 func (s *app) retryBootstrapClock(now time.Time) {
 	s.mutation.Lock()
 	defer s.mutation.Unlock()
-	if s.ctx.Err() != nil || s.m.Status().Intent.Enabled {
+	if s.ctx.Err() != nil {
 		return
 	}
-	if s.bootstrapClockDue(now) {
+	if s.bootstrapClockDue(now) || s.coreMissingDue(now) {
 		s.queueBootstrap(true)
 	}
+}
+
+// coreMissingDue: a router without any core, which may have started before its WAN or been
+// installed offline, tries to download one every bootstrapRetryAfter while no kernel task
+// runs. A core installed meanwhile, or any kernel state, ends it (Bootstrap skips then too).
+func (s *app) coreMissingDue(now time.Time) bool {
+	s.mu.Lock()
+	due := !now.Before(s.bootstrapNext)
+	for i := len(s.order) - 1; due && i >= 0; i-- {
+		if j := s.jobs[s.order[i]]; strings.HasPrefix(j.Action, "kernel/") {
+			due = j.Stage != "running"
+			break
+		}
+	}
+	if due {
+		s.bootstrapNext = now.Add(bootstrapRetryAfter)
+	}
+	s.mu.Unlock()
+	if !due {
+		return false
+	}
+	st, err := kernelStatus(s.ctx)
+	return err == nil && st.Selected == "" && st.Staged == "" && st.Active == "" && !st.Pending && !st.Repair
 }
 
 func (s *app) bootstrapClockDue(now time.Time) bool {
@@ -78,9 +104,7 @@ func (s *app) queueBootstrap(retry bool) {
 				return json.RawMessage(`{"skipped":"existing_intent"}`), nil
 			}
 		}
-		if s.m.Status().Intent.Enabled {
-			return json.RawMessage(`{"skipped":"existing_intent"}`), nil
-		}
+		// A router that is on (0.x's, upgraded with its proxy running) needs its core all the more.
 		var stage struct {
 			Staged string `json:"staged"`
 		}
@@ -152,6 +176,23 @@ func (s *app) selectFirstKernel(ctx context.Context, tag string) (json.RawMessag
 	}
 	if st.Staged != tag || st.Selected != "" || st.Active != "" || st.Pending {
 		return json.RawMessage(`{"skipped":"existing_kernel"}`), nil
+	}
+	// A router that is on takes its first core as an administrator's choice would: checked
+	// against its source and started with it, or, before its account's first sync brings the
+	// source, selected for that sync to start.
+	if token, intent, _, err := s.m.ReviewToken(""); err == nil && intent.Enabled {
+		if intent.Source != "" {
+			err = s.selectKernel(ctx, token, st, tag)
+		} else {
+			err = s.m.SelectReviewed(token, false, func() error {
+				_, err := child(ctx, "hyper-kernel", []string{"select", "--tag", tag, "--expected", strconv.FormatUint(st.Revision, 10)}, nil)
+				return err
+			})
+		}
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]string{"selected": tag})
 	}
 	return selectCheckedKernel(ctx, s.m, tag, func(intent router.Intent) error {
 		return s.sys.Preflight(ctx, intent, nil, tag)

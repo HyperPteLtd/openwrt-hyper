@@ -32,15 +32,6 @@ for archive in "$payload"/*.gz; do
  printf ' %s) runtime_kb=%s;;\n' "$abi" "$(( (bytes+1023)/1024 + 1024 ))" >> "$input/runtime-space"
 done
 rm -f "$input/verify-runtime"
-# The core the package carries (fetch-core.sh) is unpacked on the router: on flash where it
-# fits, otherwise in RAM (internal/kernel installBundle).
-core_kb=0 core_gz_kb=0
-if [ -e "$pkg/usr/share/hyper/core/pin.json" ]; then
- set -- "$pkg"/usr/share/hyper/core/*.gz
- [ "$#" = 1 ] && [ -f "$1" ] || { echo 'Expected one bundled core' >&2; exit 1; }
- core_kb=$(( ($(gzip -dc "$1" | wc -c) + 1023) / 1024 ))
- core_gz_kb=$(( ($(wc -c < "$1") + 1023) / 1024 ))
-fi
 chown -R 0:0 "$pkg"
 cat > "$input/preinst" <<'HOOK'
 #!/bin/sh
@@ -87,7 +78,7 @@ cat >> "$input/preinst" <<'HOOK'
 HOOK
 cat "$input/runtime-space" >> "$input/preinst"
 payload_kb=$(du -sk "$payload" | awk '{print $1}')
-printf ' *) echo "This Hyper package has no program for the $abi CPU ($DISTRIB_ARCH); download the package for $DISTRIB_ARCH" >&2; exit 1;;\n esac\n payload_kb=%s\n core_kb=%s\n core_gz_kb=%s\n' "$(( payload_kb + 1024 ))" "$core_kb" "$core_gz_kb" >> "$input/preinst"
+printf ' *) echo "This Hyper package has no program for the $abi CPU ($DISTRIB_ARCH); download the package for $DISTRIB_ARCH" >&2; exit 1;;\n esac\n payload_kb=%s\n' "$(( payload_kb + 1024 ))" >> "$input/preinst"
 cat >> "$input/preinst" <<'HOOK'
  dest=$root/usr/libexec/hyper
  while [ ! -d "$dest" ]; do dest=${dest%/*}; [ -n "$dest" ] || dest=/; done
@@ -101,31 +92,6 @@ cat >> "$input/preinst" <<'HOOK'
  fi
  if [ "$1" -lt "$runtime_kb" ]; then
   echo "Hyper $abi needs $runtime_kb KiB free on $2 ($1 available)" >&2; exit 1
- fi
- # The core, as the kernel manager places it (internal/kernel CheckCapacity): on flash with 128
- # MiB of storage, 256 MiB of RAM and room for it and 18 MiB of configuration and recovery, or
- # in RAM with 64 MiB of storage and 512 MiB of RAM; MemTotal counts from seven eighths of a
- # size, as it leaves out what the kernel reserves. Refusing here keeps a router that has room
- # for neither on the version it runs, also when its own updater installs this package. 0.x's
- # core and programs leave with it.
- if [ -z "$root" ] && [ "$core_kb" -gt 0 ]; then
-  free_kb=$1
-  [ ! -d "$root/usr/libexec/hyper/bin" ] || free_kb=$((free_kb + $(du -sk "$root/usr/libexec/hyper/bin" | awk '{print $1}')))
-  mem_kb=$(awk '$1 == "MemTotal:" {print $2}' /proc/meminfo)
-  flash_kb=$(df -Pk "$dest" | awk 'NR==2 && $2 ~ /^[0-9]+$/ {print $2}')
-  for mtd in /sys/class/mtd/mtd*; do
-   [ -r "$mtd/size" ] || continue
-   end=$(( $(cat "$mtd/size") + $(cat "$mtd/offset" 2>/dev/null || echo 0) ))
-   [ "$((end / 1024))" -le "${flash_kb:-0}" ] || flash_kb=$((end / 1024))
-  done
-  flash_kb=${flash_kb:-0} mem_kb=${mem_kb:-0}
-  base_kb=$((runtime_kb + core_gz_kb + 18432))
-  if { [ "$flash_kb" -ge 131072 ] && [ "$mem_kb" -ge 229376 ] && [ "$free_kb" -ge $((base_kb + core_kb)) ]; } ||
-     { [ "$flash_kb" -ge 65536 ] && [ "$mem_kb" -ge 458752 ] && [ "$free_kb" -ge "$base_kb" ] && [ "$tmp_kb" -ge $((payload_kb + core_kb)) ]; }; then :
-  else
-   echo "Hyper's core needs $(( (base_kb + core_kb) / 1024 )) MiB free on $2 ($(( free_kb / 1024 )) MiB available, 128 MiB storage and 256 MiB RAM), or 512 MiB of RAM to run from memory" >&2
-   exit 1
-  fi
  fi
 fi
 mkdir -m 700 "$dir"

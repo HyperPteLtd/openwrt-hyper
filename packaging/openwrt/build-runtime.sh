@@ -23,6 +23,11 @@ work=$(mktemp -d "$output/.runtime.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 export GOARCH GOOS=linux CGO_ENABLED=0
 flags="-s -w -buildid= -X github.com/HyperPteLtd/openwrt-hyper/internal/subscription.packageVersion=$version"
+# Where the router downloads its core: the repository and its release line (scripts/core.lock).
+. "$root/scripts/core.lock"
+case "$CORE_REPO" in *[!A-Za-z0-9_./-]*|*/*/*|/*|*/|'') echo 'Invalid CORE_REPO' >&2; exit 1 ;; */*) ;; *) echo 'Invalid CORE_REPO' >&2; exit 1 ;; esac
+case "$CORE_LINE" in [a-z]*[!a-z0-9]*|''|[!a-z]*) echo 'Invalid CORE_LINE' >&2; exit 1 ;; esac
+flags="$flags -X github.com/HyperPteLtd/openwrt-hyper/internal/kernel.Repository=$CORE_REPO -X github.com/HyperPteLtd/openwrt-hyper/internal/kernel.ReleaseLine=$CORE_LINE"
 if [ -n "${HYPER_MIHOMO_PUBLIC_KEY:-}" ]; then
  case "$HYPER_MIHOMO_PUBLIC_KEY" in *[!A-Za-z0-9+/=]*) echo 'Invalid publisher public key' >&2; exit 1;; esac
  flags="$flags -X github.com/HyperPteLtd/openwrt-hyper/internal/kernel.PublicKey=$HYPER_MIHOMO_PUBLIC_KEY"

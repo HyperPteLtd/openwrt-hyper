@@ -314,16 +314,109 @@ func TestProbeDoesNotAdvertiseIgnoredRealityOrUnknownProtocols(t *testing.T) {
 	}
 }
 
-func TestStableTagRequiresHyperPrefix(t *testing.T) {
-	for tag, ok := range map[string]bool{"hyper-v0.1.0": true, "hyper-v1.20.3": true, "v1.19.34": false, "hyper-v01.0.0": false, "hyper-v0.1.0-rc.1": false, "Prerelease-Alpha": false} {
-		if stableTag.MatchString(tag) != ok {
-			t.Errorf("stableTag(%q) = %v", tag, !ok)
+// The repository's own releases are tagged <line>-vX.Y.Z beside mihomo's v* tags; the router
+// knows them by version, and the core the 1.0.0 package carried by its version-named build.
+func TestReleaseLineVersions(t *testing.T) {
+	if _, ok := stableTag("v1.0.1"); ok {
+		t.Error("a stable release without a line")
+	}
+	withLine(t)
+	for tag, want := range map[string]string{"hyper-v0.1.0": "v0.1.0", "hyper-v1.20.3": "v1.20.3", "v1.19.34": "", "hyper-v01.0.0": "", "hyper-v0.1.0-rc.1": "", "Prerelease-Alpha": "", "other-v1.0.0": ""} {
+		if got, ok := stableTag(tag); got != want && ok || ok != (want != "") {
+			t.Errorf("stableTag(%q) = %q, %v", tag, got, ok)
 		}
 	}
-	if !TagPattern.MatchString("hyper-v0.1.0") || !TagPattern.MatchString("v1.19.34") || TagPattern.MatchString("hyper-1.0.0") {
-		t.Error("TagPattern must accept kernel-v and upstream v tags")
+	if releaseRef("v0.1.0") != "hyper-v0.1.0" || releaseRef("v0.0.0-alpha.123abcd") != rolling {
+		t.Error("releaseRef", releaseRef("v0.1.0"))
 	}
-	if got := rawAsset("hyper-v0.1.0", "amd64"); got != "mihomo-linux-amd64-v1-hyper-v0.1.0.gz" {
+	if got := rawAsset("v0.1.0", "amd64"); got != "mihomo-linux-amd64-v1-hyper-v0.1.0.gz" {
 		t.Errorf("rawAsset = %q", got)
+	}
+	if !rawBuild("mihomo-linux-amd64-v1-v0.1.0.gz", "v0.1.0", "amd64") || !rawBuild(rawAsset("v0.1.0", "amd64"), "v0.1.0", "amd64") || rawBuild("mihomo-linux-amd64-v1-v0.1.1.gz", "v0.1.0", "amd64") {
+		t.Error("rawBuild")
+	}
+	for tag, want := range map[string]string{"hyper-v1.0.1": "v1.0.1", "v1.19.34": "", "other-v1.0.1": ""} {
+		if got := (githubRelease{Tag: tag}).identity("amd64"); got != want {
+			t.Errorf("identity(%q) = %q", tag, got)
+		}
+	}
+	if !TagPattern.MatchString("v1.19.34") || TagPattern.MatchString("hyper-1.0.0") {
+		t.Error("TagPattern")
+	}
+}
+
+// A core the 1.0.0 package installed (no repository, named by its version) stays valid.
+func TestPackagedCoreReceiptStaysValid(t *testing.T) {
+	withLine(t)
+	plat := platforms["amd64"]
+	core := Member{Path: strings.TrimSuffix(assetName("v1.0.1", "amd64"), ".tar.gz") + "/mihomo", Kind: "core", Size: 100, SHA256: strings.Repeat("b", 64)}
+	a := Asset{Name: "mihomo-linux-amd64-v1-v1.0.1.gz", Arch: plat.arch, Endian: plat.endian, FloatABI: plat.float, Size: 50, Expanded: 100,
+		SHA256: strings.Repeat("a", 64), Files: []Member{core}}
+	caps := TargetCapabilities{Control: Controller, TUN: true, TProxy: true}
+	if _, err := (receipt{1, "", "v1.0.1", "amd64", a, caps}).verified("v1.0.1", "amd64"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (receipt{1, "someone/else", "v1.0.1", "amd64", a, caps}).verified("v1.0.1", "amd64"); err == nil {
+		t.Fatal("a core of another repository")
+	}
+}
+
+// A core the 1.0.0 package installed in RAM comes back after a reboot from its line's release,
+// which names the same build after itself.
+func TestPackagedCoreRestoresFromItsRelease(t *testing.T) {
+	withLine(t)
+	f := newFixture(t)
+	m := f.mgr
+	m.Key = ""
+	const tag, target = "v1.0.1", "amd64"
+	ctx := context.Background()
+	var gz bytes.Buffer
+	z := gzip.NewWriter(&gz)
+	z.Write(tinyCore(t))
+	z.Close()
+	raw := gz.Bytes()
+	name := rawAsset(tag, target)
+	meta, _ := json.Marshal(githubRelease{Tag: "hyper-" + tag, Assets: []releaseAsset{{Name: name, Size: int64(len(raw)), Digest: "sha256:" + Digest(raw)}}})
+	archive := origin + "/hyper-" + tag + "/" + name
+	files := map[string][]byte{releaseAPI + "/tags/hyper-" + tag: meta, archive: raw}
+	serveReleases(t, files)
+	if err := m.Install(ctx, tag, "tmp", Source{}); err != nil {
+		t.Fatal(err)
+	}
+	l, err := m.BeginAuthorized(ctx, f.cfg, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Confirm(ctx, l.Token); err != nil {
+		t.Fatal(err)
+	}
+	// As 1.0.0 recorded it: no repository, the build named by its version.
+	file := filepath.Join(m.Root, "meta", tag, "receipt.json")
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r receipt
+	if err = json.Unmarshal(b, &r); err != nil {
+		t.Fatal(err)
+	}
+	r.Repository, r.Asset.Name = "", "mihomo-linux-amd64-v1-"+tag+".gz"
+	if b, err = json.Marshal(r); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(file, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := m.read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.RemoveAll(m.slot(*state.Active)); err != nil {
+		t.Fatal(err)
+	}
+	delete(files, releaseAPI+"/tags/hyper-"+tag)
+	restored, err := m.Recover(ctx)
+	if err != nil || restored.Tag != tag {
+		t.Fatal(restored, err)
 	}
 }

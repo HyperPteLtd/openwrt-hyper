@@ -63,11 +63,26 @@ func ReportsVersion(reported, tag string) bool {
 	line, rest, ok := strings.Cut(reported, "-")
 	return ok && rest == tag && releaseLine.MatchString(reported) && line != "alpha"
 }
+
+// releaseRef is the repository's tag for the release of tag: the rolling alpha, or the line's
+// release of the version.
 func releaseRef(tag string) string {
 	if strings.HasPrefix(runtimeVersion(tag), "alpha-") {
 		return rolling
 	}
+	if ReleaseLine != "" {
+		return ReleaseLine + "-" + tag
+	}
 	return tag
+}
+
+// lineVersion is the version a repository tag releases on the line; ok is false for a tag
+// of another series.
+func lineVersion(tag string) (string, bool) {
+	if ReleaseLine == "" {
+		return tag, true
+	}
+	return strings.CutPrefix(tag, ReleaseLine+"-")
 }
 func rawPrefix(target string) string {
 	switch target {
@@ -78,10 +93,28 @@ func rawPrefix(target string) string {
 	}
 	return "mihomo-linux-" + target + "-"
 }
-func rawAsset(tag, target string) string { return rawPrefix(target) + runtimeVersion(tag) + ".gz" }
+
+// rawAsset names the release's raw build of tag for target, after the release's own tag.
+func rawAsset(tag, target string) string {
+	name := runtimeVersion(tag)
+	if name == tag {
+		name = releaseRef(tag)
+	}
+	return rawPrefix(target) + name + ".gz"
+}
+
+// rawBuild: name is the raw build of tag, by the release's name or by the version alone, as the
+// 1.0.0 package named the core it carried.
+func rawBuild(name, tag, target string) bool {
+	return name == rawAsset(tag, target) || name == rawPrefix(target)+runtimeVersion(tag)+".gz"
+}
 func (r githubRelease) identity(target string) string {
 	if r.Tag != rolling {
-		return r.Tag
+		v, ok := lineVersion(r.Tag)
+		if !ok {
+			return ""
+		}
+		return v
 	}
 	if !r.Prerelease {
 		return ""
@@ -245,9 +278,14 @@ func Versions(ctx context.Context, target string) ([]Version, error) {
 	return versions, nil
 }
 
-// Hyper stable kernels use their own hyper-vX.Y.Z tags so they never
-// collide with the upstream mihomo v* tags mirrored into the fork.
-var stableTag = regexp.MustCompile(`^hyper-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+// A stable release of the line is a plain vX.Y.Z version under its line's tag (lineVersion),
+// apart from the mihomo v* tags the repository carries.
+var stableVersion = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+
+func stableTag(tag string) (string, bool) {
+	v, ok := lineVersion(tag)
+	return v, ok && ReleaseLine != "" && stableVersion.MatchString(v)
+}
 
 func latestStable(ctx context.Context, target string) (string, pin, error) {
 	f, err := fetch(ctx, releaseAPI+"/latest")
@@ -269,7 +307,11 @@ func latestStable(ctx context.Context, target string) (string, pin, error) {
 		Assets     []releaseAsset `json:"assets"`
 	}
 	if json.Unmarshal(b, &data) != nil || data.Draft == nil || *data.Draft || data.Prerelease == nil || *data.Prerelease ||
-		len(data.Tag) > 100 || !stableTag.MatchString(data.Tag) || data.URL != "https://github.com/"+Repository+"/releases/tag/"+data.Tag {
+		len(data.Tag) > 100 || data.URL != "https://github.com/"+Repository+"/releases/tag/"+data.Tag {
+		return "", pin{}, errors.New("invalid latest stable release identity")
+	}
+	tag, ok := stableTag(data.Tag)
+	if !ok {
 		return "", pin{}, errors.New("invalid latest stable release identity")
 	}
 	r := githubRelease{Tag: data.Tag, Assets: data.Assets}
@@ -278,5 +320,5 @@ func latestStable(ctx context.Context, target string) (string, pin, error) {
 	}
 
 	p, err := r.upstreamPin(ctx, target)
-	return data.Tag, p, err
+	return tag, p, err
 }

@@ -1,12 +1,13 @@
-# The core every package carries: the core repository's published raw build for the
-# package's CPU, unchanged (all protocols), pinned here by SHA-256. The package installs it
-# as CORE_TAG (packaging/openwrt/fetch-core.sh writes its pin.json); the router never
-# downloads a core.
-# To update: set CORE_RELEASE and CORE_TAG, and every line of CORE_SHA256 and CORE_NOTICES
-# from the release's sha256sums.
+# The core: the router downloads it on its own from CORE_REPO's releases, the stable ones of its
+# line CORE_LINE (tagged "<line>-vX.Y.Z"; the repository also carries mihomo's own v* tags), and
+# knows and shows a release by its version alone. packaging/openwrt/build-runtime.sh links both
+# into the manager (internal/kernel Repository and ReleaseLine).
 CORE_REPO=openweir/mihomo
-CORE_RELEASE=openweir-v1.0.1
+CORE_LINE=openweir
+# The release the tests run on loopback (packaging/openwrt/fetch-core.sh), pinned by SHA-256.
+# To update: set CORE_TAG and every line of CORE_SHA256 from the release's sha256sums.
 CORE_TAG=v1.0.1
+CORE_RELEASE=$CORE_LINE-$CORE_TAG
 # <core target> <SHA-256 of mihomo-linux-<asset target>-$CORE_RELEASE.gz>
 CORE_SHA256='
 386-softfloat 04a7642d6cdbd8cdf9cf5d137641593adbd6c4fb85ef2e0f944797088b7762b8
@@ -19,10 +20,4 @@ loong64 3e6071a15cb3dd704114539a20345d41778600792fa00ea0db5d8b4d61255645
 mips-softfloat 32d4b0dbb3d037f0284ef7267ca6c9b0b21bbc823e10fb45506190b91187c174
 mipsle-softfloat 800667e21a571a0f0d8863e3f293f390d780ff099d3a6048564ce8a092da9d11
 riscv64 e849a69fc3fd0c86699d20ffcb00c26933ab754c85c07dbf82552d3b0de69a7d
-'
-# Notices the release publishes beside a build, which its package carries with the core:
-# <core target> <asset> <SHA-256>
-CORE_NOTICES='
-amd64 NOTICE-cronet-linux-amd64.txt 2f02b7486bcfa90d115c71a20437f3906b6fd5bef81c5dc0efd341399e89d0fd
-arm64 NOTICE-cronet-linux-arm64.txt 2f02b7486bcfa90d115c71a20437f3906b6fd5bef81c5dc0efd341399e89d0fd
 '

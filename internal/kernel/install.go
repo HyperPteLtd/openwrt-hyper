@@ -49,7 +49,13 @@ func (m *Manager) materialize(ctx context.Context, p pick, v *Verified, src Sour
 		// unpack verifies the compressed digest, each member and the ELF
 		// before publishing any file or executing a version check.
 	} else {
-		in, e := src.open(ctx, p.Tag, a.Name, true)
+		// A core the 1.0.0 package carried is named by its version; the release names it after
+		// itself (rawBuild). Size and SHA-256 are the same.
+		name := a.Name
+		if rawBuild(name, p.Tag, m.Target) {
+			name = rawAsset(p.Tag, m.Target)
+		}
+		in, e := src.open(ctx, p.Tag, name, true)
 		if e != nil {
 			return e
 		}
@@ -211,9 +217,8 @@ func (m *Manager) Install(ctx context.Context, tag, mode string, src Source, sta
 
 func (m *Manager) installReserved(ctx context.Context, tag, mode string, src Source, stageOnly bool, releasePin *pin) error {
 	// A pin from a release lookup belongs to the first installation (Bootstrap), which yields
-	// to anything the administrator did meanwhile. The package's pin (src.Bundle) is good for
-	// as long as the package is installed, also on a router that has run other versions.
-	bootstrap := releasePin != nil && src.Bundle == ""
+	// to anything the administrator did meanwhile.
+	bootstrap := releasePin != nil
 	if !bootstrap {
 		if e := m.locked(m.reclaim); e != nil {
 			return e
@@ -436,20 +441,20 @@ func (m *Manager) Bootstrap(ctx context.Context) (map[string]string, error) {
 			return map[string]string{"skipped": "existing_kernel"}, nil
 		}
 	}
-	// The package's own core first: no download, no network.
-	if tag, p, ok, err := ReadBundle(BundleDir, m.Target); err != nil {
-		return nil, err
-	} else if ok {
-		if err = m.installBundle(ctx, tag, "", BundleDir, p); err != nil {
-			return nil, err
-		}
-		return map[string]string{"staged": tag}, nil
-	}
 	tag, verified, err := latestStable(ctx, m.Target)
 	if err != nil {
 		return nil, err
 	}
-	if err = m.installReserved(ctx, tag, "double", Source{}, true, &verified); err != nil {
+	// On flash (double) where it fits, else in RAM (tmp), downloaded again after a reboot
+	// (restore). A router with room for neither stays without a core.
+	err = m.installReserved(ctx, tag, "double", Source{}, true, &verified)
+	var short capacityError
+	if errors.As(err, &short) {
+		if e := m.installReserved(ctx, tag, "tmp", Source{}, true, &verified); !errors.As(e, &short) {
+			err = e
+		}
+	}
+	if err != nil {
 		return nil, err
 	}
 	return map[string]string{"staged": tag}, nil

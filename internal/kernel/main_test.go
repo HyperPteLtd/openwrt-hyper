@@ -8,12 +8,19 @@ import (
 	"testing"
 )
 
-// The tests cover online releases too, which this package offers only when a build names the
-// repository (Repository is empty by default: the package carries its core).
+// The tests download from a repository, which a build names (Repository is empty by default).
+// Its releases are tagged by version unless a test names a line (withLine).
 func TestMain(m *testing.M) {
 	Repository = "example/mihomo"
 	origin = "https://github.com/" + Repository + "/releases/download"
 	releaseAPI = "https://api.github.com/repos/" + Repository + "/releases"
-	BundleDir = "/nonexistent/hyper-core"
 	os.Exit(m.Run())
+}
+
+// withLine: the repository tags its own releases hyper-vX.Y.Z for the test, as a build's
+// ReleaseLine names them.
+func withLine(t *testing.T) {
+	t.Helper()
+	ReleaseLine = "hyper"
+	t.Cleanup(func() { ReleaseLine = "" })
 }

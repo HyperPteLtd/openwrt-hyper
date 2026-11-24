@@ -1,7 +1,7 @@
 import { t } from '../i18n.js';
 import { diagnosticMessage, day, pluginName, conflictItem } from '../dom.js';
 import { h, card, bytes, field, empty, segment, modeNames, clock, resultName, say, hush, attach } from '../dom.js';
-import { installBundled } from './versions.js';
+import { installLatest, kernelStorage, kernelSummary } from './versions.js';
 import { checkinPanel, invitePanel, devicesPanel } from './account.js';
 
 const states = {
@@ -427,7 +427,7 @@ export async function overview(ui) {
 			? t('先添加订阅')
 			: kernel.selected
 				? t('连接')
-				: preparing || kernel.bootstrap?.stage === 'running' ? t('内核准备中') : t('先安装内核');
+				: preparing || kernel.bootstrap?.stage === 'running' ? t('内核准备中') : t('先下载内核');
 	let look = powerLook(ui.status),
 		shown;
 	// What the next button needs to carry on from this one: its look, word and pulse timing, and
@@ -484,11 +484,11 @@ export async function overview(ui) {
 		hush(powerLine);
 		powerLine.setAttribute('role', 'alert');
 		if (!kernel.selected) {
-			// Connecting needs a kernel: install the one the plugin carries first.
+			// Connecting needs a kernel: download the newest stable one first.
 			preparing = true;
 			show('off');
 			try {
-				kernel = await installBundled(ui, kernelUpdates, kernel);
+				kernel = await installLatest(ui, kernelUpdates);
 			} catch (error) {
 				preparing = false;
 				show('off');
@@ -901,6 +901,9 @@ export async function overview(ui) {
 			h('small', { class: 'ow-muted' }, t('每天检查一次，有新版本时在这里提示')))),
 		lined(updateRow(t('自动更新插件'), toggle(t('自动更新插件'), !!prefs.auto_update, (v) => saveP({ auto_update: v })),
 			h('small', { class: 'ow-muted' }, t('每天检查并自动安装新版本，安装时网络会短暂中断')))),
+		// The core updates apart from the plugin, when asked to.
+		updateRow(...kernelSummary(ui, kernel, kernelUpdates)),
+		updateRow(t('内核存储位置'), ...kernelStorage(ui, kernel, kernelUpdates, segment)),
 		// The router checks these lists itself once a week; there is nothing to press.
 		updateRow(t('大陆域名与 IP 列表'), h('small', { class: 'ow-muted' }, t('每周自动更新')),
 			h('small', { class: 'ow-muted' }, ui.status.china_lists ? t('更新于 {0}', day(ui.status.china_lists)) : t('插件内置版本'))),

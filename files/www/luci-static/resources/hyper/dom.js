@@ -370,7 +370,6 @@ const taskText = {
 const taskStep = {
     configure: t('修改设置'), login: t('登录'), logout: t('退出登录'), site: t('获取站点信息'),
     send_code: t('发送验证码'), api: t('读取账户信息'), checkin: t('签到'), rule_toggle: t('切换服务端规则'),
-    bundled: t('安装随包内核'),
     preferences: t('修改偏好'), rollback: t('回滚'), revoke: t('撤销授权'),
     url: t('URL 测速'), tcp: t('TCP 测速'), versions: t('获取版本列表'), 'install-json': t('安装'), select: t('切换版本'),
 };

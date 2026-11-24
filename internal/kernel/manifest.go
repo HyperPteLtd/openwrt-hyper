@@ -18,10 +18,13 @@ import (
 // trusted plugin build. Never derive it from a download or user input.
 var PublicKey string
 
-// Repository names the GitHub repository online core releases come from; a build sets it with
-// -X to offer them. Empty here: the package carries its core (BundleDir) and the router never
-// downloads one. It is never taken from a subscription.
+// Repository names the GitHub repository the router downloads its core from, and ReleaseLine
+// that repository's own release series, whose stable releases are tagged "<line>-vX.Y.Z" (it
+// also carries mihomo's plain v* tags, which are not ours). A build sets both with -X from
+// scripts/core.lock; without a repository the router offers no online core. Neither is ever
+// taken from a subscription. The router knows a release by its version alone ("vX.Y.Z").
 var Repository = ""
+var ReleaseLine = ""
 
 const Controller = "mihomo-rest-v1"
 const maxAsset int64 = 512 << 20

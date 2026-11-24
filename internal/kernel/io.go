@@ -79,6 +79,9 @@ func (b releaseBody) Read(p []byte) (int, error) {
 
 var errReleaseNotFound = errors.New("release file not found")
 
+// ErrOnlineUnavailable: this build names no repository to download a core from (Repository).
+var ErrOnlineUnavailable = errors.New("online core releases are not offered")
+
 func fetch(ctx context.Context, address string) (io.ReadCloser, error) {
 	if Repository == "" {
 		return nil, ErrOnlineUnavailable

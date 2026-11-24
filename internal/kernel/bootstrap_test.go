@@ -23,13 +23,15 @@ func stableFixture(tag string, assets []releaseAsset) map[string]any {
 }
 
 func TestBootstrapStagesVerifiedLatestWithoutActivation(t *testing.T) {
+	withLine(t)
 	m := newFixture(t).mgr
-	const tag = "hyper-v2.4.1"
+	// The line's release hyper-v2.4.1 is the router's v2.4.1.
+	const release, tag = "hyper-v2.4.1", "v2.4.1"
 	name := assetName(tag, m.Target)
 	raw := mihomoArchive(t, tag, m.Target)
 	asset := releaseAsset{Name: name, Size: int64(len(raw)), Digest: "sha256:" + Digest(raw)}
-	meta, _ := json.Marshal(stableFixture(tag, []releaseAsset{asset}))
-	archive := origin + "/" + tag + "/" + name
+	meta, _ := json.Marshal(stableFixture(release, []releaseAsset{asset}))
+	archive := origin + "/" + release + "/" + name
 	files := map[string][]byte{releaseAPI + "/latest": meta, archive: raw}
 	serveReleases(t, files)
 	ctx := context.Background()
@@ -61,7 +63,14 @@ func TestBootstrapStagesVerifiedLatestWithoutActivation(t *testing.T) {
 }
 
 func TestBootstrapDeclinesInvalidLatestWithoutDowngrade(t *testing.T) {
-	const tag = "v2.4.1"
+	withLine(t)
+	const release, tag = "hyper-v2.4.1", "v2.4.1"
+	data := stableFixture(release, []releaseAsset{{Name: assetName(tag, "amd64"), Size: 768, Digest: "sha256:" + strings.Repeat("a", 64)}})
+	meta, _ := json.Marshal(data)
+	serveReleases(t, map[string][]byte{releaseAPI + "/latest": meta})
+	if got, _, err := latestStable(context.Background(), "amd64"); err != nil || got != tag {
+		t.Fatal("the fixture is a valid release", got, err)
+	}
 	asset := releaseAsset{Name: assetName(tag, "amd64"), Size: 768, Digest: "sha256:" + strings.Repeat("a", 64)}
 	for _, tc := range []struct {
 		name string
@@ -71,12 +80,16 @@ func TestBootstrapDeclinesInvalidLatestWithoutDowngrade(t *testing.T) {
 		{"prerelease", func(r map[string]any) { r["prerelease"] = true }},
 		{"missing stability", func(r map[string]any) { delete(r, "prerelease") }},
 		{"tag is a preview", func(r map[string]any) {
-			r["tag_name"] = "v2.4.1-rc.1"
-			r["html_url"] = "https://github.com/" + Repository + "/releases/tag/v2.4.1-rc.1"
+			r["tag_name"] = "hyper-v2.4.1-rc.1"
+			r["html_url"] = "https://github.com/" + Repository + "/releases/tag/hyper-v2.4.1-rc.1"
 		}},
 		{"invalid semver", func(r map[string]any) {
-			r["tag_name"] = "v02.4.1"
-			r["html_url"] = "https://github.com/" + Repository + "/releases/tag/v02.4.1"
+			r["tag_name"] = "hyper-v02.4.1"
+			r["html_url"] = "https://github.com/" + Repository + "/releases/tag/hyper-v02.4.1"
+		}},
+		{"another series", func(r map[string]any) {
+			r["tag_name"] = tag
+			r["html_url"] = "https://github.com/" + Repository + "/releases/tag/" + tag
 		}},
 		{"unrelated release URL", func(r map[string]any) { r["html_url"] = "https://example.org/releases/tag/" + tag }},
 		{"missing arch", func(r map[string]any) {
@@ -89,7 +102,7 @@ func TestBootstrapDeclinesInvalidLatestWithoutDowngrade(t *testing.T) {
 		{"invalid upstream digest", func(r map[string]any) { a := asset; a.Digest = "sha256:truncated"; r["assets"] = []releaseAsset{a} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			data := stableFixture(tag, []releaseAsset{asset})
+			data := stableFixture(release, []releaseAsset{asset})
 			tc.edit(data)
 			meta, _ := json.Marshal(data)
 			serveReleases(t, map[string][]byte{releaseAPI + "/latest": meta})

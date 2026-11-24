@@ -43,6 +43,9 @@ const server = http.createServer(async (req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const views = ['overview', 'proxy', 'account', 'rules', 'logs', 'connections'];
+// The core reads as its version alone, never by its release line (scripts/core.lock).
+const coreLine = /^CORE_LINE=([a-z][a-z0-9]*)$/m.exec(await fs.readFile(path.join(root, 'scripts/core.lock'), 'utf8'))[1];
+const lineName = new RegExp(coreLine, 'i');
 const han = /[　-〿一-鿿！-｠]/;
 
 const browser = await chromium.launch();
@@ -64,6 +67,7 @@ try {
 			// A page that throws while it renders shows its error in a card instead.
 			if (/无法加载页面|Can't load the page/.test(text)) failures.push(`${name}: the page failed to load: ${text.split('\n').slice(0, 12).join(' ¦ ')}`);
 			assert.ok(text.trim().length > 20, `${name}: an empty page`);
+			if (lineName.test(text)) failures.push(`${name}: names the core's release line`);
 			if (english) {
 				const lines = text.split('\n').filter((l) => han.test(l));
 				if (lines.length) failures.push(`${name}: Chinese on the English page: ${lines.slice(0, 8).join(' ¦ ')}`);
@@ -94,6 +98,22 @@ try {
 			await dialog.waitFor({ state: 'detached' });
 		}
 		if (errors.length) failures.push(`${lang} account dialogs: ${errors.join(' | ')}`);
+		await tab.close();
+	}
+	// The core row: its version, 检查更新, then 更新到 the newer stable release; and its storage.
+	{
+		const tab = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+		await tab.goto(`${base}/?lang=zh-cn#overview`);
+		const row = tab.locator('.ow-row', { has: tab.getByText('内核', { exact: true }) });
+		await row.getByText('当前 v1.0.1', { exact: true }).waitFor();
+		await row.getByRole('button', { name: '检查更新', exact: true }).click();
+		await row.getByRole('button', { name: '更新到 v1.0.2', exact: true }).click();
+		await row.getByText('当前 v1.0.2', { exact: true }).waitFor();
+		assert.equal(await tab.evaluate(() => window.model.kernel.selected), 'v1.0.2');
+		const storage = tab.locator('.ow-row').filter({ hasText: '内核存储位置' });
+		await storage.getByRole('button', { name: '内存', exact: true }).click();
+		await storage.getByText('不占闪存，重启后重新下载', { exact: true }).waitFor();
+		assert.equal(await tab.evaluate(() => window.model.kernel.mode), 'tmp');
 		await tab.close();
 	}
 	// 直连 with DNS protection keeps DNS alone (dns_only); DNS protection off in 直连 stops it all.
