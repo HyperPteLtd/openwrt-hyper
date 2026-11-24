@@ -618,7 +618,7 @@ export async function plans(ui) {
                 h(
                     'div',
                     { class: 'ow-stack ow-plans-plan' },
-                    h('div', { class: 'ow-plans-plan-head' }, h('h3', {}, p.name), p.device_limit ? muted(ui, p.device_limit + t(' 台设备')) : null),
+                    h('div', { class: 'ow-plans-plan-head' }, h('h3', {}, p.name), p.device_limit ? muted(ui, t('{0} 台设备', p.device_limit)) : null),
                     h(
                         'div',
                         { class: 'ow-plans-tiers', role: 'radiogroup', 'aria-label': p.name },
@@ -901,7 +901,7 @@ export async function plans(ui) {
             qrCode(address, t('收款地址二维码')),
             h('div', { class: 'ow-plans-address-row' }, h('code', { class: 'ow-mono ow-plans-address' }, address), copy),
             status,
-            h('p', { class: 'ow-warning' }, t('请通过 ') + network + t(' 网络转入 ') + token + t('，金额需与上方完全一致')),
+            h('p', { class: 'ow-warning' }, t('请通过 {0} 网络转入 {1}，金额需与上方完全一致', network, token)),
         );
     }
 
@@ -911,7 +911,7 @@ export async function plans(ui) {
             'section',
             { class: 'ow-card ow-plans-result' },
             h('h2', { tabindex: -1, class: 'ow-plans-success' }, t('套餐已生效')),
-            muted(ui, name + t('已生效，路由器正在同步新的节点')),
+            muted(ui, t('{0}已生效，路由器正在同步新的节点', name)),
             syncLine,
             actions(ui, ui.button(t('返回概览'), () => ui.go('overview'), 'ow-primary'), ui.button(t('查看账户'), () => ui.go('account'))),
         );
@@ -927,7 +927,7 @@ export async function plans(ui) {
             { class: 'ow-card ow-plans-result' },
             h('h2', { tabindex: -1 }, expired ? t('订单已超时') : failed ? t('支付失败') : t('订单已关闭')),
             muted(ui, failed ? t('如果已经扣款，请联系客服并提供订单号') : t('没有完成支付，订单已关闭')),
-            s ? h('span', { class: 'ow-muted ow-mono' }, t('订单号 ') + s.order_no) : null,
+            s ? h('span', { class: 'ow-muted ow-mono' }, t('订单号 {0}', s.order_no)) : null,
             actions(
                 ui,
                 ui.button(

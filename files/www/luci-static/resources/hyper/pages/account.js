@@ -67,7 +67,7 @@ function signIn(ui) {
         const tickResend = () => {
             const left = Math.ceil((memory.cooldownUntil - Date.now()) / 1000);
             resend.disabled = left > 0;
-            resend.textContent = left > 0 ? left + t(' 秒后可重新发送') : t('重新发送验证码');
+            resend.textContent = left > 0 ? t('{0} 秒后可重新发送', left) : t('重新发送验证码');
             if (left > 0 && !ui.signal.aborted) setTimeout(tickResend, 1000);
         };
         tickResend();
@@ -155,18 +155,18 @@ function syncCard(ui) {
         rows.push(
             h('div', { class: 'ow-row' },
                 h('span', {}, h('strong', { class: 'ow-mono' }, String(s.node_count || 0)), t(' 个节点')),
-                muted(ui, s.updated_at ? t('上次同步 ') + date(s.updated_at) : t('尚未同步'))),
+                muted(ui, s.updated_at ? t('上次同步 {0}', date(s.updated_at)) : t('尚未同步'))),
         );
     const held = !s?.last_failure && s?.pending_update ? pendingUpdates[s.pending_update.code] : null;
     if (held) rows.push(h('p', { class: 'ow-warning' }, held.text));
     if (s?.login_required) rows.push(h('p', { class: 'ow-warning' }, t('登录已失效，请退出后重新登录')));
     else if (s?.suspended) rows.push(h('p', { class: 'ow-warning' }, t('套餐已到期或不可用，续费后再同步')));
-    else if (s?.last_failure) rows.push(h('p', { class: 'ow-muted', 'data-tone': 'error' }, t('上次同步失败 · ') + diagnosticMessage(s.last_failure) + (s.ready ? t(' · 已保留上次的节点') : '')));
+    else if (s?.last_failure) rows.push(h('p', { class: 'ow-muted', 'data-tone': 'error' }, t('上次同步失败 · {0}{1}', diagnosticMessage(s.last_failure), s.ready ? t(' · 已保留上次的节点') : '')));
     const usage = s?.usage;
     if (usage?.total > 0) {
         const used = (Number(usage.upload) || 0) + (Number(usage.download) || 0);
         rows.push(h('progress', { value: Math.min(used, usage.total), max: usage.total, 'aria-label': t('已用套餐流量') }),
-            muted(ui, bytes(used) + ' / ' + bytes(usage.total) + (usage.expireAt ? t(' · 到期 ') + formatDate(usage.expireAt) : '')));
+            muted(ui, bytes(used) + ' / ' + bytes(usage.total) + (usage.expireAt ? t(' · 到期 {0}', formatDate(usage.expireAt)) : '')));
     }
     const sync = ui.button(held ? held.action : t('立即同步'), async () => {
         if (await syncHyper(ui, line)) await ui.refresh();
@@ -218,7 +218,7 @@ function devicesCard(ui, devices) {
             h('strong', { class: 'ow-grow' }, d.current ? t('本路由器') : d.platform || d.user_agent || t('设备')),
             muted(ui, d.ip || '--'),
             badge(ui, d.online ? t('在线') : t('离线')),
-            muted(ui, d.last_login_at ? t('登录于 ') + formatDate(d.last_login_at) : '--'),
+            muted(ui, d.last_login_at ? t('登录于 {0}', formatDate(d.last_login_at)) : '--'),
             d.current ? muted(ui, t('当前')) : ui.button(t('下线'), async () => {
                 const r = await api(ui, 'PUT', '/v1/public/user/device/kick_offline', { body: { id: d.id } });
                 if (!r?.ok) throw new Error(apiError(r, t('下线失败')));
@@ -310,18 +310,18 @@ function checkinCard(ui) {
             const n = streak(new Set(dates), dateKey(new Date()));
             line.hidden = false;
             delete line.dataset.tone;
-            line.textContent = n > 1 ? t('签到成功，已连续签到 ') + n + t(' 天') : t('签到成功');
+            line.textContent = n > 1 ? t('签到成功，已连续签到 {0} 天', n) : t('签到成功');
         }, 'ow-primary');
         button.disabled = done;
         body.replaceChildren(
             h('div', { class: 'ow-row' },
-                prev, h('strong', { 'aria-live': 'polite' }, month.year + t(' 年 ') + (month.month + 1) + t(' 月')), next,
-                muted(ui, t('本月已签到 ') + month.count + t(' 天 · 连续 ') + streak(checked, today) + t(' 天'))),
-            h('ol', { class: 'ow-calendar', 'aria-label': month.year + t(' 年 ') + (month.month + 1) + t(' 月签到记录') },
+                prev, h('strong', { 'aria-live': 'polite' }, t('{0} 年 {1} 月', month.year, month.month + 1)), next,
+                muted(ui, t('本月已签到 {0} 天 · 连续 {1} 天', month.count, streak(checked, today)))),
+            h('ol', { class: 'ow-calendar', 'aria-label': t('{0} 年 {1} 月签到记录', month.year, month.month + 1) },
                 ...Array.from({ length: month.offset }, () => h('li', { class: 'is-blank', 'aria-hidden': 'true' })),
                 ...month.days.map((d) => h('li', {
                     class: 'is-' + d.state,
-                    'aria-label': (month.month + 1) + t(' 月 ') + d.day + t(' 日') + (stateLabel[d.state] ? t('，') + stateLabel[d.state] : ''),
+                    'aria-label': t('{0} 月 {1} 日{2}', (month.month + 1), d.day, stateLabel[d.state] ? t('，{0}', stateLabel[d.state]) : ''),
                     'aria-current': d.state === 'today' || d.state === 'today-checked' ? 'date' : null,
                 }, String(d.day)))),
             actions(ui, button),

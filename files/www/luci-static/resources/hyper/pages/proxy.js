@@ -231,7 +231,7 @@ export async function proxy(ui) {
 			ids.slice(0, limit).map((id) => tile(id, g, chosen, actual)),
 			ids.length > limit &&
 				ui.button(
-					t('显示更多节点（') + (ids.length - limit) + t('）'),
+					t('显示更多节点（{0}）', ids.length - limit),
 					() => {
 						displayLimits.set(g.id, limit + 96);
 						draw();
@@ -273,11 +273,11 @@ export async function proxy(ui) {
 					'div',
 					{ class: 'ow-global-heading' },
 					h('h3', {}, t('全局')),
-					h('small', {}, list.length + t(' 个节点 · ') + (primary.name || primary.source)),
+					h('small', {}, t('{0} 个节点 · {1}', list.length, primary.name || primary.source)),
 					saved?.saved &&
 						saved.saved !== actual &&
-						h('span', { class: 'ow-global-saved' }, t('已保存 · ') + label(saved.saved)),
-					actual && h('span', { class: 'ow-global-applied' }, t('当前出口 · ') + label(actual)),
+						h('span', { class: 'ow-global-saved' }, t('已保存 · {0}', label(saved.saved))),
+					actual && h('span', { class: 'ow-global-applied' }, t('当前出口 · {0}', label(actual))),
 				),
 				memberGrid(group, false),
 				retry(group, saved),
@@ -295,7 +295,7 @@ export async function proxy(ui) {
 				const routeText = chain.length
 					? '→ ' + chain.map(label).join(' → ')
 					: chosen?.saved
-						? t('已保存 · ') + label(chosen.saved)
+						? t('已保存 · {0}', label(chosen.saved))
 						: '';
 				const details = h('details', { class: 'ow-accordion' });
 				details.open =
@@ -340,8 +340,8 @@ export async function proxy(ui) {
 				const test = ui.button('', () => measure(g.members), 'ow-group-test');
 				test.dataset.group = g.id;
 				test.dataset.control = 'measure';
-				test.setAttribute('aria-label', t('测速 ') + g.name);
-				test.title = t('测速 ') + g.name;
+				test.setAttribute('aria-label', t('测速 {0}', g.name));
+				test.title = t('测速 {0}', g.name);
 				test.disabled = !canMeasure();
 				panels.push(reported(h('div', { class: 'ow-group-panel' }, details, test, retry(g, chosen)), g.id));
 			}

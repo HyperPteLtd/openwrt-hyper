@@ -111,13 +111,13 @@ export function kernelSummary(ui, status, updates, setup = false) {
 			note.dataset.tone = 'error';
 		}
 		if (!setup && (!note.textContent || note.dataset.version)) {
-			note.textContent = status.selected ? t('当前 ') + status.selected + t(' · 随插件更新') : current;
+			note.textContent = status.selected ? t('当前 {0} · 随插件更新', status.selected) : current;
 			note.dataset.version = '1';
 			delete note.dataset.tone;
 		}
 		let name = busy;
 		if (!name) {
-			if (status.staged && status.staged !== status.selected) name = t('使用 ') + status.staged;
+			if (status.staged && status.staged !== status.selected) name = t('使用 {0}', status.staged);
 			else if (!status.selected) name = state === t('正在安装') ? '' : state ? t('重新安装') : t('安装内核');
 		}
 		if (action.textContent !== name) action.textContent = name;

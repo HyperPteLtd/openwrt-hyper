@@ -42,7 +42,7 @@ export async function records(ui) {
 		if (!rule) return '—';
 		if (Object.hasOwn(routerRules, rule)) return routerRules[rule];
 		const set = ruleSetOf(rule);
-		if (set) return t('规则集 ') + setLabel(set);
+		if (set) return t('规则集 {0}', setLabel(set));
 		// A logical rule names its rule sets inside its conditions.
 		const [type, ...payload] = rule.split(',');
 		return type === 'Match' ? t('兜底') : type + (payload.length ? ' ' + setRefs(payload.join(',')) : '');
@@ -58,7 +58,7 @@ export async function records(ui) {
 		deviceNames.has(address) ? deviceNames.get(address) + ' · ' + address : address;
 	const search = h('input', {
 		type: 'search',
-		'aria-label': t('搜索') + title,
+		'aria-label': t('搜索{0}', title),
 		placeholder: logs ? t('筛选消息、来源或任务 ID') : t('搜索目标、设备、策略组或节点'),
 		value: state.query,
 	});
@@ -168,7 +168,7 @@ export async function records(ui) {
 			ruleFilter.value = state.rule;
 		}
 		if (!shown.length)
-			display.replaceChildren(empty(entries.length || state.serverQuery ? t('没有匹配的记录') : t('暂无') + title));
+			display.replaceChildren(empty(entries.length || state.serverQuery ? t('没有匹配的记录') : t('暂无{0}', title)));
 		else if (logs)
 			display.replaceChildren(
 				...shown.slice(0, state.limit).map((v) => {
@@ -237,7 +237,7 @@ export async function records(ui) {
 						},
 						'ow-link',
 					)
-				: h('small', { class: 'ow-muted' }, shown.length + t(' 条记录')),
+				: h('small', { class: 'ow-muted' }, t('{0} 条记录', shown.length)),
 		);
 	}
 	async function readRows(query, current = () => true) {
@@ -370,13 +370,13 @@ export async function records(ui) {
 			t('清空'),
 			() => {
 				const d = ui.dialog(
-					t('清空') + title,
+					t('清空{0}', title),
 					h(
 						'div',
 						{ class: 'ow-stack' },
 						h('p', {}, t('清空此页的所有记录？')),
 						ui.button(
-							t('清空') + title,
+							t('清空{0}', title),
 							async () => {
 								await ui.rpc('clear', { page: ui.page });
 								d.close();

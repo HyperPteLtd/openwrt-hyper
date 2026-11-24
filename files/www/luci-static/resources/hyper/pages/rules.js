@@ -101,7 +101,7 @@ async function editRule(u, custom, index, source, isLocal) {
         for (const g of u.ruleGroups || (await allGroups(u, source))) targets.push([g.id, g.name]);
     for (const g of u.status.intent?.policy?.groups || []) targets.push([g.id, g.name]);
     if (old && !targets.some(([id]) => id === old.target))
-        targets.push([old.target, t('不可用 · ') + routeName(u, old.target)]);
+        targets.push([old.target, t('不可用 · {0}', routeName(u, old.target))]);
     const target = choice(u, targets, old?.target || '@direct', t('去向'));
     const note = input(u, { value: old?.note || '', maxlength: 256 }),
         enabled = input(u, { type: 'checkbox' });
@@ -213,7 +213,7 @@ async function setDetail(u, source, name, info) {
     const china = u.status.china_lists;
     const facts = [
         [t('来源'), info.builtIn ? t('内置，每周自动更新') : t('订阅')],
-        [t('条目'), info.builtIn ? '—' : (info.count ?? '—') + t(' 条') + (info.binary ? t('（二进制格式，无法逐条列出）') : '')],
+        [t('条目'), info.builtIn ? '—' : t('{0} 条{1}', (info.count ?? '—'), (info.binary ? t('（二进制格式，无法逐条列出）') : ''))],
         [t('更新时间'), info.builtIn ? (china ? day(china) : t('插件内置版本')) : date(info.primary?.updated_at)],
     ];
     u.dialog(
@@ -275,7 +275,7 @@ function setRoute(u, routes) {
     );
     return [
         ...shown.flatMap((node, i) => (i ? [t('、'), node] : [node])),
-        routes.length > 2 ? muted(u, t(' 等 ') + routes.length + t(' 个')) : null,
+        routes.length > 2 ? muted(u, t(' 等 {0} 个', routes.length)) : null,
     ];
 }
 let setCards = 0;
@@ -310,8 +310,8 @@ function setCard(u, name, info, hits, routes, open) {
         u.h(
             'dl',
             { class: 'ow-set-stats' },
-            stat(t('条目'), info.builtIn ? t('每周自动更新') : (info.count ?? '—') + t(' 条')),
-            stat(t('命中连接'), hit ? hit + t(' 次') : '—', hit ? 'ow-set-hit' : null),
+            stat(t('条目'), info.builtIn ? t('每周自动更新') : t('{0} 条', (info.count ?? '—'))),
+            stat(t('命中连接'), hit ? t('{0} 次', hit) : '—', hit ? 'ow-set-hit' : null),
             routes?.length ? stat(t('去向'), setRoute(u, routes), 'ow-set-route') : null,
         ),
         actions(
@@ -350,8 +350,8 @@ function ruleSetCard(u, source, primary, initial, hits) {
         u.h(
             'div',
             { class: 'ow-row ow-toolbar' },
-            u.h('div', { class: 'ow-set-heading' }, u.h('h2', {}, t('规则集')), names.length ? muted(u, names.length + t(' 个')) : null),
-            actions(u, muted(u, !initial.local && primary?.updated_at ? t('更新于 ') + date(primary.updated_at) : ''), btn),
+            u.h('div', { class: 'ow-set-heading' }, u.h('h2', {}, t('规则集')), names.length ? muted(u, t('{0} 个', names.length)) : null),
+            actions(u, muted(u, !initial.local && primary?.updated_at ? t('更新于 {0}', date(primary.updated_at)) : ''), btn),
         ),
         muted(u, t('命中连接为本次启动以来的累计次数，清空连接记录时归零。')),
         feedback,
@@ -374,8 +374,8 @@ function customCard(u, custom, source, local) {
     for (const [i, r] of custom.entries()) {
         const up = u.button('↑', () => move(i, i - 1)),
             down = u.button('↓', () => move(i, i + 1));
-        up.setAttribute('aria-label', t('上移第 ') + (i + 1) + t(' 条规则'));
-        down.setAttribute('aria-label', t('下移第 ') + (i + 1) + t(' 条规则'));
+        up.setAttribute('aria-label', t('上移第 {0} 条规则', (i + 1)));
+        down.setAttribute('aria-label', t('下移第 {0} 条规则', (i + 1)));
         up.disabled = i === 0;
         down.disabled = i === custom.length - 1;
         const detail = describeRule(r.match);
@@ -500,7 +500,7 @@ function catalogCard(u, items) {
             line.textContent = (wanted ? t('正在启用 ') : t('正在停用 ')) + item.key + '…';
             try {
                 await write(u, 'rule_toggle', { key: item.key, enabled: wanted });
-                line.textContent = (wanted ? t('已启用 ') : t('已停用 ')) + item.key + t('，正在重新同步规则');
+                line.textContent = t('{0}，正在重新同步规则', ((wanted ? t('已启用 ') : t('已停用 ')) + item.key));
             } catch (e) {
                 toggle.checked = !wanted;
                 line.textContent = diagnosticMessage(e.message);
@@ -512,7 +512,7 @@ function catalogCard(u, items) {
         list.append(u.h('li', { class: 'ow-row' },
             u.h('div', { class: 'ow-stack ow-grow' },
                 u.h('strong', {}, item.key),
-                muted(u, [policyName[item.policy] || item.policy, item.entries ? item.entries + t(' 条') : '', item.stale ? t('本次未能下载，沿用上次') : ''].filter(Boolean).join(' · '))),
+                muted(u, [policyName[item.policy] || item.policy, item.entries ? t('{0} 条', item.entries) : '', item.stale ? t('本次未能下载，沿用上次') : ''].filter(Boolean).join(' · '))),
             toggle));
     }
     box.append(list, line);

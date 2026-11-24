@@ -74,7 +74,7 @@ function uptime(ms) {
 	const s = Math.max(0, Math.floor(ms / 1000)),
 		pad = (v) => String(v).padStart(2, '0');
 	return (
-		(s >= 86400 ? Math.floor(s / 86400) + t(' 天 ') : '') +
+		(s >= 86400 ? t('{0} 天 ', Math.floor(s / 86400)) : '') +
 		[Math.floor(s / 3600) % 24, Math.floor(s / 60) % 60, s % 60].map(pad).join(':')
 	);
 }
@@ -123,7 +123,7 @@ function conflictSummary(found) {
 	const resources = found.resources || [];
 	const plugins = [...new Set(resources.filter((x) => x.service).map((x) => pluginName(x.service)))];
 	const manual = [...new Set(resources.filter((x) => !x.service).map((x) => conflictItem(x.kind, x.name)))];
-	return [plugins.length && plugins.join(t('、')) + t(' · 启动时自动停用'), manual.length && t('需手动处理：') + manual.join(t('、'))]
+	return [plugins.length && t('{0} · 启动时自动停用', plugins.join(t('、'))), manual.length && t('需手动处理：{0}', manual.join(t('、')))]
 		.filter(Boolean).join(t('；')) || t('暂时无法检查');
 }
 function environmentRows(fields) {
@@ -169,8 +169,8 @@ function sourceCard(ui, setup) {
 			{ class: 'ow-source-sub' },
 			p?.total > 0
 				? h('span', {}, bytes(p.upload + p.download) + ' / ' + bytes(p.total))
-				: h('span', {}, (s.node_count || 0) + t(' 个节点')),
-			p?.expireAt ? h('span', {}, t('到期 ') + day(p.expireAt)) : null,
+				: h('span', {}, t('{0} 个节点', s.node_count || 0)),
+			p?.expireAt ? h('span', {}, t('到期 {0}', day(p.expireAt))) : null,
 		);
 		const content = h(
 			'div',
@@ -295,7 +295,7 @@ function deviceCard(ui, devices) {
 			'div',
 			{ class: 'ow-row' },
 			h('h2', {}, t('设备')),
-			h('small', { class: 'ow-muted' }, t('在线 ') + online + ' / ' + devices.length),
+			h('small', { class: 'ow-muted' }, t('在线 {0} / {1}', online, devices.length)),
 		),
 		h('div', { class: 'ow-toolbar ow-device-toolbar' }, filters, query),
 		list,
@@ -579,7 +579,7 @@ export async function overview(ui) {
 			while (history.length && Date.now() - history[0].t > 60000) history.shift();
 		}
 		const last = history.at(-1);
-		total.textContent = last ? '↓ ' + bytes(last.down_bytes) + t('　↑ ') + bytes(last.up_bytes) : '—';
+		total.textContent = last ? t('↓ {0}　↑ {1}', bytes(last.down_bytes), bytes(last.up_bytes)) : '—';
 		rate.replaceChildren(
 			h('span', {}, '↓ ' + (last ? bytes(last.down_bytes_per_second) + '/s' : '—')),
 			h('span', {}, '↑ ' + (last ? bytes(last.up_bytes_per_second) + '/s' : '—')),
@@ -600,12 +600,12 @@ export async function overview(ui) {
 	function timer() {
 		if (ui.status.phase === 'starting' && confirmEnd) {
 			const left = Math.ceil((confirmEnd - Date.now()) / 1000);
-			sub.textContent = t('已接管流量，确认中') + (left > 0 ? ' ' + left + t(' 秒') : '');
+			sub.textContent = t('已接管流量，确认中{0}', left > 0 ? t(' {0} 秒', left) : '');
 			return;
 		}
 		sub.textContent =
 			running && ui.status.running_since
-				? t('已运行 ') + uptime(Date.now() - ui.status.running_since)
+				? t('已运行 {0}', uptime(Date.now() - ui.status.running_since))
 				: phaseDetail[ui.status.phase] || '';
 	}
 	confirming(ui.status);
@@ -620,7 +620,7 @@ export async function overview(ui) {
 		powerLine,
 		power,
 		h('strong', { class: 'ow-plan-label' }, cat.primary?.name || t('尚未选择订阅')),
-		h('small', { class: 'ow-muted' }, devices.unavailable ? t('等待局域网接口') : devices.items.length + t(' 台局域网设备')),
+		h('small', { class: 'ow-muted' }, devices.unavailable ? t('等待局域网接口') : t('{0} 台局域网设备', devices.items.length)),
 		running && ui.status.side_router && h('small', { class: 'ow-muted' }, t('旁路由模式：设备的网关和 DNS 都需要指向本机')),
 		h(
 			'div',
@@ -921,7 +921,7 @@ export async function overview(ui) {
 		updateRow(t('内核存储位置'), ...kernelStorage(ui, kernel, kernelUpdates, segment)),
 		// The router checks these lists itself once a week; there is nothing to press.
 		updateRow(t('大陆域名与 IP 列表'), h('small', { class: 'ow-muted' }, t('每周自动更新')),
-			h('small', { class: 'ow-muted' }, ui.status.china_lists ? t('更新于 ') + day(ui.status.china_lists) : t('插件内置版本'))),
+			h('small', { class: 'ow-muted' }, ui.status.china_lists ? t('更新于 {0}', day(ui.status.china_lists)) : t('插件内置版本'))),
 	);
 	// This browser's choice: the pages follow LuCI's language unless one is chosen here.
 	const general = card(
@@ -996,16 +996,16 @@ function pluginUpdate(ui) {
 		note = h('small', { class: 'ow-muted', role: 'status' });
 	let candidate = '', latest = false;
 	const installed = ui.status.version && ui.status.version !== 'dev' ? ui.status.version : '';
-	note.textContent = installed ? t('当前 v') + installed : '';
+	note.textContent = installed ? t('当前 v{0}', installed) : '';
 	// What the daily check found.
 	const known = ui.status.plugin;
 	if (known?.available && known.candidate) {
 		candidate = known.candidate;
-		note.textContent = t('发现新版本 ') + known.candidate.replace(/-r?\d+$/, '');
+		note.textContent = t('发现新版本 {0}', known.candidate.replace(/-r?\d+$/, ''));
 	}
 	show();
 	function show(text) {
-		action.textContent = text || (candidate ? t('更新到 ') + candidate : latest ? t('已是最新') : t('检查更新'));
+		action.textContent = text || (candidate ? t('更新到 {0}', candidate) : latest ? t('已是最新') : t('检查更新'));
 		action.disabled = !!text || (latest && !candidate);
 		action.classList.toggle('ow-primary', !text && !!candidate);
 		action.classList.toggle('ow-link', !!text || !candidate);
@@ -1017,7 +1017,7 @@ function pluginUpdate(ui) {
 			if (candidate) {
 				show(t('正在更新…'));
 				await ui.run('plugin_update', {});
-				note.textContent = t('已安装 ') + candidate + t('，刷新页面后生效');
+				note.textContent = t('已安装 {0}，刷新页面后生效', candidate);
 				candidate = '';
 				latest = true;
 				return;
@@ -1026,7 +1026,7 @@ function pluginUpdate(ui) {
 			const info = await ui.run('plugin_check', {});
 			candidate = info.available ? info.candidate : '';
 			latest = !candidate;
-			note.textContent = t('当前 v') + info.installed.replace(/^v/, '');
+			note.textContent = t('当前 v{0}', info.installed.replace(/^v/, ''));
 		} catch (error) {
 			if (error.name !== 'AbortError') {
 				note.textContent = error.message;

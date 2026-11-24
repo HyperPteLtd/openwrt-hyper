@@ -632,19 +632,19 @@ export function conflictItem(kind, name) {
 // What the network helper was doing when it failed.
 const networkActions = { apply: t('网络接管'), verify: t('网络检查'), release: t('网络恢复'), repair: t('网络修复'), refresh: t('网络更新'), fault: t('网络故障处理') };
 const errorPatterns = [
-    [/^local health: (.+)$/s, (m) => t('内核健康检查连续失败 · ') + errorMessage(m[1])],
+    [/^local health: (.+)$/s, (m) => t('内核健康检查连续失败 · {0}', errorMessage(m[1]))],
     [/^local control unavailable: (.+)$/s, () => t('本地控制接口不可用')],
-    [/^(.+) \(release failed: (.+)\)$/s, (m) => errorMessage(m[1]) + t(' · 清理接管规则也失败：') + errorMessage(m[2])],
-    [/^network takeover blocked by: (.+)$/s, (m) => t('仍有无法自动处理的冲突：') + m[1].split('; ').map((item) => {
+    [/^(.+) \(release failed: (.+)\)$/s, (m) => t('{0} · 清理接管规则也失败：{1}', errorMessage(m[1]), errorMessage(m[2]))],
+    [/^network takeover blocked by: (.+)$/s, (m) => t('仍有无法自动处理的冲突：{0}', m[1].split('; ').map((item) => {
         const [kind, ...name] = item.split(' ');
         return conflictItem(kind, name.join(' '));
-    }).join(t('、'))],
-    [/^member unavailable in (.+)$/s, (m) => t('策略组 ') + m[1] + t(' 中的所选节点不可用')],
-    [/^saved member unavailable for (.+)$/s, (m) => t('策略组 ') + m[1] + t(' 保存的节点不可用')],
-    [/^unavailable (?:device|rule) target (.+)$/s, (m) => t('规则指向的策略组 ') + m[1] + t(' 不可用')],
-    [/^unsupported group type (.+)$/s, (m) => t('不支持的策略组类型 ') + m[1]],
+    }).join(t('、')))],
+    [/^member unavailable in (.+)$/s, (m) => t('策略组 {0} 中的所选节点不可用', m[1])],
+    [/^saved member unavailable for (.+)$/s, (m) => t('策略组 {0} 保存的节点不可用', m[1])],
+    [/^unavailable (?:device|rule) target (.+)$/s, (m) => t('规则指向的策略组 {0} 不可用', m[1])],
+    [/^unsupported group type (.+)$/s, (m) => t('不支持的策略组类型 {0}', m[1])],
     // A change the core could not apply in place; it restarts instead.
-    [/^reload fallback (.+)$/s, (m) => t('无法直接应用更改，已重启内核 · ') + errorMessage(m[1])],
+    [/^reload fallback (.+)$/s, (m) => t('无法直接应用更改，已重启内核 · {0}', errorMessage(m[1]))],
     // What the kernel rejected: a generated node or group, an entry of the configuration or the
     // whole configuration.
     [/^(node|group):([0-9a-f]{32}): (.+)$/s, (m) => {
@@ -652,28 +652,28 @@ const errorPatterns = [
         return (name ? (node ? t('节点 ') : t('策略组 ')) + name : node ? t('某个节点') : t('某个策略组')) + ' · ' + errorMessage(m[3]);
     }],
     [/^(configuration|proxy|proxy group|rules?)(?:\[\d+\])?: (.+)$/s, (m) => (rejectedEntries[m[1]] ? rejectedEntries[m[1]] + ' · ' : '') + errorMessage(m[2])],
-    [/^candidate core rejected (\S+) configuration$/, (m) => t('内核拒绝了 ') + m[1] + t(' 配置')],
-    [/^subscription_http_([1-5][0-9]{2})$/, (m) => t('订阅服务器返回 HTTP ') + m[1]],
-    [/^provider_http_([1-5][0-9]{2})$/, (m) => t('节点或规则提供方返回 HTTP ') + m[1]],
+    [/^candidate core rejected (\S+) configuration$/, (m) => t('内核拒绝了 {0} 配置', m[1])],
+    [/^subscription_http_([1-5][0-9]{2})$/, (m) => t('订阅服务器返回 HTTP {0}', m[1])],
+    [/^provider_http_([1-5][0-9]{2})$/, (m) => t('节点或规则提供方返回 HTTP {0}', m[1])],
     [/^(?:subscription|provider)_tls_([a-z_]+)$/, (m) => tlsMessage({ reason: m[1] }) || t('HTTPS 证书校验失败')],
     // The certificate check a kernel download failed, with its validity dates (tlsdiag Wire).
     [/^release_tls (\{.*\})$/, (m) => {
         try { return tlsMessage(JSON.parse(m[1])) || t('HTTPS 证书校验失败'); } catch { return t('HTTPS 证书校验失败'); }
     }],
     // A kernel change the service did not confirm (waitForKernel).
-    [/^candidate failed startup or health checks; previous kernel (\S+) is running$/, (m) => t('新内核未通过启动或健康检查，已恢复上一版 ') + m[1]],
-    [/^kernel change unconfirmed: (.*)$/s, (m) => t('未能确认内核切换') + (m[1] ? ' · ' + diagnosticMessage(m[1]) : '')],
+    [/^candidate failed startup or health checks; previous kernel (\S+) is running$/, (m) => t('新内核未通过启动或健康检查，已恢复上一版 {0}', m[1])],
+    [/^kernel change unconfirmed: (.*)$/s, (m) => t('未能确认内核切换{0}', m[1] ? ' · ' + diagnosticMessage(m[1]) : '')],
     // Errors joined (errors.Join), one per line.
     [/^([^\n]+)\n(.+)$/s, (m) => errorMessage(m[1]) + ' · ' + errorMessage(m[2])],
     // A start that timed out, with the check that failed last (startupTimeout).
-    [/^(.+) \(last failed check: (.+)\)$/s, (m) => errorMessage(m[1]) + t(' · 最后一次检查：') + errorMessage(m[2])],
-    [/^core rejected the new configuration: (.+)$/s, (m) => t('内核拒绝了新配置 · ') + errorMessage(m[1])],
+    [/^(.+) \(last failed check: (.+)\)$/s, (m) => t('{0} · 最后一次检查：{1}', errorMessage(m[1]), errorMessage(m[2]))],
+    [/^core rejected the new configuration: (.+)$/s, (m) => t('内核拒绝了新配置 · {0}', errorMessage(m[1]))],
     [/^network prerequisites unavailable: /, () => t('路由器缺少接管所需的功能，请到概览页查看需要处理的项目')],
     // A command the router ran that failed without a reason: the network helper, or another.
     [/^([\w.-]+) ([\w-]+) failed$/, (m) => m[1] === 'network'
         ? t('{0}失败', networkActions[m[2]] || t('网络处理'))
-        : t('命令 ') + m[1] + ' ' + m[2] + t(' 执行失败')],
-    [/^condition (\S+) cannot be expressed in Mihomo$/, (m) => t('分流规则的条件 ') + m[1] + t(' 无法转换为内核规则')],
+        : t('命令 {0} {1} 执行失败', m[1], m[2])],
+    [/^condition (\S+) cannot be expressed in Mihomo$/, (m) => t('分流规则的条件 {0} 无法转换为内核规则', m[1])],
     // A file operation the system refused, without its path (os.PathError, os.LinkError).
     [/: (read-only file system|no space left on device|permission denied|operation not permitted|input\/output error|no such file or directory)$/, (m) => ({
         'read-only file system': t('存储为只读，无法写入'), 'no space left on device': t('存储空间已满'),
@@ -707,20 +707,20 @@ export function diagnosticMessage(text) {
         return taskName(task[1]) + ' · ' + taskStage[task[2]] + (extra ? ' · ' + extra : '');
     }
     const dns = /^(dns_[a-z_]+) ([a-zA-Z0-9_-]{1,48})$/.exec(text);
-    if (dns && diagnosticText[dns[1]]) return t('dnsmasq 实例 ') + dns[2] + ' · ' + diagnosticText[dns[1]];
+    if (dns && diagnosticText[dns[1]]) return t('dnsmasq 实例 {0} · {1}', dns[2], diagnosticText[dns[1]]);
     const prefix = /^(starting|releasing|release_failed|protected|fail_open|running) (.+)$/s.exec(text);
     return prefix ? diagnosticText[prefix[1]] + ' · ' + diagnosticMessage(prefix[2]) : errorMessage(text);
 }
 
 // Log entries whose detail completes the sentence.
 const detailSentences = {
-    conflict_services_stopped: (d) => diagnosticText.conflict_services_stopped + t('：') + d.split(', ').map(pluginName).join(t('、')),
+    conflict_services_stopped: (d) => t('{0}：{1}', diagnosticText.conflict_services_stopped, d.split(', ').map(pluginName).join(t('、'))),
     // The core's own words, with addresses, host names, links, paths and names taken out
     // (records.go coreDetail).
-    core_diagnostic: (d) => t('内核报告：') + d,
+    core_diagnostic: (d) => t('内核报告：{0}', d),
     // Which listener, or what in the configuration (redacted alike).
-    core_listener_failed: (d) => diagnosticText.core_listener_failed + t('：') + d,
-    invalid_configuration: (d) => diagnosticText.invalid_configuration + t('：') + d,
+    core_listener_failed: (d) => t('{0}：{1}', diagnosticText.core_listener_failed, d),
+    invalid_configuration: (d) => t('{0}：{1}', diagnosticText.invalid_configuration, d),
 };
 // An entry that counts lines of more different details than the log keeps apart within a minute
 // (records.go LogDetail): the reason's own text, unless it speaks of a single line.
@@ -743,6 +743,5 @@ export function tlsMessage(detail) {
 	const message = messages[detail?.reason];
 	if (!message || ![detail.checked_at, detail.not_before, detail.not_after].every(value => typeof value === 'string')) return message;
 	const stamp = value => value.replace('T', ' ').replace(/(\.\d+)?Z$/, '');
-	return message + t('。核验时路由器时间 ') + stamp(detail.checked_at) + t('，证书有效期 ') +
-		stamp(detail.not_before) + t(' 至 ') + stamp(detail.not_after) + t('（UTC）。请核对系统时间及服务端证书。');
+	return t('{0}。核验时路由器时间 {1}，证书有效期 {2} 至 {3}（UTC）。请核对系统时间及服务端证书。', message, stamp(detail.checked_at), stamp(detail.not_before), stamp(detail.not_after));
 }

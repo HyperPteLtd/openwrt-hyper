@@ -207,14 +207,14 @@ export async function syncHyper(u, feedback, confirmation) {
             return false;
         }
         if (feedback) {
-            const extra = r.notices?.length ? ' · ' + r.notices.length + t(' 条提醒') : '';
-            feedback.replaceChildren(u.h('details', {}, u.h('summary', {}, t('同步完成 · ') + r.node_count + t(' 个节点') + extra), review(u, r)));
+            const extra = r.notices?.length ? t(' · {0} 条提醒', r.notices.length) : '';
+            feedback.replaceChildren(u.h('details', {}, u.h('summary', {}, t('同步完成 · {0} 个节点{1}', r.node_count, extra)), review(u, r)));
         }
         return true;
     } catch (err) {
         const description = syncFailure(err);
         if (feedback) {
-            feedback.textContent = t('同步失败 · ') + description + (previous ? t(' · 已保留上次的节点') : '');
+            feedback.textContent = t('同步失败 · {0}{1}', description, previous ? t(' · 已保留上次的节点') : '');
             feedback.dataset.tone = 'error';
         }
         const failure = description !== err.message ? new Error(description) : err;
@@ -262,12 +262,12 @@ export function formatDate(ts) {
 export function expiryText(value, status = 1, now = Date.now()) {
     const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
     const suffix = status === 1 ? '' : t(' · 已失效');
-    if (value === null || n === 0 || n === -62135596800000 || n === -62135596800) return t('∞ 无限期') + suffix;
-    if (!Number.isFinite(n) || n < 0) return t('到期时间未知') + suffix;
+    if (value === null || n === 0 || n === -62135596800000 || n === -62135596800) return t('∞ 无限期{0}', suffix);
+    if (!Number.isFinite(n) || n < 0) return t('到期时间未知{0}', suffix);
     const ms = n > 1e12 ? n : n * 1000;
     const day = formatDate(ms);
-    if (ms <= now) return day + t(' 到期 · 已过期');
-    return status === 1 ? day + t(' 到期 · 剩余 ') + Math.ceil((ms - now) / 86400000) + t(' 天') : day + t(' 到期') + suffix;
+    if (ms <= now) return t('{0} 到期 · 已过期', day);
+    return status === 1 ? t('{0} 到期 · 剩余 {1} 天', day, Math.ceil((ms - now) / 86400000)) : t('{0} 到期{1}', day, suffix);
 }
 const nonnegative = (v) => {
     const n = Number(v);
