@@ -1,6 +1,7 @@
+import { t } from '../i18n.js';
 import { h, card, field, select, segment, empty, pages, attach } from '../dom.js';
 
-const kindName = { selector: '手选', urltest: '自动', loadbalance: '负载均衡', fallback: '故障转移' };
+const kindName = { selector: t('手选'), urltest: t('自动'), loadbalance: t('负载均衡'), fallback: t('故障转移') };
 const protocolNames = {
 	vless: 'VLESS',
 	vmess: 'VMess',
@@ -27,11 +28,11 @@ export async function proxy(ui) {
 		return h(
 			'div',
 			{ class: 'ow-proxy-page' },
-			h('h2', {}, '代理'),
+			h('h2', {}, t('代理')),
 			card(
 				null,
-				empty('登录 Hyper 账户并同步后可查看节点'),
-				ui.button('前往账户', () => ui.go('account'), 'ow-primary'),
+				empty(t('登录 Hyper 账户并同步后可查看节点')),
+				ui.button(t('前往账户'), () => ui.go('account'), 'ow-primary'),
 			),
 		);
 	const { intent } = ui.status,
@@ -44,8 +45,8 @@ export async function proxy(ui) {
 	if (ui.detail) state.open.add(ui.detail);
 	const search = h('input', {
 		type: 'search',
-		placeholder: '搜索节点或策略组',
-		'aria-label': '搜索节点或策略组',
+		placeholder: t('搜索节点或策略组'),
+		'aria-label': t('搜索节点或策略组'),
 		value: state.query,
 	});
 	const body = h('div', { class: global ? 'ow-global-body' : 'ow-group-columns' });
@@ -69,7 +70,7 @@ export async function proxy(ui) {
 		return panel;
 	};
 	const bulk = ui.button(
-		'全部测速',
+		t('全部测速'),
 		() => {
 			const visible = global
 				? list.filter((n) => matches(n.name + ' ' + n.protocol)).map((n) => n.id)
@@ -85,7 +86,7 @@ export async function proxy(ui) {
 	const canMeasure = () => state.method === 'tcp' || ui.status.phase === 'running';
 	bulk.disabled = !canMeasure();
 	const extra = h('span', { class: 'ow-proxy-extra' });
-	const cancel = ui.button('取消测速', () => ui.run('cancel_tests', {}), 'ow-link');
+	const cancel = ui.button(t('取消测速'), () => ui.run('cancel_tests', {}), 'ow-link');
 	async function measure(ids) {
 		const candidates = new Set();
 		for (const candidate of ids) {
@@ -140,12 +141,12 @@ export async function proxy(ui) {
 			state.method === 'tcp' &&
 			(!id?.startsWith('node:') || data.get(id)?.tcp_probe === false || sample?.error === 'not_applicable')
 		)
-			return '不支持';
-		if (probeJob?.method === state.method && probeJob.candidates.has(id)) return '测速中';
+			return t('不支持');
+		if (probeJob?.method === state.method && probeJob.candidates.has(id)) return t('测速中');
 		return sample?.latency
 			? sample.latency.delay_ms + ' ms'
 			: sample?.error
-				? '未响应'
+				? t('未响应')
 				: '';
 	};
 	function tile(id, g, chosen, actual) {
@@ -155,8 +156,8 @@ export async function proxy(ui) {
 		const name = h('strong', { title: label(id) }, label(id));
 		const memberRoute = route(preferred(id));
 		const used = memberRoute.at(-1) || id;
-		const unavailable = node?.availability === 'unsupported' ? '当前内核不支持' :
-			node?.availability === 'unverified' ? '待选择内核后确认' : '';
+		const unavailable = node?.availability === 'unsupported' ? t('当前内核不支持') :
+			node?.availability === 'unverified' ? t('待选择内核后确认') : '';
 		const detail = h(
 			'small',
 			{ class: 'ow-muted' },
@@ -165,16 +166,16 @@ export async function proxy(ui) {
 				: protocolNames[node?.protocol] ||
 						node?.protocol ||
 						kindName[node?.kind] ||
-						(id === '@direct' ? '直连' : id === '@reject' ? '拦截' : '策略组')),
+						(id === '@direct' ? t('直连') : id === '@reject' ? t('拦截') : t('策略组'))),
 		);
 		const status = active
 			? global
-				? '当前出口'
-				: '使用中'
+				? t('当前出口')
+				: t('使用中')
 			: picked
 				? selections[g.id]?.saved
-					? '已保存'
-					: '默认'
+					? t('已保存')
+					: t('默认')
 				: '';
 		const content = [
 			h(
@@ -230,7 +231,7 @@ export async function proxy(ui) {
 			ids.slice(0, limit).map((id) => tile(id, g, chosen, actual)),
 			ids.length > limit &&
 				ui.button(
-					'显示更多节点（' + (ids.length - limit) + '）',
+					t('显示更多节点（') + (ids.length - limit) + t('）'),
 					() => {
 						displayLimits.set(g.id, limit + 96);
 						draw();
@@ -246,7 +247,7 @@ export async function proxy(ui) {
 			{ class: 'ow-selection-error', role: 'alert' },
 			saved.error,
 			ui.button(
-				'重试',
+				t('重试'),
 				async () => {
 					await ui.run('select_node', { source: intent.source, group: g.id, node: saved.saved });
 					await update();
@@ -271,17 +272,17 @@ export async function proxy(ui) {
 				h(
 					'div',
 					{ class: 'ow-global-heading' },
-					h('h3', {}, '全局'),
-					h('small', {}, list.length + ' 个节点 · ' + (primary.name || primary.source)),
+					h('h3', {}, t('全局')),
+					h('small', {}, list.length + t(' 个节点 · ') + (primary.name || primary.source)),
 					saved?.saved &&
 						saved.saved !== actual &&
-						h('span', { class: 'ow-global-saved' }, '已保存 · ' + label(saved.saved)),
-					actual && h('span', { class: 'ow-global-applied' }, '当前出口 · ' + label(actual)),
+						h('span', { class: 'ow-global-saved' }, t('已保存 · ') + label(saved.saved)),
+					actual && h('span', { class: 'ow-global-applied' }, t('当前出口 · ') + label(actual)),
 				),
 				memberGrid(group, false),
 				retry(group, saved),
 			);
-			if (!panel.querySelector('.ow-node')) panel.append(empty(state.query ? '没有匹配项' : '暂无可用节点'));
+			if (!panel.querySelector('.ow-node')) panel.append(empty(state.query ? t('没有匹配项') : t('暂无可用节点')));
 			fragment.append(reported(panel, group.id));
 		} else {
 			const panels = [];
@@ -294,7 +295,7 @@ export async function proxy(ui) {
 				const routeText = chain.length
 					? '→ ' + chain.map(label).join(' → ')
 					: chosen?.saved
-						? '已保存 · ' + label(chosen.saved)
+						? t('已保存 · ') + label(chosen.saved)
 						: '';
 				const details = h('details', { class: 'ow-accordion' });
 				details.open =
@@ -339,8 +340,8 @@ export async function proxy(ui) {
 				const test = ui.button('', () => measure(g.members), 'ow-group-test');
 				test.dataset.group = g.id;
 				test.dataset.control = 'measure';
-				test.setAttribute('aria-label', '测速 ' + g.name);
-				test.title = '测速 ' + g.name;
+				test.setAttribute('aria-label', t('测速 ') + g.name);
+				test.title = t('测速 ') + g.name;
 				test.disabled = !canMeasure();
 				panels.push(reported(h('div', { class: 'ow-group-panel' }, details, test, retry(g, chosen)), g.id));
 			}
@@ -349,7 +350,7 @@ export async function proxy(ui) {
 				if (column.length) fragment.append(h('div', { class: 'ow-group-column' }, column));
 		}
 		if (!global && !fragment.querySelector('summary'))
-			fragment.append(empty(state.query ? '没有匹配项' : '暂无可用节点'));
+			fragment.append(empty(state.query ? t('没有匹配项') : t('暂无可用节点')));
 		body.replaceChildren(fragment);
 		if (prevGroup && (prev || groupControl))
 			[...body.querySelectorAll('[data-group]')]
@@ -387,11 +388,11 @@ export async function proxy(ui) {
 	await update();
 	ui.poll(update, 4500);
 	const sort = select(
-		'节点排序',
+		t('节点排序'),
 		[
-			['default', '默认顺序'],
-			['delay', '按延迟'],
-			['name', '按名称'],
+			['default', t('默认顺序')],
+			['delay', t('按延迟')],
+			['name', t('按名称')],
 		],
 		state.sort,
 		(v) => {
@@ -403,7 +404,7 @@ export async function proxy(ui) {
 		['url', 'URL'],
 		['tcp', 'TCP'],
 	];
-	const methodSelector = segment(ui, '测速方式', methods, state.method, async (method) => {
+	const methodSelector = segment(ui, t('测速方式'), methods, state.method, async (method) => {
 		if (method === state.method) return;
 		state.method = method;
 		for (const [i, [name]] of methods.entries())
@@ -416,17 +417,17 @@ export async function proxy(ui) {
 	const toolbar = h(
 		'div',
 		{ class: 'ow-toolbar ow-proxy-toolbar' },
-		h('h2', {}, '代理'),
-		h('small', { class: 'ow-method-label' }, '测速方式'),
+		h('h2', {}, t('代理')),
+		h('small', { class: 'ow-method-label' }, t('测速方式')),
 		methodSelector,
 		sort,
 		search,
 		extra,
 		bulk,
 	);
-	if (!global) extra.append(ui.button('本地策略组', () => localGroups(ui)));
+	if (!global) extra.append(ui.button(t('本地策略组'), () => localGroups(ui)));
 	if (nodes.some((n) => n.special && n.protocol === 'mtproxy') || intent.policy?.telegram)
-		extra.append(ui.button('Telegram 入口', () => telegram(ui, nodes)));
+		extra.append(ui.button(t('Telegram 入口'), () => telegram(ui, nodes)));
 	// 全部测速, the test method and the entry dialogs report under the toolbar.
 	return h('div', { class: 'ow-proxy-page' }, toolbar, ui.feedback(toolbar), body);
 }
@@ -444,7 +445,7 @@ async function localGroups(ui) {
 		choices.push({ b, ref: { source: s.source, node: n.id } });
 		members.append(h('label', {}, b, n.name, h('small', { class: 'ow-muted' }, s.name || s.source)));
 	}
-	const edit = select('本地策略组', [['', '新建策略组'], ...existing.map((g) => [g.id, g.name])], '', (id) => {
+	const edit = select(t('本地策略组'), [['', t('新建策略组')], ...existing.map((g) => [g.id, g.name])], '', (id) => {
 		const g = existing.find((x) => x.id === id);
 		title.value = g?.name || '';
 		for (const { b, ref } of choices)
@@ -458,25 +459,25 @@ async function localGroups(ui) {
 	const form = h(
 		'div',
 		{ class: 'ow-stack' },
-		field('策略组', edit),
-		field('名称', title),
+		field(t('策略组'), edit),
+		field(t('名称'), title),
 		members,
 		h(
 			'div',
 			{ class: 'ow-actions' },
 			ui.button(
-				'删除',
+				t('删除'),
 				async () => {
 					if (edit.value) await apply(existing.filter((x) => x.id !== edit.value));
 				},
 				'ow-danger',
 			),
 			ui.button(
-				'保存',
+				t('保存'),
 				async () => {
 					if (!title.reportValidity()) return;
 					const selected = choices.filter((c) => c.b.checked).map((c) => c.ref);
-					if (!selected.length) throw Error('请至少选择一个节点');
+					if (!selected.length) throw Error(t('请至少选择一个节点'));
 					const id =
 						edit.value ||
 						'local:' + Array.from(crypto.getRandomValues(new Uint32Array(2)), (x) => x.toString(16)).join('');
@@ -489,13 +490,13 @@ async function localGroups(ui) {
 			),
 		),
 	);
-	const d = ui.dialog('本地策略组', form);
+	const d = ui.dialog(t('本地策略组'), form);
 }
 function telegram(ui, nodes) {
 	const policy = ui.status.intent.policy || {},
 		old = policy.telegram;
 	const choose = select(
-		'Telegram 节点',
+		t('Telegram 节点'),
 		nodes.filter((n) => n.special && n.protocol === 'mtproxy').map((n) => [n.id, n.name]),
 		old?.node.node || nodes.find((n) => n.special)?.id,
 	);
@@ -509,21 +510,21 @@ function telegram(ui, nodes) {
 		await ui.refresh();
 	};
 	const d = ui.dialog(
-		'Telegram 专用入口',
+		t('Telegram 专用入口'),
 		h(
 			'div',
 			{ class: 'ow-stack' },
-			field('Telegram 节点', choose),
-			field('LAN 接口', i),
-			field('LAN 地址', a),
-			field('监听端口', p),
-			field('允许的客户端网段', c),
+			field(t('Telegram 节点'), choose),
+			field(t('LAN 接口'), i),
+			field(t('LAN 地址'), a),
+			field(t('监听端口'), p),
+			field(t('允许的客户端网段'), c),
 			h(
 				'div',
 				{ class: 'ow-actions' },
-				old && ui.button('停用', () => save(null)),
+				old && ui.button(t('停用'), () => save(null)),
 				ui.button(
-					'保存',
+					t('保存'),
 					() =>
 						save({
 							node: { source: ui.status.intent.source, node: choose.value },

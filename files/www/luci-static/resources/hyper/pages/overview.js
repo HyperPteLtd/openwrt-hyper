@@ -1,26 +1,27 @@
+import { t, languagePreference, setLanguagePreference } from '../i18n.js';
 import { diagnosticMessage, day, pluginName, conflictItem } from '../dom.js';
 import { h, card, bytes, field, empty, segment, modeNames, clock, resultName, say, hush, attach } from '../dom.js';
 import { installBundled, kernelStorage, kernelSummary } from './versions.js';
 
 const states = {
-	running: '已连接',
-	direct: '未连接',
-	initializing: '正在准备',
-	starting: '连接中',
-	releasing: '断开中',
-	release_failed: '正在恢复网络',
-	fail_open: '已回退直连',
-	protected: '故障保护中',
-	state_unavailable: '状态待修复',
+	running: t('已连接'),
+	direct: t('未连接'),
+	initializing: t('正在准备'),
+	starting: t('连接中'),
+	releasing: t('断开中'),
+	release_failed: t('正在恢复网络'),
+	fail_open: t('已回退直连'),
+	protected: t('故障保护中'),
+	state_unavailable: t('状态待修复'),
 };
 const phaseDetail = {
-	initializing: '正在读取配置',
-	starting: '正在启动代理服务',
-	releasing: '正在释放网络规则',
-	direct: '全屋流量直连',
-	fail_open: '代理故障，局域网已恢复直连',
-	protected: '代理流量已暂停，等待内核恢复',
-	release_failed: '正在检查网络恢复',
+	initializing: t('正在读取配置'),
+	starting: t('正在启动代理服务'),
+	releasing: t('正在释放网络规则'),
+	direct: t('全屋流量直连'),
+	fail_open: t('代理故障，局域网已恢复直连'),
+	protected: t('代理流量已暂停，等待内核恢复'),
+	release_failed: t('正在检查网络恢复'),
 };
 const svgNS = 'http://www.w3.org/2000/svg';
 function shape(tag, attrs) {
@@ -33,7 +34,7 @@ function chart(samples) {
 		viewBox: '0 0 300 75',
 		preserveAspectRatio: 'none',
 		role: 'img',
-		'aria-label': '近 1 分钟上下行速率',
+		'aria-label': t('近 1 分钟上下行速率'),
 	});
 	svg.append(shape('path', { d: 'M0 38H300 M0 74H300', class: 'ow-gridline' }));
 	const end = Date.now(),
@@ -70,60 +71,60 @@ function chart(samples) {
 	return svg;
 }
 function uptime(ms) {
-	const t = Math.max(0, Math.floor(ms / 1000)),
+	const s = Math.max(0, Math.floor(ms / 1000)),
 		pad = (v) => String(v).padStart(2, '0');
 	return (
-		(t >= 86400 ? Math.floor(t / 86400) + ' 天 ' : '') +
-		[Math.floor(t / 3600) % 24, Math.floor(t / 60) % 60, t % 60].map(pad).join(':')
+		(s >= 86400 ? Math.floor(s / 86400) + t(' 天 ') : '') +
+		[Math.floor(s / 3600) % 24, Math.floor(s / 60) % 60, s % 60].map(pad).join(':')
 	);
 }
 const networkRequirements = new Map([
-	['unsupported capture method', '当前接管方式不受支持'],
-	['both fw3 and fw4 are active', 'fw3 和 fw4 同时运行，请只启用其中一个'],
-	['no active fw3 or fw4 firewall', '请先启用 fw3 或 fw4 防火墙'],
-	['numeric policy routing and marked route lookup', 'ip 命令需要支持数字路由表和按流量标记查询路由'],
-	['dnsmasq service with configurable upstream', 'dnsmasq 服务需要支持设置上游 DNS'],
-	['DNS lookup command', '缺少用于检查 DNS 解析的命令'],
-	['JSON inspection of the active fw4 ruleset', '无法以 JSON 格式读取当前 fw4 规则'],
-	['fw4 policy marking and destination lookup', 'fw4 无法标记流量或查询目标地址'],
-	['fw4 TProxy target', 'fw4 缺少 TProxy 透明代理支持'],
-	['fw4 DNS redirection', 'fw4 无法重定向 DNS 请求'],
-	['legacy IPv4 rule inspection and restore', '无法读取或恢复传统 iptables 的 IPv4 规则'],
-	['legacy IPv6 rule inspection and restore', '无法读取或恢复传统 iptables 的 IPv6 规则'],
-	['active fw3 IPv4 chains', 'fw3 的 IPv4 规则链尚未启用'],
-	['active fw3 IPv6 chains', 'fw3 的 IPv6 规则链尚未启用'],
-	['fw3 IPv4 DNS redirection', 'fw3 无法重定向 IPv4 DNS 请求'],
-	['fw3 IPv6 DNS redirection', 'fw3 无法重定向 IPv6 DNS 请求'],
-	['fw3 destination address type match', 'fw3 无法匹配目标地址类型'],
-	['fw3 TProxy target', 'fw3 缺少 TProxy 透明代理支持'],
-	['fw3 filter and policy marking rules', 'fw3 无法过滤或标记流量'],
-	['usable /dev/net/tun device', 'TUN 网络设备不可用（/dev/net/tun）'],
+	['unsupported capture method', t('当前接管方式不受支持')],
+	['both fw3 and fw4 are active', t('fw3 和 fw4 同时运行，请只启用其中一个')],
+	['no active fw3 or fw4 firewall', t('请先启用 fw3 或 fw4 防火墙')],
+	['numeric policy routing and marked route lookup', t('ip 命令需要支持数字路由表和按流量标记查询路由')],
+	['dnsmasq service with configurable upstream', t('dnsmasq 服务需要支持设置上游 DNS')],
+	['DNS lookup command', t('缺少用于检查 DNS 解析的命令')],
+	['JSON inspection of the active fw4 ruleset', t('无法以 JSON 格式读取当前 fw4 规则')],
+	['fw4 policy marking and destination lookup', t('fw4 无法标记流量或查询目标地址')],
+	['fw4 TProxy target', t('fw4 缺少 TProxy 透明代理支持')],
+	['fw4 DNS redirection', t('fw4 无法重定向 DNS 请求')],
+	['legacy IPv4 rule inspection and restore', t('无法读取或恢复传统 iptables 的 IPv4 规则')],
+	['legacy IPv6 rule inspection and restore', t('无法读取或恢复传统 iptables 的 IPv6 规则')],
+	['active fw3 IPv4 chains', t('fw3 的 IPv4 规则链尚未启用')],
+	['active fw3 IPv6 chains', t('fw3 的 IPv6 规则链尚未启用')],
+	['fw3 IPv4 DNS redirection', t('fw3 无法重定向 IPv4 DNS 请求')],
+	['fw3 IPv6 DNS redirection', t('fw3 无法重定向 IPv6 DNS 请求')],
+	['fw3 destination address type match', t('fw3 无法匹配目标地址类型')],
+	['fw3 TProxy target', t('fw3 缺少 TProxy 透明代理支持')],
+	['fw3 filter and policy marking rules', t('fw3 无法过滤或标记流量')],
+	['usable /dev/net/tun device', t('TUN 网络设备不可用（/dev/net/tun）')],
 ]);
 function firewallDetails(env) {
-	const names = { fw4: 'fw4 / nftables', fw3: 'fw3 / iptables-legacy', ambiguous: '检测到两套防火墙正在运行', unavailable: '未检测到启用的防火墙' };
-	const backend = env ? names[env.firewall_backend] || (env.firewall4 ? names.fw4 : names.unavailable) : '暂时无法检查';
-	const fields = [['防火墙', [backend, env?.firewall_version].filter(Boolean).join(' · ')]];
+	const names = { fw4: 'fw4 / nftables', fw3: 'fw3 / iptables-legacy', ambiguous: t('检测到两套防火墙正在运行'), unavailable: t('未检测到启用的防火墙') };
+	const backend = env ? names[env.firewall_backend] || (env.firewall4 ? names.fw4 : names.unavailable) : t('暂时无法检查');
+	const fields = [[t('防火墙'), [backend, env?.firewall_version].filter(Boolean).join(' · ')]];
 	if (env?.firewall_backend === 'fw3' || env?.firewall_backend === 'fw4') {
 		for (const [key, name] of [['firewall_tproxy', 'TProxy'], ['firewall_tun', 'TUN']]) {
-			if (typeof env[key] === 'boolean') fields.push([name, env[key] ? '可用' : '缺少运行条件']);
+			if (typeof env[key] === 'boolean') fields.push([name, env[key] ? t('可用') : t('缺少运行条件')]);
 		}
 	}
-	if (env?.dns_issue) fields.push(['DNS 接管', diagnosticMessage(env.dns_issue)]);
+	if (env?.dns_issue) fields.push([t('DNS 接管'), diagnosticMessage(env.dns_issue)]);
 	if (env?.network_requirements?.length) {
-		fields.push(['需要处理', env.network_requirements.map((item, i) => [i > 0 && h('br'), networkRequirements.get(item) || item])]);
-		if (env.firewall_packages?.length) fields.push(['可提供所缺功能的软件包', env.firewall_packages.join('、')]);
+		fields.push([t('需要处理'), env.network_requirements.map((item, i) => [i > 0 && h('br'), networkRequirements.get(item) || item])]);
+		if (env.firewall_packages?.length) fields.push([t('可提供所缺功能的软件包'), env.firewall_packages.join(t('、'))]);
 	}
 	return fields;
 }
 // Starting the proxy stops and disables other proxy plugins; only the rest needs a hand.
 function conflictSummary(found) {
-	if (!found) return '暂时无法检查';
-	if (!found.blocked) return '未检测到';
+	if (!found) return t('暂时无法检查');
+	if (!found.blocked) return t('未检测到');
 	const resources = found.resources || [];
 	const plugins = [...new Set(resources.filter((x) => x.service).map((x) => pluginName(x.service)))];
 	const manual = [...new Set(resources.filter((x) => !x.service).map((x) => conflictItem(x.kind, x.name)))];
-	return [plugins.length && plugins.join('、') + ' · 启动时自动停用', manual.length && '需手动处理：' + manual.join('、')]
-		.filter(Boolean).join('；') || '暂时无法检查';
+	return [plugins.length && plugins.join(t('、')) + t(' · 启动时自动停用'), manual.length && t('需手动处理：') + manual.join(t('、'))]
+		.filter(Boolean).join(t('；')) || t('暂时无法检查');
 }
 function environmentRows(fields) {
 	return h('div', { class: 'ow-environment' },
@@ -139,8 +140,8 @@ function sourceCard(ui, setup) {
 		h(
 			'div',
 			{ class: 'ow-row' },
-			h('h2', {}, 'Hyper 账户'),
-			ui.button('管理', () => ui.go('account'), 'ow-link'),
+			h('h2', {}, t('Hyper 账户')),
+			ui.button(t('管理'), () => ui.go('account'), 'ow-link'),
 		),
 	);
 	box.classList.add('ow-sources');
@@ -161,15 +162,15 @@ function sourceCard(ui, setup) {
 			},
 			'ow-source-line' + (active ? ' is-active' : ''),
 		);
-		b.setAttribute('aria-label', (active ? '管理' : '切换至') + ' ' + (s.name || s.source));
+		b.setAttribute('aria-label', (active ? t('管理') : t('切换至')) + ' ' + (s.name || s.source));
 		b.dataset.focusKey = 'source:' + list + ':' + s.source;
 		const tail = h(
 			'div',
 			{ class: 'ow-source-sub' },
 			p?.total > 0
 				? h('span', {}, bytes(p.upload + p.download) + ' / ' + bytes(p.total))
-				: h('span', {}, (s.node_count || 0) + ' 个节点'),
-			p?.expireAt ? h('span', {}, '到期 ' + day(p.expireAt)) : null,
+				: h('span', {}, (s.node_count || 0) + t(' 个节点')),
+			p?.expireAt ? h('span', {}, t('到期 ') + day(p.expireAt)) : null,
 		);
 		const content = h(
 			'div',
@@ -179,20 +180,20 @@ function sourceCard(ui, setup) {
 			tail,
 		);
 		b.append(
-			h('span', { class: 'ow-avatar' }, Array.from(s.name || '订阅')[0]),
+			h('span', { class: 'ow-avatar' }, Array.from(s.name || t('订阅'))[0]),
 			content,
-			h('small', {}, active ? '当前订阅' : s.ready ? '切换' : '管理'),
+			h('small', {}, active ? t('当前订阅') : s.ready ? t('切换') : t('管理')),
 		);
 		return b;
 	}
 	if (sources.length) {
 		const primary = sources.find(s => s.source === current);
-		const title = primary?.name || '选择订阅';
-		const link = ui.button('账户', () => ui.go('account'), 'ow-link');
+		const title = primary?.name || t('选择订阅');
+		const link = ui.button(t('账户'), () => ui.go('account'), 'ow-link');
 		box.append(h('details', { class: 'ow-source-mobile' },
-			h('summary', { 'aria-label': '切换订阅' },
+			h('summary', { 'aria-label': t('切换订阅') },
 				h('span', { class: 'ow-avatar', 'aria-hidden': 'true' }, Array.from(title)[0]),
-				h('span', { class: 'ow-source-info' }, h('strong', {}, title), h('small', {}, '切换订阅')),
+				h('span', { class: 'ow-source-info' }, h('strong', {}, title), h('small', {}, t('切换订阅'))),
 			),
 			h('div', { class: 'ow-stack' }, ...sources.map((s) => item(s, 'menu')), link),
 		));
@@ -200,8 +201,8 @@ function sourceCard(ui, setup) {
 	// Without a subscription the card offers the setup that adds the first one.
 	if (!sources.length)
 		box.append(setup
-			? h('div', { class: 'ow-source-setup' }, h('p', {}, '添加第一个订阅，开始配置全屋代理。'), setup)
-			: empty('尚未添加订阅'));
+			? h('div', { class: 'ow-source-setup' }, h('p', {}, t('添加第一个订阅，开始配置全屋代理。')), setup)
+			: empty(t('尚未添加订阅')));
 	if (sources.length) box.append(h('div', { class: 'ow-source-list' }, ...sources.map((s) => item(s, 'list'))));
 	return box;
 }
@@ -210,7 +211,7 @@ function deviceCard(ui, devices) {
 		section = card('');
 	section.classList.add('ow-devices');
 	let filter = 'all';
-	const query = h('input', { type: 'search', placeholder: '搜索名称 / IP / MAC', 'aria-label': '搜索设备' }),
+	const query = h('input', { type: 'search', placeholder: t('搜索名称 / IP / MAC'), 'aria-label': t('搜索设备') }),
 		list = h('div', {});
 	// A device's line follows its row through searches and filters.
 	const lines = new Map();
@@ -219,7 +220,7 @@ function deviceCard(ui, devices) {
 		return [row, attach(row, lines.get(mac))];
 	};
 	const online = devices.filter((d) => d.reachability === 'reachable').length;
-	const filters = h('div', { class: 'ow-segment', 'aria-label': '设备筛选', role: 'group' });
+	const filters = h('div', { class: 'ow-segment', 'aria-label': t('设备筛选'), role: 'group' });
 	function policyOf(d) {
 		return policy.devices?.find((r) => r.address.toLowerCase() === d.mac.toLowerCase())?.target || '';
 	}
@@ -260,10 +261,10 @@ function deviceCard(ui, devices) {
 					),
 					focusKeys(segment(
 						ui,
-						'代理方式',
+						t('代理方式'),
 						[
-							['@proxy', '代理'],
-							['@direct', '直连'],
+							['@proxy', t('代理')],
+							['@direct', t('直连')],
 						],
 						effective(d),
 						(v) => choose(d, v),
@@ -272,13 +273,13 @@ function deviceCard(ui, devices) {
 				d.mac,
 			)),
 		);
-		if (!visible.length) list.append(empty('暂无匹配设备'));
+		if (!visible.length) list.append(empty(t('暂无匹配设备')));
 	}
 	for (const [id, text] of [
-		['all', '全部'],
-		['online', '在线'],
-		['proxy', '代理'],
-		['direct', '直连'],
+		['all', t('全部')],
+		['online', t('在线')],
+		['proxy', t('代理')],
+		['direct', t('直连')],
 	]) {
 		const b = ui.button(text, () => {
 			filter = id;
@@ -293,8 +294,8 @@ function deviceCard(ui, devices) {
 		h(
 			'div',
 			{ class: 'ow-row' },
-			h('h2', {}, '设备'),
-			h('small', { class: 'ow-muted' }, '在线 ' + online + ' / ' + devices.length),
+			h('h2', {}, t('设备')),
+			h('small', { class: 'ow-muted' }, t('在线 ') + online + ' / ' + devices.length),
 		),
 		h('div', { class: 'ow-toolbar ow-device-toolbar' }, filters, query),
 		list,
@@ -316,9 +317,9 @@ function powerLook({ intent, phase }) {
 // The word on the button and its accessible name. Off, the word says what a press does.
 function powerWords(look, off) {
 	return {
-		connecting: ['连接中', '连接中，点按断开'],
-		on: ['断开', '断开'],
-		disconnecting: ['断开中', '断开中'],
+		connecting: [t('连接中'), t('连接中，点按断开')],
+		on: [t('断开'), t('断开')],
+		disconnecting: [t('断开中'), t('断开中')],
 	}[look] || [off, off];
 }
 const pulsing = (look) => look === 'connecting' || look === 'disconnecting';
@@ -436,10 +437,10 @@ export async function overview(ui) {
 	let preparing = false;
 	const offWord = () =>
 		!cat.primary
-			? '先添加订阅'
+			? t('先添加订阅')
 			: kernel.selected
-				? '连接'
-				: preparing || kernel.bootstrap?.stage === 'running' ? '内核准备中' : '先安装内核';
+				? t('连接')
+				: preparing || kernel.bootstrap?.stage === 'running' ? t('内核准备中') : t('先安装内核');
 	let look = powerLook(ui.status),
 		shown;
 	// What the next button needs to carry on from this one: its look, word and pulse timing, and
@@ -459,13 +460,13 @@ export async function overview(ui) {
 		if (look === 'disconnecting') return;
 		if (look !== 'off') {
 			const d = ui.dialog(
-				'断开代理',
+				t('断开代理'),
 				h(
 					'div',
 					{ class: 'ow-stack' },
-					h('p', {}, '断开后全屋设备将直连。'),
+					h('p', {}, t('断开后全屋设备将直连。')),
 					ui.button(
-						'断开',
+						t('断开'),
 						async () => {
 							const before = look;
 							show('disconnecting');
@@ -558,7 +559,7 @@ export async function overview(ui) {
 	const powerLine = ui.feedback(power, null, { assertive: true });
 	if (problem) {
 		if (ui.memory.problem === problem) powerLine.setAttribute('role', 'status');
-		say(powerLine, [problem, ' ', ui.button('查看日志', () => ui.go('logs'), 'ow-link')], { control: power });
+		say(powerLine, [problem, ' ', ui.button(t('查看日志'), () => ui.go('logs'), 'ow-link')], { control: power });
 	}
 	onShown.push(() => {
 		if (problem) ui.memory.problem = problem;
@@ -572,13 +573,13 @@ export async function overview(ui) {
 	const graph = h('div', { class: 'ow-chart' }),
 		total = h('strong', {}, '—'),
 		rate = h('span', {}, '—');
-	function traffic(t) {
-		if (t?.available) {
-			history.push({ ...t, t: Date.now() });
+	function traffic(sample) {
+		if (sample?.available) {
+			history.push({ ...sample, t: Date.now() });
 			while (history.length && Date.now() - history[0].t > 60000) history.shift();
 		}
 		const last = history.at(-1);
-		total.textContent = last ? '↓ ' + bytes(last.down_bytes) + '　↑ ' + bytes(last.up_bytes) : '—';
+		total.textContent = last ? '↓ ' + bytes(last.down_bytes) + t('　↑ ') + bytes(last.up_bytes) : '—';
 		rate.replaceChildren(
 			h('span', {}, '↓ ' + (last ? bytes(last.down_bytes_per_second) + '/s' : '—')),
 			h('span', {}, '↑ ' + (last ? bytes(last.up_bytes_per_second) + '/s' : '—')),
@@ -599,12 +600,12 @@ export async function overview(ui) {
 	function timer() {
 		if (ui.status.phase === 'starting' && confirmEnd) {
 			const left = Math.ceil((confirmEnd - Date.now()) / 1000);
-			sub.textContent = '已接管流量，确认中' + (left > 0 ? ' ' + left + ' 秒' : '');
+			sub.textContent = t('已接管流量，确认中') + (left > 0 ? ' ' + left + t(' 秒') : '');
 			return;
 		}
 		sub.textContent =
 			running && ui.status.running_since
-				? '已运行 ' + uptime(Date.now() - ui.status.running_since)
+				? t('已运行 ') + uptime(Date.now() - ui.status.running_since)
 				: phaseDetail[ui.status.phase] || '';
 	}
 	confirming(ui.status);
@@ -618,15 +619,15 @@ export async function overview(ui) {
 		sub,
 		powerLine,
 		power,
-		h('strong', { class: 'ow-plan-label' }, cat.primary?.name || '尚未选择订阅'),
-		h('small', { class: 'ow-muted' }, devices.unavailable ? '等待局域网接口' : devices.items.length + ' 台局域网设备'),
-		running && ui.status.side_router && h('small', { class: 'ow-muted' }, '旁路由模式：设备的网关和 DNS 都需要指向本机'),
+		h('strong', { class: 'ow-plan-label' }, cat.primary?.name || t('尚未选择订阅')),
+		h('small', { class: 'ow-muted' }, devices.unavailable ? t('等待局域网接口') : devices.items.length + t(' 台局域网设备')),
+		running && ui.status.side_router && h('small', { class: 'ow-muted' }, t('旁路由模式：设备的网关和 DNS 都需要指向本机')),
 		h(
 			'div',
 			{ class: 'ow-graph-block' },
-			h('div', { class: 'ow-total' }, '本次流量', total),
+			h('div', { class: 'ow-total' }, t('本次流量'), total),
 			graph,
-			h('div', { class: 'ow-rate' }, '近 1 分钟', rate),
+			h('div', { class: 'ow-rate' }, t('近 1 分钟'), rate),
 		),
 	);
 	const routeBox = h('div', { class: 'ow-routes' });
@@ -653,8 +654,8 @@ export async function overview(ui) {
 							r.group
 								? ui.name(r.outbound)
 								: r.evidence === 'traffic_observed'
-									? '已建立'
-									: resultName[r.evidence] || '已分流',
+									? t('已建立')
+									: resultName[r.evidence] || t('已分流'),
 						),
 					),
 				);
@@ -662,15 +663,15 @@ export async function overview(ui) {
 				return cell;
 			}),
 		);
-		if (!rows.length) routeBox.append(empty('暂无实际代理路线'));
+		if (!rows.length) routeBox.append(empty(t('暂无实际代理路线')));
 	}
 	routeRows(routes.items || []);
 	const modes = h(
 		'div',
 		{ class: 'ow-modes' },
 		field(
-			'代理模式',
-			focusKeys(segment(ui, '代理模式', modeNames, intent.mode, async (mode) => {
+			t('代理模式'),
+			focusKeys(segment(ui, t('代理模式'), modeNames, intent.mode, async (mode) => {
 				await ui.run('mode', { mode, revision: intent.revision });
 				await ui.refresh();
 			}), 'mode'),
@@ -682,7 +683,7 @@ export async function overview(ui) {
 			sel = groups['@global'];
 		const nodes = cat.nodes.filter((n) => !n.special && n.availability !== 'unsupported');
 		const saved = sel?.saved || nodes[0]?.id;
-		const grid = h('div', { class: 'ow-routes ow-global-nodes', role: 'group', 'aria-label': '全局节点' });
+		const grid = h('div', { class: 'ow-routes ow-global-nodes', role: 'group', 'aria-label': t('全局节点') });
 		const gridLine = ui.feedback(grid);
 		for (const n of nodes) {
 			const cell = h(
@@ -696,7 +697,7 @@ export async function overview(ui) {
 					h(
 						'small',
 						{},
-						n.id === sel?.applied ? '实际出口' : n.id === saved ? '已选择 · 启动后生效' : n.protocol || '',
+						n.id === sel?.applied ? t('实际出口') : n.id === saved ? t('已选择 · 启动后生效') : n.protocol || '',
 					),
 				),
 			);
@@ -716,18 +717,18 @@ export async function overview(ui) {
 			h(
 				'div',
 				{ class: 'ow-row' },
-				h('h3', {}, '全局节点'),
-				ui.button('管理代理', () => ui.go('proxy'), 'ow-link'),
+				h('h3', {}, t('全局节点')),
+				ui.button(t('管理代理'), () => ui.go('proxy'), 'ow-link'),
 			),
-			...(nodes.length ? [grid, gridLine] : [empty('当前订阅没有可用节点')]),
+			...(nodes.length ? [grid, gridLine] : [empty(t('当前订阅没有可用节点'))]),
 		);
 	} else if (intent.mode === 'direct') {
 		right.append(
 			h(
 				'div',
 				{ class: 'ow-row' },
-				h('h3', {}, '全屋直连'),
-				ui.button('管理代理', () => ui.go('proxy'), 'ow-link'),
+				h('h3', {}, t('全屋直连')),
+				ui.button(t('管理代理'), () => ui.go('proxy'), 'ow-link'),
 			),
 		);
 	} else
@@ -735,19 +736,19 @@ export async function overview(ui) {
 			h(
 				'div',
 				{ class: 'ow-row' },
-				h('h3', {}, '代理路线'),
+				h('h3', {}, t('代理路线')),
 				h(
 					'div',
 					{ class: 'ow-actions' },
-					ui.button('管理代理', () => ui.go('proxy'), 'ow-link'),
-					ui.button('连接记录 ›', () => ui.go('connections'), 'ow-link'),
+					ui.button(t('管理代理'), () => ui.go('proxy'), 'ow-link'),
+					ui.button(t('连接记录 ›'), () => ui.go('connections'), 'ow-link'),
 				),
 			),
 			routeBox,
 		);
 	const probes = h('div', { class: 'ow-checks' }),
 		check = ui.button(
-			'检测',
+			t('检测'),
 			async () => {
 				const res = await ui.run('health_check', {});
 				ui.memory.checks = { since: ui.status.running_since, result: res };
@@ -760,10 +761,10 @@ export async function overview(ui) {
 			ui.memory.checks?.since === ui.status.running_since && running ? ui.memory.checks?.result : null;
 		probes.replaceChildren(
 			...[
-				['core', '核心'],
+				['core', t('核心')],
 				['dns', 'DNS'],
-				['baidu', '百度'],
-				['netease', '网易云'],
+				['baidu', t('百度')],
+				['netease', t('网易云')],
 				['google', 'Google'],
 				['youtube', 'YouTube'],
 				['github', 'GitHub'],
@@ -776,7 +777,7 @@ export async function overview(ui) {
 							'ow-dot' + (v?.[k] ? (v[k].ok ? ' good' : ' bad') : k === 'core' && running ? ' good' : ''),
 					}),
 					n +
-						(v?.[k] ? ' ' + (v[k].ok ? v[k].delay_ms + ' ms' : '超时') : k === 'core' && running ? ' 运行中' : ''),
+						(v?.[k] ? ' ' + (v[k].ok ? v[k].delay_ms + ' ms' : t('超时')) : k === 'core' && running ? t(' 运行中') : ''),
 				),
 			),
 			check,
@@ -785,7 +786,7 @@ export async function overview(ui) {
 	}
 	drawChecks();
 	right.append(probes, ui.feedback(probes));
-	const hero = h('section', { class: 'ow-card ow-hero', 'aria-label': '连接状态' }, statusSide, right);
+	const hero = h('section', { class: 'ow-card ow-hero', 'aria-label': t('连接状态') }, statusSide, right);
 	function toggle(label, value, fn) {
 		const b = ui.button('', () => fn(!value), 'ow-switch');
 		b.dataset.focusKey = 'switch:' + label;
@@ -812,58 +813,58 @@ export async function overview(ui) {
 	// A setting that fails to save says so on the line under its row.
 	const lined = (row, key) => [row, ui.feedback(row, key)];
 	const proxyPrefs = card(
-		'代理',
+		t('代理'),
 		lined(h(
 			'div',
 			{ class: 'ow-row' },
-			'新设备默认',
+			t('新设备默认'),
 			focusKeys(segment(
 				ui,
-				'新设备默认',
+				t('新设备默认'),
 				[
-					['proxy', '代理'],
-					['direct', '直连'],
+					['proxy', t('代理')],
+					['direct', t('直连')],
 				],
 				policy.default_direct ? 'direct' : 'proxy',
 				(v) => savePolicy({ default_direct: v === 'direct' }),
 			), 'default'),
 		)),
-		lined(updateRow('大陆 IP 直连', toggle('大陆 IP 直连', !!prefs.bypass_cn, (v) => saveP({ bypass_cn: v })),
-			h('small', { class: 'ow-muted' }, '国内 IP 不经内核，更快；全局模式下不生效'))),
-		lined(updateRow('路由器自身流量走代理', toggle('路由器自身流量走代理', prefs.router_self !== false, (v) => saveP({ router_self: v })),
-			h('small', { class: 'ow-muted' }, '比如路由器上的软件更新、节点同步'))),
+		lined(updateRow(t('大陆 IP 直连'), toggle(t('大陆 IP 直连'), !!prefs.bypass_cn, (v) => saveP({ bypass_cn: v })),
+			h('small', { class: 'ow-muted' }, t('国内 IP 不经内核，更快；全局模式下不生效')))),
+		lined(updateRow(t('路由器自身流量走代理'), toggle(t('路由器自身流量走代理'), prefs.router_self !== false, (v) => saveP({ router_self: v })),
+			h('small', { class: 'ow-muted' }, t('比如路由器上的软件更新、节点同步')))),
 		lined(h(
 			'div',
 			{ class: 'ow-row' },
-			'开机启动',
-			toggle('开机启动', prefs.enabled, (v) => saveP({ enabled: v })),
+			t('开机启动'),
+			toggle(t('开机启动'), prefs.enabled, (v) => saveP({ enabled: v })),
 		)),
 	);
 	const dnsOnly = !!prefs.dns_only;
-	const dnsSwitch = toggle('DNS 保护', prefs.dns || dnsOnly, (v) => saveP({ dns: v }));
+	const dnsSwitch = toggle(t('DNS 保护'), prefs.dns || dnsOnly, (v) => saveP({ dns: v }));
 	if (dnsOnly) dnsSwitch.disabled = true;
 	const dnsPrefs = card(
 		'DNS',
-		lined(updateRow('DNS 保护', dnsSwitch,
-			h('small', { class: 'ow-muted' }, dnsOnly ? '仅 DNS 保护时始终开启' : '由内核解析，防污染'))),
-		lined(updateRow('仅 DNS 保护', toggle('仅 DNS 保护', dnsOnly, (v) => saveP({ dns_only: v, ...(v ? { dns: true } : {}) })),
-			h('small', { class: 'ow-muted' }, '只加密 DNS 查询，防劫持和污染；所有流量直连，不经过代理'))),
-		upstreamRow(ui, '国内域名', '直连解析', 'domestic', prefs.dns_domestic, (v) => saveP({ dns_domestic: v })),
-		upstreamRow(ui, '其他域名', '经代理加密解析', 'foreign', prefs.dns_foreign, (v) => saveP({ dns_foreign: v })),
+		lined(updateRow(t('DNS 保护'), dnsSwitch,
+			h('small', { class: 'ow-muted' }, dnsOnly ? t('仅 DNS 保护时始终开启') : t('由内核解析，防污染')))),
+		lined(updateRow(t('仅 DNS 保护'), toggle(t('仅 DNS 保护'), dnsOnly, (v) => saveP({ dns_only: v, ...(v ? { dns: true } : {}) })),
+			h('small', { class: 'ow-muted' }, t('只加密 DNS 查询，防劫持和污染；所有流量直连，不经过代理')))),
+		upstreamRow(ui, t('国内域名'), t('直连解析'), 'domestic', prefs.dns_domestic, (v) => saveP({ dns_domestic: v })),
+		upstreamRow(ui, t('其他域名'), t('经代理加密解析'), 'foreign', prefs.dns_foreign, (v) => saveP({ dns_foreign: v })),
 	);
 	const failOpen = prefs.fail_open !== false;
-	const failOpenLabel = '代理无响应时回退直连';
+	const failOpenLabel = t('代理无响应时回退直连');
 	const fallback = toggle(failOpenLabel, failOpen, (v) => saveP({ fail_open: v }));
 	fallback.setAttribute('aria-describedby', 'ow-fail-open-help');
 	// Recommended settings; the LAN networks, start at boot and the update period are kept.
 	const restoreDefaults = () => {
-		const d = ui.dialog('恢复默认设置', h('div', { class: 'ow-stack' },
-			h('p', {}, 'DNS、大陆 IP 直连、故障回退和节点自动切换将恢复为推荐的默认值，代理会重启一次。'),
-			h('small', { class: 'ow-muted' }, '订阅、规则、设备设置和管理的局域网不受影响。'),
+		const d = ui.dialog(t('恢复默认设置'), h('div', { class: 'ow-stack' },
+			h('p', {}, t('DNS、大陆 IP 直连、故障回退和节点自动切换将恢复为推荐的默认值，代理会重启一次。')),
+			h('small', { class: 'ow-muted' }, t('订阅、规则、设备设置和管理的局域网不受影响。')),
 			h('div', { class: 'ow-row' },
-				ui.button('取消', () => d.close()),
+				ui.button(t('取消'), () => d.close()),
 				// A failure reads in the dialog's status line.
-				ui.button('恢复默认', async () => {
+				ui.button(t('恢复默认'), async () => {
 					await ui.run('policy', { revision: intent.revision, policy: { ...policy, auto_failover: undefined } });
 					await ui.refresh();
 					await ui.run('save_network', { args: {
@@ -872,70 +873,78 @@ export async function overview(ui) {
 					} });
 					await ui.refresh();
 					d.close();
-					ui.tell('repair', '已恢复默认设置', 'done');
+					ui.tell('repair', t('已恢复默认设置'), 'done');
 				}, 'ow-danger')),
 		));
 	};
-	const restore = ui.button('恢复默认', restoreDefaults, 'ow-link');
+	const restore = ui.button(t('恢复默认'), restoreDefaults, 'ow-link');
 	restore.dataset.focusKey = 'restore-defaults';
 	const repair = card(
 		'',
 		// 恢复默认 confirms here once its dialog closes.
-		lined(h('div', { class: 'ow-row' }, h('h2', {}, '故障与恢复'), restore), 'repair'),
-		lined(h('div', { class: 'ow-row' }, '防火墙', ui.button('检查运行环境', async () => {
+		lined(h('div', { class: 'ow-row' }, h('h2', {}, t('故障与恢复')), restore), 'repair'),
+		lined(h('div', { class: 'ow-row' }, t('防火墙'), ui.button(t('检查运行环境'), async () => {
 			const env = await ui.rpc('environment');
-			if (!ui.signal.aborted) ui.dialog('防火墙运行环境', environmentRows(firewallDetails(env)));
+			if (!ui.signal.aborted) ui.dialog(t('防火墙运行环境'), environmentRows(firewallDetails(env)));
 		}, 'ow-link'))),
 		lined(updateRow(failOpenLabel, fallback, h('small', { id: 'ow-fail-open-help', class: 'ow-muted' }, failOpen
-			? '连续 3 次检查失败后恢复直连'
-			: '内核故障时代理流量中断'))),
-		lined(updateRow('节点失联时自动切换',
-			toggle('节点失联时自动切换', policy.auto_failover !== false, (v) => savePolicy({ auto_failover: v })),
-			h('small', { class: 'ow-muted' }, '切到同组可用节点'))),
+			? t('连续 3 次检查失败后恢复直连')
+			: t('内核故障时代理流量中断')))),
+		lined(updateRow(t('节点失联时自动切换'),
+			toggle(t('节点失联时自动切换'), policy.auto_failover !== false, (v) => savePolicy({ auto_failover: v })),
+			h('small', { class: 'ow-muted' }, t('切到同组可用节点')))),
 		lined(h(
 			'div',
 			{ class: 'ow-row' },
-			'记录连接',
-			toggle('记录连接', policy.record_connections !== false, (v) => savePolicy({ record_connections: v })),
+			t('记录连接'),
+			toggle(t('记录连接'), policy.record_connections !== false, (v) => savePolicy({ record_connections: v })),
 		)),
-		lined(h('div', { class: 'ow-row' }, '内核日志级别',
-			choose('内核日志级别', logLevels, prefs.log_level || 'warning', (v) => saveP({ log_level: v })))),
-		ui.button('查看日志', () => ui.go('logs'), 'ow-link'),
+		lined(h('div', { class: 'ow-row' }, t('内核日志级别'),
+			choose(t('内核日志级别'), logLevels, prefs.log_level || 'warning', (v) => saveP({ log_level: v })))),
+		ui.button(t('查看日志'), () => ui.go('logs'), 'ow-link'),
 	);
 	const updates = card(
-		'更新',
+		t('更新'),
 		lined(h(
 			'div',
 			{ class: 'ow-row' },
-			'订阅自动更新',
-			toggle('订阅自动更新', prefs.update_hours > 0, (on) => saveP({ update_hours: on ? ui.memory.updateHours || 6 : 0 })),
+			t('订阅自动更新'),
+			toggle(t('订阅自动更新'), prefs.update_hours > 0, (on) => saveP({ update_hours: on ? ui.memory.updateHours || 6 : 0 })),
 		)),
 		...(prefs.update_hours > 0 ? updateSchedule(ui, prefs, saveP, choose) : []),
-		updateRow('Hyper 插件', ...pluginUpdate(ui)),
-		lined(updateRow('自动检查新版本', toggle('自动检查新版本', prefs.auto_check !== false, (v) => saveP({ auto_check: v })),
-			h('small', { class: 'ow-muted' }, '每天检查一次，有新版本时在这里提示'))),
-		lined(updateRow('自动更新插件', toggle('自动更新插件', !!prefs.auto_update, (v) => saveP({ auto_update: v })),
-			h('small', { class: 'ow-muted' }, '每天检查并自动安装新版本，安装时网络会短暂中断'))),
+		updateRow(t('Hyper 插件'), ...pluginUpdate(ui)),
+		lined(updateRow(t('自动检查新版本'), toggle(t('自动检查新版本'), prefs.auto_check !== false, (v) => saveP({ auto_check: v })),
+			h('small', { class: 'ow-muted' }, t('每天检查一次，有新版本时在这里提示')))),
+		lined(updateRow(t('自动更新插件'), toggle(t('自动更新插件'), !!prefs.auto_update, (v) => saveP({ auto_update: v })),
+			h('small', { class: 'ow-muted' }, t('每天检查并自动安装新版本，安装时网络会短暂中断')))),
 		updateRow(...kernelSummary(ui, kernel, kernelUpdates)),
-		updateRow('内核存储位置', ...kernelStorage(ui, kernel, kernelUpdates, segment)),
+		updateRow(t('内核存储位置'), ...kernelStorage(ui, kernel, kernelUpdates, segment)),
 		// The router checks these lists itself once a week; there is nothing to press.
-		updateRow('大陆域名与 IP 列表', h('small', { class: 'ow-muted' }, '每周自动更新'),
-			h('small', { class: 'ow-muted' }, ui.status.china_lists ? '更新于 ' + day(ui.status.china_lists) : '插件内置版本')),
+		updateRow(t('大陆域名与 IP 列表'), h('small', { class: 'ow-muted' }, t('每周自动更新')),
+			h('small', { class: 'ow-muted' }, ui.status.china_lists ? t('更新于 ') + day(ui.status.china_lists) : t('插件内置版本'))),
+	);
+	// This browser's choice: the pages follow LuCI's language unless one is chosen here.
+	const general = card(
+		t('界面'),
+		lined(h('div', { class: 'ow-row' }, h('span', { class: 'ow-label' }, t('界面语言'), h('small', { class: 'ow-muted' }, t('默认跟随路由器的 LuCI 语言'))),
+			choose(t('界面语言'), [['auto', t('跟随路由器')], ['zh-CN', t('简体中文')], ['en-US', 'English']], languagePreference(),
+				(v) => setLanguagePreference(v)))),
 	);
 	// Without the account's subscription the card offers the sign-in, which syncs the nodes.
 	let setup = null;
-	if (!ui.sources.some((s) => !s.revoked)) setup = ui.button('登录 Hyper 账户', () => ui.go('account'), 'ow-primary');
+	if (!ui.sources.some((s) => !s.revoked)) setup = ui.button(t('登录 Hyper 账户'), () => ui.go('account'), 'ow-primary');
 	const grid = h(
 		'div',
 		{ class: 'ow-dashboard' },
 		hero,
 		// Subscriptions share the column beside the hero.
 		h('div', { class: 'ow-side-stack' }, sourceCard(ui, setup)),
-		devices.unavailable ? card('设备',empty('局域网接口尚未就绪'),ui.button('重新检测',ui.refresh,'ow-link')) : deviceCard(ui, devices.items),
+		devices.unavailable ? card(t('设备'),empty(t('局域网接口尚未就绪')),ui.button(t('重新检测'),ui.refresh,'ow-link')) : deviceCard(ui, devices.items),
 		proxyPrefs,
 		dnsPrefs,
 		repair,
 		updates,
+		general,
 	);
 	// The service's problem sits under the power button's status line, not above the page.
 	const content = h('div', { class: 'ow-stack' }, grid);
@@ -960,18 +969,18 @@ export async function overview(ui) {
 	return content;
 }
 
-const logLevels = [['silent', '静默'], ['error', '错误'], ['warning', '警告'], ['info', '信息'], ['debug', '调试']];
+const logLevels = [['silent', t('静默')], ['error', t('错误')], ['warning', t('警告')], ['info', t('信息')], ['debug', t('调试')]];
 
 // The account is read every few hours, or once a day at a chosen hour (router time).
 function updateSchedule(ui, prefs, saveP, choose) {
 	const daily = prefs.update_at >= 0;
-	const kind = h('div', { class: 'ow-row' }, '更新方式', choose('更新方式', [['every', '按间隔'], ['daily', '每天定时']],
+	const kind = h('div', { class: 'ow-row' }, t('更新方式'), choose(t('更新方式'), [['every', t('按间隔')], ['daily', t('每天定时')]],
 		daily ? 'daily' : 'every', (v) => saveP({ update_at: v === 'daily' ? ui.memory.updateAt ?? 4 : -1 })));
 	if (!daily) return [kind, ...updateInterval(ui, prefs.update_hours, saveP)];
 	ui.memory.updateAt = prefs.update_at;
 	const hours = Array.from({ length: 24 }, (_, n) => [n, String(n).padStart(2, '0') + ':00']);
-	return [kind, h('div', { class: 'ow-row' }, h('span', { class: 'ow-label' }, '更新时间', h('small', { class: 'ow-muted' }, '路由器本地时间')),
-		choose('更新时间', hours, prefs.update_at, (v) => {
+	return [kind, h('div', { class: 'ow-row' }, h('span', { class: 'ow-label' }, t('更新时间'), h('small', { class: 'ow-muted' }, t('路由器本地时间'))),
+		choose(t('更新时间'), hours, prefs.update_at, (v) => {
 			ui.memory.updateAt = v;
 			return saveP({ update_at: v });
 		}))];
@@ -983,20 +992,20 @@ function updateRow(title, action, note) {
 	return h('div', { class: 'ow-row' }, h('span', { class: 'ow-label' }, title, note), action);
 }
 function pluginUpdate(ui) {
-	const action = ui.button('检查更新', () => {}, 'ow-link'),
+	const action = ui.button(t('检查更新'), () => {}, 'ow-link'),
 		note = h('small', { class: 'ow-muted', role: 'status' });
 	let candidate = '', latest = false;
 	const installed = ui.status.version && ui.status.version !== 'dev' ? ui.status.version : '';
-	note.textContent = installed ? '当前 v' + installed : '';
+	note.textContent = installed ? t('当前 v') + installed : '';
 	// What the daily check found.
 	const known = ui.status.plugin;
 	if (known?.available && known.candidate) {
 		candidate = known.candidate;
-		note.textContent = '发现新版本 ' + known.candidate.replace(/-r?\d+$/, '');
+		note.textContent = t('发现新版本 ') + known.candidate.replace(/-r?\d+$/, '');
 	}
 	show();
 	function show(text) {
-		action.textContent = text || (candidate ? '更新到 ' + candidate : latest ? '已是最新' : '检查更新');
+		action.textContent = text || (candidate ? t('更新到 ') + candidate : latest ? t('已是最新') : t('检查更新'));
 		action.disabled = !!text || (latest && !candidate);
 		action.classList.toggle('ow-primary', !text && !!candidate);
 		action.classList.toggle('ow-link', !!text || !candidate);
@@ -1006,18 +1015,18 @@ function pluginUpdate(ui) {
 		delete note.dataset.tone;
 		try {
 			if (candidate) {
-				show('正在更新…');
+				show(t('正在更新…'));
 				await ui.run('plugin_update', {});
-				note.textContent = '已安装 ' + candidate + '，刷新页面后生效';
+				note.textContent = t('已安装 ') + candidate + t('，刷新页面后生效');
 				candidate = '';
 				latest = true;
 				return;
 			}
-			show('正在检查…');
+			show(t('正在检查…'));
 			const info = await ui.run('plugin_check', {});
 			candidate = info.available ? info.candidate : '';
 			latest = !candidate;
-			note.textContent = '当前 v' + info.installed.replace(/^v/, '');
+			note.textContent = t('当前 v') + info.installed.replace(/^v/, '');
 		} catch (error) {
 			if (error.name !== 'AbortError') {
 				note.textContent = error.message;
@@ -1037,13 +1046,13 @@ function updateInterval(ui, hours, saveP) {
 	const line = ui.feedback();
 	const input = h('input', {
 		type: 'number', min: 1, max: 720, step: 1, inputmode: 'numeric', value: hours,
-		'aria-label': '更新间隔（小时）', class: 'ow-hours', 'aria-describedby': line.id, 'data-focus-key': 'update-hours',
+		'aria-label': t('更新间隔（小时）'), class: 'ow-hours', 'aria-describedby': line.id, 'data-focus-key': 'update-hours',
 	});
 	input.addEventListener('change', async () => {
 		hush(line);
 		const value = Number(input.value);
 		if (!Number.isInteger(value) || value < 1 || value > 720) {
-			say(line, '请输入 1 到 720 之间的整数小时');
+			say(line, t('请输入 1 到 720 之间的整数小时'));
 			input.value = hours;
 			return;
 		}
@@ -1056,19 +1065,19 @@ function updateInterval(ui, hours, saveP) {
 			input.value = hours;
 		}
 	});
-	return [h('div', { class: 'ow-row' }, '更新间隔', h('span', { class: 'ow-actions' }, '每', input, '小时')), line];
+	return [h('div', { class: 'ow-row' }, t('更新间隔'), h('span', { class: 'ow-actions' }, t('每'), input, t('小时'))), line];
 }
 
 // Upstreams show a short summary; a dialog edits the list and restores the built-in servers.
 const presetDNS = {
 	domestic: [
-		['阿里 DoH', 'https://223.5.5.5/dns-query'], ['阿里 DoH 备用', 'https://223.6.6.6/dns-query'],
-		['腾讯 DoH', 'https://120.53.53.53/dns-query'], ['腾讯 DoH 备用', 'https://1.12.12.12/dns-query'],
-		['阿里 DoT', 'tls://223.5.5.5'], ['腾讯 DoT', 'tls://1.12.12.12'],
+		[t('阿里 DoH'), 'https://223.5.5.5/dns-query'], [t('阿里 DoH 备用'), 'https://223.6.6.6/dns-query'],
+		[t('腾讯 DoH'), 'https://120.53.53.53/dns-query'], [t('腾讯 DoH 备用'), 'https://1.12.12.12/dns-query'],
+		[t('阿里 DoT'), 'tls://223.5.5.5'], [t('腾讯 DoT'), 'tls://1.12.12.12'],
 	],
 	foreign: [
-		['Cloudflare DoH', 'https://1.1.1.1/dns-query'], ['Cloudflare DoH 备用', 'https://1.0.0.1/dns-query'],
-		['Google DoH', 'https://8.8.8.8/dns-query'], ['Google DoH 备用', 'https://8.8.4.4/dns-query'],
+		['Cloudflare DoH', 'https://1.1.1.1/dns-query'], [t('Cloudflare DoH 备用'), 'https://1.0.0.1/dns-query'],
+		['Google DoH', 'https://8.8.8.8/dns-query'], [t('Google DoH 备用'), 'https://8.8.4.4/dns-query'],
 		['Quad9 DoH', 'https://9.9.9.9/dns-query'], ['Cloudflare DoT', 'tls://1.1.1.1'], ['Google DoT', 'tls://8.8.8.8'],
 	],
 };
@@ -1081,7 +1090,7 @@ function upstreamRow(ui, title, note, kind, list, save) {
 	const current = list?.length ? list : builtin;
 	const host = (v) => v.replace(/^[a-z]+:\/\//, '').replace(/\/.*$/, '');
 	const same = current.join(' ') === builtin.join(' ');
-	const summary = (same ? '内置 · ' : '') + current.map(host).join('、');
+	const summary = (same ? t('内置 · ') : '') + current.map(host).join(t('、'));
 	const open = () => {
 		let items = [...current];
 		const rows = h('div', { class: 'ow-stack' });
@@ -1092,14 +1101,14 @@ function upstreamRow(ui, title, note, kind, list, save) {
 		const add = (v) => {
 			if (!v || items.includes(v)) return false;
 			if (items.length >= 4) {
-				say(line, '最多 4 个服务器', { control: input });
+				say(line, t('最多 4 个服务器'), { control: input });
 				return false;
 			}
 			items.push(v);
 			render();
 			return true;
 		};
-		const input = h('input', { type: 'text', placeholder: 'https://… 、tls://… 或 IP', 'aria-label': '添加 DNS 服务器', spellcheck: 'false' });
+		const input = h('input', { type: 'text', placeholder: t('https://… 、tls://… 或 IP'), 'aria-label': t('添加 DNS 服务器'), spellcheck: 'false' });
 		const render = () => {
 			presets.replaceChildren(...presetDNS[kind].map(([name, v]) => {
 				const on = items.includes(v);
@@ -1114,20 +1123,20 @@ function upstreamRow(ui, title, note, kind, list, save) {
 			}));
 			rows.replaceChildren(...items.map((v, i) => h('div', { class: 'ow-row' },
 				h('code', { class: 'ow-upstream' }, v),
-				ui.button('移除', () => { items.splice(i, 1); render(); }, 'ow-link'))));
+				ui.button(t('移除'), () => { items.splice(i, 1); render(); }, 'ow-link'))));
 		};
 		body.append(
-			h('small', { class: 'ow-muted' }, '常用服务器'),
+			h('small', { class: 'ow-muted' }, t('常用服务器')),
 			presets,
-			h('small', { class: 'ow-muted' }, '已选（按顺序使用）'),
+			h('small', { class: 'ow-muted' }, t('已选（按顺序使用）')),
 			rows,
-			h('div', { class: 'ow-row' }, input, ui.button('添加', () => {
+			h('div', { class: 'ow-row' }, input, ui.button(t('添加'), () => {
 				if (add(input.value.trim())) input.value = '';
 			}, 'ow-link')),
 			h('div', { class: 'ow-row' },
-				ui.button('恢复内置', () => { items = [...builtin]; render(); }, 'ow-link'),
-				ui.button('保存', async (ev) => {
-					if (!items.length) return say(line, '至少保留 1 个服务器', { control: ev.currentTarget });
+				ui.button(t('恢复内置'), () => { items = [...builtin]; render(); }, 'ow-link'),
+				ui.button(t('保存'), async (ev) => {
+					if (!items.length) return say(line, t('至少保留 1 个服务器'), { control: ev.currentTarget });
 					await save(items);
 					d.close();
 				}, 'ow-primary')),
@@ -1136,7 +1145,7 @@ function upstreamRow(ui, title, note, kind, list, save) {
 		const d = ui.dialog(title + ' DNS', body);
 		render();
 	};
-	const manage = ui.button('管理', open, 'ow-link');
+	const manage = ui.button(t('管理'), open, 'ow-link');
 	manage.dataset.focusKey = 'dns:' + kind;
 	return updateRow(title, manage, h('small', { class: 'ow-muted' }, note + ' · ' + summary));
 }

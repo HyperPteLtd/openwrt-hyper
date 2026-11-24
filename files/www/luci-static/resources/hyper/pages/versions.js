@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { h, diagnosticMessage } from '../dom.js';
 
 // The core comes with the plugin (/usr/share/hyper/core): installing it reads the package's
@@ -6,9 +7,9 @@ import { h, diagnosticMessage } from '../dom.js';
 export function bootstrapState(status) {
 	if (status.selected || !status.bootstrap) return '';
 	switch (status.bootstrap.stage) {
-	case 'running': return '正在安装';
+	case 'running': return t('正在安装');
 	case 'failed':
-	case 'interrupted': return '安装失败';
+	case 'interrupted': return t('安装失败');
 	default: return '';
 	}
 }
@@ -21,12 +22,12 @@ async function refresh(ui, updates) {
 
 // Where the kernel lives: flash keeps it across reboots, memory saves flash and unpacks it from
 // the plugin again after a reboot.
-const storageModes = [['double', '闪存'], ['tmp', '内存']];
+const storageModes = [['double', t('闪存')], ['tmp', t('内存')]];
 const storageOf = (status) => (status?.mode === 'tmp' ? 'tmp' : 'double');
 
 // Install the plugin's own kernel; returns the new status.
 export async function installBundled(ui, updates, status, mode = 'double') {
-	if (!status.bundled) throw Error('插件没有附带内核，请重新安装插件');
+	if (!status.bundled) throw Error(t('插件没有附带内核，请重新安装插件'));
 	await ui.run('kernel_write', { action: 'install-json', args: { tag: status.bundled, mode } });
 	return refresh(ui, updates);
 }
@@ -36,14 +37,14 @@ export function kernelStorage(ui, status, updates, segment) {
 	const note = h('small', { class: 'ow-muted', role: 'status' });
 	const describe = (mode) => {
 		note.textContent = mode === 'tmp'
-			? '不占闪存，重启后从插件重新解压'
-			: '重启后保留';
+			? t('不占闪存，重启后从插件重新解压')
+			: t('重启后保留');
 		delete note.dataset.tone;
 	};
 	describe(storageOf(status));
-	const control = segment(ui, '内核存储位置', storageModes, storageOf(status), async (mode) => {
+	const control = segment(ui, t('内核存储位置'), storageModes, storageOf(status), async (mode) => {
 		if (!status.selected) return describe(mode);
-		note.textContent = '正在切换…';
+		note.textContent = t('正在切换…');
 		delete note.dataset.tone;
 		try {
 			await ui.run('kernel_write', { action: 'install-json', args: { tag: status.selected, mode } });
@@ -82,12 +83,12 @@ export function kernelSummary(ui, status, updates, setup = false) {
 	}
 	action.addEventListener('click', () => {
 		if (status.staged && status.staged !== status.selected)
-			return act('正在切换…', async () => {
+			return act(t('正在切换…'), async () => {
 				await ui.run('kernel_write', { action: 'select', args: { tag: status.staged } });
 				status = await refresh(ui, updates);
 			});
 		if (!status.selected)
-			return act('正在安装…', async () => {
+			return act(t('正在安装…'), async () => {
 				status = await installBundled(ui, updates, status, storageOf(status));
 			});
 	});
@@ -95,29 +96,29 @@ export function kernelSummary(ui, status, updates, setup = false) {
 		status = next;
 		const state = bootstrapState(status);
 		// Outside setup the row reads like the plugin row: a title, the version underneath.
-		const current = status.selected || state || '未安装';
-		const text = setup ? current : '内核';
+		const current = status.selected || state || t('未安装');
+		const text = setup ? current : t('内核');
 		if (label.textContent !== text) label.textContent = text;
-		if (note.dataset.version && (status.pending || state === '安装失败')) {
+		if (note.dataset.version && (status.pending || state === t('安装失败'))) {
 			note.textContent = '';
 			delete note.dataset.version;
 		}
 		if (!note.textContent) delete note.dataset.tone;
-		if (status.pending && !note.textContent) note.textContent = '新内核正在确认运行正常';
-		const failure = state === '安装失败' && (status.bootstrap.result?.error || status.bootstrap.error);
+		if (status.pending && !note.textContent) note.textContent = t('新内核正在确认运行正常');
+		const failure = state === t('安装失败') && (status.bootstrap.result?.error || status.bootstrap.error);
 		if (failure && !busy && !note.textContent) {
 			note.textContent = diagnosticMessage(failure);
 			note.dataset.tone = 'error';
 		}
 		if (!setup && (!note.textContent || note.dataset.version)) {
-			note.textContent = status.selected ? '当前 ' + status.selected + ' · 随插件更新' : current;
+			note.textContent = status.selected ? t('当前 ') + status.selected + t(' · 随插件更新') : current;
 			note.dataset.version = '1';
 			delete note.dataset.tone;
 		}
 		let name = busy;
 		if (!name) {
-			if (status.staged && status.staged !== status.selected) name = '使用 ' + status.staged;
-			else if (!status.selected) name = state === '正在安装' ? '' : state ? '重新安装' : '安装内核';
+			if (status.staged && status.staged !== status.selected) name = t('使用 ') + status.staged;
+			else if (!status.selected) name = state === t('正在安装') ? '' : state ? t('重新安装') : t('安装内核');
 		}
 		if (action.textContent !== name) action.textContent = name;
 		action.hidden = !name;

@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Hyper Pte. Ltd.
 //
@@ -19,17 +20,17 @@ export const SESSION_RECOVERING = 62030;
 const PREPARING_WINDOW_MS = 15000;
 
 const paymentErrors = {
-    62025: '支付汇率暂不可用，请稍后重试',
-    62026: '当前支付渠道不可用',
-    62036: '当前支付渠道不可用',
-    62027: '支付订单已失效',
-    62029: '当前支付订单仍可继续，请勿重复下单',
-    62030: '支付订单正在恢复，请稍后刷新',
-    62032: '支付请求无法安全恢复，请重新操作',
-    62033: '支付请求无法安全恢复，请重新操作',
-    62034: '当前币种或网络不可用',
-    62037: '当前币种或网络不可用',
-    62035: '订单已支付，正在同步权益',
+    62025: t('支付汇率暂不可用，请稍后重试'),
+    62026: t('当前支付渠道不可用'),
+    62036: t('当前支付渠道不可用'),
+    62027: t('支付订单已失效'),
+    62029: t('当前支付订单仍可继续，请勿重复下单'),
+    62030: t('支付订单正在恢复，请稍后刷新'),
+    62032: t('支付请求无法安全恢复，请重新操作'),
+    62033: t('支付请求无法安全恢复，请重新操作'),
+    62034: t('当前币种或网络不可用'),
+    62037: t('当前币种或网络不可用'),
+    62035: t('订单已支付，正在同步权益'),
 };
 
 // Upstream branding is an implementation detail, in the service's messages too.
@@ -39,7 +40,7 @@ const failure = (r, fallback) => product(apiError(r, fallback));
 // The text for a payment call that failed: the router's error, the payment code, or the service's
 // own words when they are short and carry nothing sensitive.
 export function paymentError(r, fallback) {
-    if (r?.error === 'api_unavailable') return '暂时无法连接服务，请稍后查看订单状态';
+    if (r?.error === 'api_unavailable') return t('暂时无法连接服务，请稍后查看订单状态');
     if (r?.error) {
         const known = diagnosticMessage(r.error);
         if (known && known !== r.error) return known;
@@ -423,7 +424,7 @@ export function qrMatrix(text) {
 
 // --- The page ---------------------------------------------------------------------------------------
 
-const stepNames = ['选择套餐', '确认订单', '支付', '完成'];
+const stepNames = [t('选择套餐'), t('确认订单'), t('支付'), t('完成')];
 const stepIndex = { pick: 0, confirm: 1, order: 2, done: 3, closed: 2 };
 const transient = (r) => !!r?.thrown || r?.error === 'api_unavailable' || r?.error === 'timeout';
 const unitOf = (plan) => UNIT_LABEL[plan?.unit_time || ''] ?? plan?.unit_time ?? '';
@@ -468,28 +469,28 @@ export async function plans(ui) {
     if (list?.ok) {
         st.plans = (Array.isArray(list.data?.list) ? list.data.list : [])
             .filter((p) => p && Array.isArray(p.discount) && p.discount.length > 0)
-            .map((p) => ({ ...p, name: localizedText(p.name, '套餐'), description: localizedText(p.description) }));
+            .map((p) => ({ ...p, name: localizedText(p.name, t('套餐')), description: localizedText(p.description) }));
         st.units = list.data?.units || {};
     }
     if (methods?.ok) {
         st.methods = (Array.isArray(methods.data?.list) ? methods.data.list : [])
             .filter((m) => m && !isAppleIap(m))
-            .map((m) => ({ ...m, name: localizedText(m.name, '支付方式'), description: localizedText(m.description) }));
+            .map((m) => ({ ...m, name: localizedText(m.name, t('支付方式')), description: localizedText(m.description) }));
     }
     const planOf = (id) => st.plans.find((p) => p.id === id);
     const chosen = planOf(sel.plan) || st.plans[0];
     if (chosen) {
-        const tier = chosen.discount.find((t) => t.quantity === sel.quantity) || chosen.discount.find((t) => t.recommend) || chosen.discount[0];
+        const tier = chosen.discount.find((d) => d.quantity === sel.quantity) || chosen.discount.find((d) => d.recommend) || chosen.discount[0];
         sel.plan = chosen.id;
         sel.quantity = tier.quantity;
     }
     if (!st.methods.some((m) => m.id === sel.payment)) sel.payment = st.methods[0]?.id ?? 0;
 
-    const steps = h('ol', { class: 'ow-plans-steps', 'aria-label': '购买步骤' });
+    const steps = h('ol', { class: 'ow-plans-steps', 'aria-label': t('购买步骤') });
     const root = h(
         'div',
         { class: 'ow-plans' },
-        h('div', { class: 'ow-row ow-plans-head' }, h('a', { href: '#account', class: 'ow-plans-back' }, '‹ 返回账户'), steps),
+        h('div', { class: 'ow-row ow-plans-head' }, h('a', { href: '#account', class: 'ow-plans-back' }, t('‹ 返回账户')), steps),
     );
     const line = ui.feedback(root, 'plans');
     const body = h('div', { class: 'ow-stack' });
@@ -533,7 +534,7 @@ export async function plans(ui) {
             await fn(ev);
         } catch (e) {
             if (rethrow) throw e;
-            if (e?.name !== 'AbortError' && !ui.signal.aborted) fail(product(diagnosticMessage(e?.message ?? String(e))) || '操作失败');
+            if (e?.name !== 'AbortError' && !ui.signal.aborted) fail(product(diagnosticMessage(e?.message ?? String(e))) || t('操作失败'));
         } finally {
             st.busy = false;
             if (!ui.signal.aborted) lock(false);
@@ -608,7 +609,7 @@ export async function plans(ui) {
     }
 
     function pickView() {
-        const box = h('section', { class: 'ow-card ow-plans-pick' }, h('h2', { tabindex: -1 }, '选择会员套餐'));
+        const box = h('section', { class: 'ow-card ow-plans-pick' }, h('h2', { tabindex: -1 }, t('选择会员套餐')));
         const scale = amountScale(st.units),
             currency = resolveCurrency(st.units, st.currency);
         for (const p of st.plans) {
@@ -617,23 +618,23 @@ export async function plans(ui) {
                 h(
                     'div',
                     { class: 'ow-stack ow-plans-plan' },
-                    h('div', { class: 'ow-plans-plan-head' }, h('h3', {}, p.name), p.device_limit ? muted(ui, p.device_limit + ' 台设备') : null),
+                    h('div', { class: 'ow-plans-plan-head' }, h('h3', {}, p.name), p.device_limit ? muted(ui, p.device_limit + t(' 台设备')) : null),
                     h(
                         'div',
                         { class: 'ow-plans-tiers', role: 'radiogroup', 'aria-label': p.name },
-                        p.discount.map((t) =>
+                        p.discount.map((tier) =>
                             radio(
                                 [
-                                    h('span', {}, t.quantity + ' ' + unit),
-                                    h('strong', {}, money(t.sell_price, currency, scale)),
-                                    t.original_price && t.original_price > t.sell_price ? h('s', { class: 'ow-muted' }, money(t.original_price, currency, scale)) : null,
-                                    t.recommend ? badge(ui, '推荐') : null,
+                                    h('span', {}, tier.quantity + ' ' + unit),
+                                    h('strong', {}, money(tier.sell_price, currency, scale)),
+                                    tier.original_price && tier.original_price > tier.sell_price ? h('s', { class: 'ow-muted' }, money(tier.original_price, currency, scale)) : null,
+                                    tier.recommend ? badge(ui, t('推荐')) : null,
                                 ],
-                                sel.plan === p.id && sel.quantity === t.quantity,
-                                'tier:' + p.id + ':' + t.quantity,
+                                sel.plan === p.id && sel.quantity === tier.quantity,
+                                'tier:' + p.id + ':' + tier.quantity,
                                 () => {
                                     sel.plan = p.id;
-                                    sel.quantity = t.quantity;
+                                    sel.quantity = tier.quantity;
                                 },
                                 'ow-plans-tier',
                             ),
@@ -643,13 +644,13 @@ export async function plans(ui) {
             );
         }
         if (!st.plans.length) {
-            if (list?.ok) box.append(empty('暂时没有可购买的套餐'));
-            else box.append(actions(ui, ui.button('重新读取', () => ui.refresh())));
+            if (list?.ok) box.append(empty(t('暂时没有可购买的套餐')));
+            else box.append(actions(ui, ui.button(t('重新读取'), () => ui.refresh())));
         }
         const plan = planOf(sel.plan),
-            tier = plan?.discount.find((t) => t.quantity === sel.quantity);
+            tier = plan?.discount.find((d) => d.quantity === sel.quantity);
         if (plan && tier) {
-            const buy = control('购买', toConfirm, 'ow-primary', 'buy');
+            const buy = control(t('购买'), toConfirm, 'ow-primary', 'buy');
             if (!st.methods.length) buy.disabled = true;
             box.append(
                 h(
@@ -661,7 +662,7 @@ export async function plans(ui) {
                 ),
             );
         }
-        if (!st.methods.length && st.plans.length) box.append(muted(ui, '没有可用的支付方式'));
+        if (!st.methods.length && st.plans.length) box.append(muted(ui, t('没有可用的支付方式')));
         return box;
     }
 
@@ -670,11 +671,11 @@ export async function plans(ui) {
             plan = planOf(c.plan),
             p = st.preview || {},
             currency = st.currency;
-        const coupon = input(ui, { type: 'text', value: sel.coupon, placeholder: '输入优惠码', autocomplete: 'off', 'aria-label': '优惠码', 'data-focus-key': 'coupon' });
+        const coupon = input(ui, { type: 'text', value: sel.coupon, placeholder: t('输入优惠码'), autocomplete: 'off', 'aria-label': t('优惠码'), 'data-focus-key': 'coupon' });
         coupon.addEventListener('input', () => {
             sel.coupon = coupon.value;
         });
-        const apply = control('使用', toConfirm, '', 'apply');
+        const apply = control(t('使用'), toConfirm, '', 'apply');
         coupon.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter') return;
             e.preventDefault();
@@ -683,7 +684,7 @@ export async function plans(ui) {
         const methodList = h(
             'fieldset',
             { class: 'ow-plans-options', role: 'radiogroup' },
-            h('legend', { class: 'ow-muted' }, '支付方式'),
+            h('legend', { class: 'ow-muted' }, t('支付方式')),
             st.methods.map((m) => {
                 const b = control(
                     '',
@@ -704,28 +705,28 @@ export async function plans(ui) {
         const order = h(
             'section',
             { class: 'ow-card' },
-            h('h2', { tabindex: -1 }, '确认订单'),
+            h('h2', { tabindex: -1 }, t('确认订单')),
             h(
                 'dl',
                 { class: 'ow-facts ow-plans-facts' },
-                fact('套餐', plan.name),
-                fact('时长', c.quantity + ' ' + unitOf(plan)),
-                fact('原价', money(p.price, currency)),
-                p.discount ? fact('优惠', '-' + money(p.discount, currency)) : null,
-                p.coupon_discount ? fact('优惠码', '-' + money(p.coupon_discount, currency)) : null,
-                p.fee_amount ? fact('手续费', money(p.fee_amount, currency)) : null,
+                fact(t('套餐'), plan.name),
+                fact(t('时长'), c.quantity + ' ' + unitOf(plan)),
+                fact(t('原价'), money(p.price, currency)),
+                p.discount ? fact(t('优惠'), '-' + money(p.discount, currency)) : null,
+                p.coupon_discount ? fact(t('优惠码'), '-' + money(p.coupon_discount, currency)) : null,
+                p.fee_amount ? fact(t('手续费'), money(p.fee_amount, currency)) : null,
             ),
-            h('div', { class: 'ow-field' }, h('span', {}, '优惠码'), h('div', { class: 'ow-plans-coupon' }, coupon, apply)),
+            h('div', { class: 'ow-field' }, h('span', {}, t('优惠码')), h('div', { class: 'ow-plans-coupon' }, coupon, apply)),
             methodList,
         );
         const due = h(
             'section',
             { class: 'ow-card ow-plans-due' },
-            muted(ui, '应付'),
+            muted(ui, t('应付')),
             h('strong', { class: 'ow-plans-price' }, money(p.amount, currency)),
-            muted(ui, '点“去支付”后生成订单：扫码支付会在这里显示二维码，其他方式会给出支付页面或收款地址。这个页面会自动检查支付结果'),
-            control('去支付', payNow, 'ow-primary', 'pay'),
-            control('返回修改', () => go('pick'), '', 'back'),
+            muted(ui, t('点“去支付”后生成订单：扫码支付会在这里显示二维码，其他方式会给出支付页面或收款地址。这个页面会自动检查支付结果')),
+            control(t('去支付'), payNow, 'ow-primary', 'pay'),
+            control(t('返回修改'), () => go('pick'), '', 'back'),
         );
         return h('div', { class: 'ow-plans-split' }, order, due);
     }
@@ -740,12 +741,12 @@ export async function plans(ui) {
             h(
                 'div',
                 { class: 'ow-plans-wait' },
-                h('h2', { tabindex: -1 }, '等待支付'),
-                muted(ui, '完成支付后这里会自动更新，路由器随后同步新的节点'),
-                left != null ? h('strong', { class: 'ow-plans-clock', role: 'timer', 'aria-label': '剩余支付时间' }) : null,
+                h('h2', { tabindex: -1 }, t('等待支付')),
+                muted(ui, t('完成支付后这里会自动更新，路由器随后同步新的节点')),
+                left != null ? h('strong', { class: 'ow-plans-clock', role: 'timer', 'aria-label': t('剩余支付时间') }) : null,
             ),
             st.halted
-                ? h('div', { class: 'ow-plans-center' }, h('p', { class: 'ow-warning', role: 'alert' }, st.halted), control('重新检查', resume, '', 'resume'))
+                ? h('div', { class: 'ow-plans-center' }, h('p', { class: 'ow-warning', role: 'alert' }, st.halted), control(t('重新检查'), resume, '', 'resume'))
                 : null,
             paymentAction(s, a),
         );
@@ -754,17 +755,17 @@ export async function plans(ui) {
         const order = h(
             'section',
             { class: 'ow-card' },
-            h('h2', {}, '订单'),
+            h('h2', {}, t('订单')),
             h(
                 'dl',
                 { class: 'ow-facts ow-plans-facts' },
-                fact('订单号', h('span', { class: 'ow-mono' }, s.order_no)),
-                st.payPlan ? fact('套餐', st.payPlan) : null,
-                st.duration ? fact('时长', st.duration) : null,
-                amount ? fact('订单金额', amount) : null,
-                paid ? fact('实付', paid, true) : null,
+                fact(t('订单号'), h('span', { class: 'ow-mono' }, s.order_no)),
+                st.payPlan ? fact(t('套餐'), st.payPlan) : null,
+                st.duration ? fact(t('时长'), st.duration) : null,
+                amount ? fact(t('订单金额'), amount) : null,
+                paid ? fact(t('实付'), paid, true) : null,
             ),
-            actions(ui, control('取消订单', askCancel, 'ow-link ow-danger', 'cancel')),
+            actions(ui, control(t('取消订单'), askCancel, 'ow-link ow-danger', 'cancel')),
         );
         return h('div', { class: 'ow-plans-split' }, pay, order);
     }
@@ -774,26 +775,26 @@ export async function plans(ui) {
         switch (a.type) {
             case 'preparing':
                 return st.stalled
-                    ? h('div', { class: 'ow-plans-center' }, note('支付参数还没准备好'), control('重试', retryPreparing, 'ow-primary', 'retry'))
-                    : note('正在生成支付参数…', true);
+                    ? h('div', { class: 'ow-plans-center' }, note(t('支付参数还没准备好')), control(t('重试'), retryPreparing, 'ow-primary', 'retry'))
+                    : note(t('正在生成支付参数…'), true);
             case 'qr':
                 if (!a.qr_content) break;
-                return h('div', { class: 'ow-plans-center' }, qrCode(a.qr_content, '支付二维码'), note('请用手机扫码完成支付'));
+                return h('div', { class: 'ow-plans-center' }, qrCode(a.qr_content, t('支付二维码')), note(t('请用手机扫码完成支付')));
             case 'redirect': {
                 const https = httpsTarget(a.provider_url) ?? httpsTarget(a.deeplink),
                     wallet = walletTarget(a.deeplink);
-                if (!https && !wallet) return note('支付链接无效，请取消订单后换一种支付方式');
+                if (!https && !wallet) return note(t('支付链接无效，请取消订单后换一种支付方式'));
                 return h(
                     'div',
                     { class: 'ow-plans-center' },
                     https ? payLink(https) : null,
-                    qrCode(https ?? wallet, '支付链接二维码', 180),
-                    note(https ? '也可以用手机扫码，在手机上完成支付' : '请用手机扫码，在手机上完成支付'),
+                    qrCode(https ?? wallet, t('支付链接二维码'), 180),
+                    note(https ? t('也可以用手机扫码，在手机上完成支付') : t('请用手机扫码，在手机上完成支付')),
                 );
             }
             case 'stripe': {
                 const https = httpsTarget(a.provider_url);
-                return https ? h('div', { class: 'ow-plans-center' }, payLink(https)) : note('这种支付方式请在 Hyper App 里完成，或取消订单后换一种支付方式');
+                return https ? h('div', { class: 'ow-plans-center' }, payLink(https)) : note(t('这种支付方式请在 Hyper App 里完成，或取消订单后换一种支付方式'));
             }
             case 'crypto_selection':
                 return cryptoSelection(a);
@@ -801,16 +802,16 @@ export async function plans(ui) {
                 if (!a.receive_address) break;
                 return cryptoTransfer(a);
             case 'apple_iap':
-                return note('Apple 内购只能在 iPhone / iPad 的 Hyper App 里完成。可以取消这个订单，换一种支付方式');
+                return note(t('Apple 内购只能在 iPhone / iPad 的 Hyper App 里完成。可以取消这个订单，换一种支付方式'));
         }
         // 'none', or an action whose details have not arrived yet: the next poll brings them.
-        return note('正在同步支付状态…', true);
+        return note(t('正在同步支付状态…'), true);
     }
-    const payLink = (url) => h('a', { class: 'ow-plans-open', href: url, target: '_blank', rel: 'noopener noreferrer' }, '打开支付页面');
+    const payLink = (url) => h('a', { class: 'ow-plans-open', href: url, target: '_blank', rel: 'noopener noreferrer' }, t('打开支付页面'));
 
     function qrCode(value, label, size = 220) {
         const matrix = qrMatrix(value);
-        if (!matrix) return muted(ui, '内容太长，无法生成二维码');
+        if (!matrix) return muted(ui, t('内容太长，无法生成二维码'));
         const n = matrix.length,
             pad = 4,
             ns = 'http://www.w3.org/2000/svg';
@@ -847,7 +848,7 @@ export async function plans(ui) {
     function cryptoSelection(a) {
         const assets = Array.isArray(a.supported_assets) ? a.supported_assets : [];
         const tokens = assets.find((n) => n.network === st.asset.network)?.tokens ?? [];
-        const get = control('获取收款地址', chooseAsset, 'ow-primary', 'select-asset');
+        const get = control(t('获取收款地址'), chooseAsset, 'ow-primary', 'select-asset');
         if (!st.asset.token) get.disabled = true;
         return h(
             'div',
@@ -855,7 +856,7 @@ export async function plans(ui) {
             h(
                 'fieldset',
                 { class: 'ow-plans-options', role: 'radiogroup' },
-                h('legend', { class: 'ow-muted' }, '网络'),
+                h('legend', { class: 'ow-muted' }, t('网络')),
                 assets.map((n) =>
                     radio(n.display_name || n.network, st.asset.network === n.network, 'network:' + n.network, () => {
                         st.asset.network = n.network;
@@ -866,10 +867,10 @@ export async function plans(ui) {
             h(
                 'fieldset',
                 { class: 'ow-plans-options ow-plans-tokens', role: 'radiogroup' },
-                h('legend', { class: 'ow-muted' }, '币种'),
-                tokens.map((t) =>
-                    radio(t, st.asset.token === t, 'token:' + t, () => {
-                        st.asset.token = t;
+                h('legend', { class: 'ow-muted' }, t('币种')),
+                tokens.map((token) =>
+                    radio(token, st.asset.token === token, 'token:' + token, () => {
+                        st.asset.token = token;
                     }),
                 ),
             ),
@@ -880,13 +881,13 @@ export async function plans(ui) {
     function cryptoTransfer(a) {
         const address = a.receive_address;
         const status = h('p', { class: 'ow-muted', role: 'status' });
-        const copy = ui.button('复制地址', async () => {
+        const copy = ui.button(t('复制地址'), async () => {
             const ok = await copyText(address);
-            copy.textContent = ok ? '已复制' : '复制地址';
-            status.textContent = ok ? '' : '浏览器不允许自动复制，请点一下地址全选后手动复制';
+            copy.textContent = ok ? t('已复制') : t('复制地址');
+            status.textContent = ok ? '' : t('浏览器不允许自动复制，请点一下地址全选后手动复制');
             clearTimeout(copyTimer);
             copyTimer = setTimeout(() => {
-                copy.textContent = '复制地址';
+                copy.textContent = t('复制地址');
                 status.textContent = '';
             }, 3000);
         });
@@ -897,22 +898,22 @@ export async function plans(ui) {
             'div',
             { class: 'ow-plans-center' },
             h('strong', { class: 'ow-plans-crypto-amount' }, [a.actual_amount, token].filter(Boolean).join(' ')),
-            qrCode(address, '收款地址二维码'),
+            qrCode(address, t('收款地址二维码')),
             h('div', { class: 'ow-plans-address-row' }, h('code', { class: 'ow-mono ow-plans-address' }, address), copy),
             status,
-            h('p', { class: 'ow-warning' }, '请通过 ' + network + ' 网络转入 ' + token + '，金额需与上方完全一致'),
+            h('p', { class: 'ow-warning' }, t('请通过 ') + network + t(' 网络转入 ') + token + t('，金额需与上方完全一致')),
         );
     }
 
     function doneView() {
-        const name = st.payPlan || planOf(sel.plan)?.name || '套餐';
+        const name = st.payPlan || planOf(sel.plan)?.name || t('套餐');
         return h(
             'section',
             { class: 'ow-card ow-plans-result' },
-            h('h2', { tabindex: -1, class: 'ow-plans-success' }, '套餐已生效'),
-            muted(ui, name + '已生效，路由器正在同步新的节点'),
+            h('h2', { tabindex: -1, class: 'ow-plans-success' }, t('套餐已生效')),
+            muted(ui, name + t('已生效，路由器正在同步新的节点')),
             syncLine,
-            actions(ui, ui.button('返回概览', () => ui.go('overview'), 'ow-primary'), ui.button('查看账户', () => ui.go('account'))),
+            actions(ui, ui.button(t('返回概览'), () => ui.go('overview'), 'ow-primary'), ui.button(t('查看账户'), () => ui.go('account'))),
         );
     }
 
@@ -924,13 +925,13 @@ export async function plans(ui) {
         return h(
             'section',
             { class: 'ow-card ow-plans-result' },
-            h('h2', { tabindex: -1 }, expired ? '订单已超时' : failed ? '支付失败' : '订单已关闭'),
-            muted(ui, failed ? '如果已经扣款，请联系客服并提供订单号' : '没有完成支付，订单已关闭'),
-            s ? h('span', { class: 'ow-muted ow-mono' }, '订单号 ' + s.order_no) : null,
+            h('h2', { tabindex: -1 }, expired ? t('订单已超时') : failed ? t('支付失败') : t('订单已关闭')),
+            muted(ui, failed ? t('如果已经扣款，请联系客服并提供订单号') : t('没有完成支付，订单已关闭')),
+            s ? h('span', { class: 'ow-muted ow-mono' }, t('订单号 ') + s.order_no) : null,
             actions(
                 ui,
                 ui.button(
-                    '重新选择',
+                    t('重新选择'),
                     () => {
                         st.session = null;
                         go('pick');
@@ -1004,7 +1005,7 @@ export async function plans(ui) {
             if (r.code != null && r.code !== SESSION_RECOVERING && String(r.code).startsWith('62')) {
                 // The service will not say more about this order: polling stops until the user
                 // asks again.
-                st.halted = paymentError(r, '支付状态刷新失败');
+                st.halted = paymentError(r, t('支付状态刷新失败'));
                 return draw();
             }
             // A router or network hiccup: try again on the next round.
@@ -1039,7 +1040,7 @@ export async function plans(ui) {
         if (ui.signal.aborted || seq !== previews) return;
         if (!r?.ok) {
             revert();
-            return fail(failure(r, '价格计算失败'));
+            return fail(failure(r, t('价格计算失败')));
         }
         st.preview = r.data || null;
         st.confirmed = pick;
@@ -1055,7 +1056,7 @@ export async function plans(ui) {
         // A code typed but not applied is priced first, so the order is the one shown.
         if (sel.coupon.trim() !== c.coupon) {
             await toConfirm();
-            if (st.confirmed !== c && !ui.signal.aborted) say(line, '已按新的优惠码重新计算，请确认应付金额后再支付', { tone: 'done' });
+            if (st.confirmed !== c && !ui.signal.aborted) say(line, t('已按新的优惠码重新计算，请确认应付金额后再支付'), { tone: 'done' });
             return;
         }
         const key = st.purchaseKey;
@@ -1070,9 +1071,9 @@ export async function plans(ui) {
                 st.payPlan = plan?.name || '';
                 return go('done');
             }
-            return fail(paymentError(r, '下单失败'));
+            return fail(paymentError(r, t('下单失败')));
         }
-        if (!isSession(r.data)) return fail('支付服务返回的数据不完整，请稍后重试');
+        if (!isSession(r.data)) return fail(t('支付服务返回的数据不完整，请稍后重试'));
         st.payPlan = plan?.name || '';
         st.duration = c.quantity + ' ' + unitOf(plan);
         st.preparingSince = null;
@@ -1091,7 +1092,7 @@ export async function plans(ui) {
         if (r.ok && isSession(r.data) && r.data.order_no === s.order_no) return setSession(r.data);
         st.stalled = true;
         draw();
-        fail(paymentError(r, '支付状态刷新失败'));
+        fail(paymentError(r, t('支付状态刷新失败')));
     }
 
     async function chooseAsset() {
@@ -1105,14 +1106,14 @@ export async function plans(ui) {
         });
         if (ui.signal.aborted || st.step !== 'order' || st.session?.order_no !== s.order_no) return;
         if (r?.ok && isSession(r.data)) return setSession(r.data);
-        fail(paymentError(r, '当前币种或网络不可用'));
+        fail(paymentError(r, t('当前币种或网络不可用')));
     }
 
     function askCancel() {
         const s = st.session;
         if (!s) return;
-        const content = h('div', { class: 'ow-stack' }, h('p', {}, '确定取消这个订单？已经付款的话请不要取消'));
-        const d = ui.dialog('取消订单', content);
+        const content = h('div', { class: 'ow-stack' }, h('p', {}, t('确定取消这个订单？已经付款的话请不要取消')));
+        const d = ui.dialog(t('取消订单'), content);
         cancelDialog = d;
         d.addEventListener('close', () => {
             if (cancelDialog === d) cancelDialog = null;
@@ -1120,9 +1121,9 @@ export async function plans(ui) {
         content.append(
             actions(
                 ui,
-                ui.button('继续支付', () => d.close()),
+                ui.button(t('继续支付'), () => d.close()),
                 // Its error shows in the dialog, which stays open for another try.
-                ui.button('取消订单', act(async () => {
+                ui.button(t('取消订单'), act(async () => {
                     await cancel(s.order_no);
                     d.close();
                     // The control that opened the dialog went with the order view.
@@ -1134,7 +1135,7 @@ export async function plans(ui) {
     async function cancel(no) {
         const r = await api(ui, 'POST', orderPath(no, 'cancel'), { idempotencyKey: checkoutKey() });
         if (ui.signal.aborted || st.session?.order_no !== no) return;
-        if (!r?.ok && r?.code !== ORDER_ALREADY_PAID) throw new Error(paymentError(r, '取消失败，请稍后再试'));
+        if (!r?.ok && r?.code !== ORDER_ALREADY_PAID) throw new Error(paymentError(r, t('取消失败，请稍后再试')));
         if (r.code === ORDER_ALREADY_PAID || (isSession(r.data) && isPaid(r.data))) return go('done');
         savePending(null);
         st.session = null;
@@ -1142,32 +1143,32 @@ export async function plans(ui) {
         rev++;
         clearTimeout(timer);
         go('pick');
-        say(line, '订单已取消', { tone: 'done' });
+        say(line, t('订单已取消'), { tone: 'done' });
     }
 
     // --- What the page opens with ---
 
     const signedOut = [list, methods].some((r) => r?.error === 'not_signed_in' || r?.error === 'not signed in');
     const problems = [
-        list && !list.ok ? failure(list, '套餐加载失败') : '',
-        methods && !methods.ok ? failure(methods, '支付方式加载失败') : '',
+        list && !list.ok ? failure(list, t('套餐加载失败')) : '',
+        methods && !methods.ok ? failure(methods, t('支付方式加载失败')) : '',
     ].filter((x, i, all) => x && all.indexOf(x) === i);
-    if (signedOut) say(line, [problems[0] || '请先登录 Hyper 账户', ' · ', ui.button('前往登录', () => ui.go('account'), 'ow-link')]);
+    if (signedOut) say(line, [problems[0] || t('请先登录 Hyper 账户'), ' · ', ui.button(t('前往登录'), () => ui.go('account'), 'ow-link')]);
     else if (problems.length) say(line, problems.join(' · '));
 
     // An order opened earlier in this tab and not finished yet.
     if (pending && restored) {
         if (restored.ok && isSession(restored.data) && !isTerminal(restored.data)) {
-            st.payPlan = localizedText(pending.plan, '套餐');
+            st.payPlan = localizedText(pending.plan, t('套餐'));
             st.duration = (pending.quantity + ' ' + (pending.unit || '')).trim();
             setSession(restored.data, true);
         } else if (restored.ok && isSession(restored.data) && isPaid(restored.data)) {
             // Paid while the page was away: the plan is in effect, its nodes still to sync.
-            st.payPlan = localizedText(pending.plan, '套餐');
+            st.payPlan = localizedText(pending.plan, t('套餐'));
             setSession(restored.data);
         } else if (transient(restored)) {
             // Kept for the next visit: the service could not be reached to ask about it.
-            say(line, ['上次未完成的订单暂时无法读取 · ', ui.button('重新读取', () => ui.refresh(), 'ow-link')]);
+            say(line, [t('上次未完成的订单暂时无法读取 · '), ui.button(t('重新读取'), () => ui.refresh(), 'ow-link')]);
         } else savePending(null);
     }
     if (!drawn) draw();

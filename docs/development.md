@@ -22,7 +22,7 @@ go test -race ./...
 node scripts/check-luci.mjs
 ```
 
-`check-luci.mjs` 按浏览器加载的方式检查 LuCI 页面：`view/` 下为 LuCI 求值的函数体，其余为 ES 模块，并确认相对导入存在。页面就是 LuCI 原生 JavaScript，没有构建步骤。`cmd/hyperd` 的 `TestEmittedCodesReadInChinese` 读取 Go 源码，hyperd 报出的错误码或任务名在页面没有中文时失败
+`check-luci.mjs` 按浏览器加载的方式检查 LuCI 页面：`view/` 下为 LuCI 求值的函数体，其余为 ES 模块，并确认相对导入存在。页面就是 LuCI 原生 JavaScript，没有构建步骤。它同时检查英文：页面上的每段文字都写成 `t('中文')`（带参数时 `t('当前 {0}', v)`），[en.js](../files/www/luci-static/resources/hyper/en.js) 以中文为键给出英文；缺英文、多余的键或 `t()` 之外的中文都会失败（注释和正则表达式除外）。语言由 [i18n.js](../files/www/luci-static/resources/hyper/i18n.js) 决定：默认跟随 LuCI 的语言，在概览的“界面语言”中按浏览器保存选择，切换后重新载入页面；账户接口的服务端文字按同一语言请求。`cmd/hyperd` 的 `TestEmittedCodesReadInChinese` 读取 Go 源码，hyperd 报出的错误码或任务名在页面没有中文时失败
 
 CI 还以 root 在独立网络命名空间里运行随包内核（`internal/control`、`internal/router` 的真实内核测试），用 shellcheck 检查路由器脚本，并在官方 OpenWrt rootfs 容器中安装软件包（[install-test.sh](../packaging/openwrt/install-test.sh)）：离线安装、LuCI 与 rpcd 调用、daemon 安装随包内核、插件自更新的各项校验、从最新正式版升级以及卸载
 

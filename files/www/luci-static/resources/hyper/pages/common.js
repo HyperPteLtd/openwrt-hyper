@@ -1,3 +1,4 @@
+import { t, locale } from '../i18n.js';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Hyper Pte. Ltd.
 //
@@ -51,7 +52,7 @@ export function confirm(u, title, content, label, handler, tone = 'ow-danger') {
     body.append(
         actions(
             u,
-            u.button('取消', () => dialog.close()),
+            u.button(t('取消'), () => dialog.close()),
             u.button(
                 label,
                 async () => {
@@ -79,73 +80,73 @@ export function api(u, method, path, { query = {}, body, idempotencyKey } = {}) 
     return write(u, 'api', {
         api_method: method,
         path,
-        api_query: { language: 'zh-CN', ...query },
+        api_query: { language: locale, ...query },
         ...(body !== undefined ? { body } : {}),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
     });
 }
 // The account API's own codes (internal/account), which reach the page in a reply's error.
 const accountErrors = {
-    not_signed_in: '尚未登录 Hyper 账户',
-    api_unavailable: '暂时无法连接 Hyper 服务，请检查网络后重试',
-    timeout: '请求超时，请稍后重试',
-    invalid_json: 'Hyper 服务返回的内容无法读取，请稍后重试',
-    login_failed: '登录失败，请检查验证码',
-    register_failed: '注册失败',
-    session_write_failed: '无法保存登录状态，请检查路由器存储空间',
-    no_subscription: '账户还没有可用的套餐',
-    subscribe_list_failed: '无法读取账户套餐',
-    session_changed: '登录账户已变更，请刷新页面',
+    not_signed_in: t('尚未登录 Hyper 账户'),
+    api_unavailable: t('暂时无法连接 Hyper 服务，请检查网络后重试'),
+    timeout: t('请求超时，请稍后重试'),
+    invalid_json: t('Hyper 服务返回的内容无法读取，请稍后重试'),
+    login_failed: t('登录失败，请检查验证码'),
+    register_failed: t('注册失败'),
+    session_write_failed: t('无法保存登录状态，请检查路由器存储空间'),
+    no_subscription: t('账户还没有可用的套餐'),
+    subscribe_list_failed: t('无法读取账户套餐'),
+    session_changed: t('登录账户已变更，请刷新页面'),
 };
-export const apiError = (r, fallback = '请求失败') =>
+export const apiError = (r, fallback = t('请求失败')) =>
     r?.msg || accountErrors[r?.error] || (r?.error ? diagnosticMessage(r.error) : '') || fallback;
 
 // --- Syncing the account's nodes and rules -----------------------------------------------------
 
 const notices = {
-    mihomo_protocol_unsupported: '当前内核无法使用该协议，请切换到支持它的版本',
-    mihomo_capability_unknown: '选择内核后可确认此节点是否可用',
-    mihomo_unsupported_rule: '这条规则无法转换为内核规则',
-    mihomo_unsupported_rule_set: '该规则集无法被内核直接使用',
-    mihomo_router_field_ignored: '路由器使用自身的监听、安全及网络设置，已忽略对应选项',
-    node_missing_credential: '节点缺少认证信息，已跳过',
-    unsupported_node: '节点或协议选项无法使用，已跳过',
-    invalid_credential: '节点的认证信息无效，已跳过',
-    nonstandard_snell_credential: 'Snell 节点缺少标准 psk 认证字段，已跳过',
-    provider_required: '引用了尚未载入的节点提供方',
-    dialer_proxy_unavailable: '该节点经由的前置代理不存在或已跳过，此节点也已跳过',
-    dialer_proxy_cycle: '该节点的前置代理链会绕回自身，已跳过',
-    rule_provider_custom_geo: '使用了自定义地理数据库，这条地理规则无法还原',
-    rule_provider_reference_unavailable: '规则引用的规则集未载入，相关规则无法使用',
-    unsupported_group: '策略组无法使用，已跳过',
-    source_mismatch: '来源与当前订阅不一致',
-    rejection_removed: '会移除原有的拦截规则',
-    routing_disappeared: '新版本没有分流规则和策略组',
-    active_target_missing: '正在使用的节点或策略组在新版本中不存在',
-    local_fallback_removes_rejection: '切换到本地分流会移除原拦截规则',
-    superseded: '已有更新的请求接手了这次同步，请查看最新任务的结果',
+    mihomo_protocol_unsupported: t('当前内核无法使用该协议，请切换到支持它的版本'),
+    mihomo_capability_unknown: t('选择内核后可确认此节点是否可用'),
+    mihomo_unsupported_rule: t('这条规则无法转换为内核规则'),
+    mihomo_unsupported_rule_set: t('该规则集无法被内核直接使用'),
+    mihomo_router_field_ignored: t('路由器使用自身的监听、安全及网络设置，已忽略对应选项'),
+    node_missing_credential: t('节点缺少认证信息，已跳过'),
+    unsupported_node: t('节点或协议选项无法使用，已跳过'),
+    invalid_credential: t('节点的认证信息无效，已跳过'),
+    nonstandard_snell_credential: t('Snell 节点缺少标准 psk 认证字段，已跳过'),
+    provider_required: t('引用了尚未载入的节点提供方'),
+    dialer_proxy_unavailable: t('该节点经由的前置代理不存在或已跳过，此节点也已跳过'),
+    dialer_proxy_cycle: t('该节点的前置代理链会绕回自身，已跳过'),
+    rule_provider_custom_geo: t('使用了自定义地理数据库，这条地理规则无法还原'),
+    rule_provider_reference_unavailable: t('规则引用的规则集未载入，相关规则无法使用'),
+    unsupported_group: t('策略组无法使用，已跳过'),
+    source_mismatch: t('来源与当前订阅不一致'),
+    rejection_removed: t('会移除原有的拦截规则'),
+    routing_disappeared: t('新版本没有分流规则和策略组'),
+    active_target_missing: t('正在使用的节点或策略组在新版本中不存在'),
+    local_fallback_removes_rejection: t('切换到本地分流会移除原拦截规则'),
+    superseded: t('已有更新的请求接手了这次同步，请查看最新任务的结果'),
     // Share links the router reads (internal/links): each only leaves its node out.
-    link_unsupported_proxy: '该节点的协议暂不支持，已跳过',
-    link_unsupported_option: '该节点有无法使用的选项，已跳过',
-    link_invalid_proxy: '该节点的链接不完整，已跳过',
-    link_ignored_option: '该节点的部分选项由路由器决定，已忽略',
-    link_unsupported_rule: '这条规则无法使用，已跳过',
-    link_unsupported_rule_set: '这个规则集无法使用，已跳过',
-    link_unsupported_provider: '这个节点来源无法使用，已跳过',
-    link_local_provider: '这个节点来源指向本地文件，已跳过',
-    link_unsupported_group: '这个策略组无法使用，已跳过',
-    link_unknown_reference: '引用了不存在的节点或策略组，已跳过',
-    link_cyclic_reference: '策略组之间互相引用，已跳过',
-    link_empty_group: '策略组没有可用节点，已跳过',
-    link_renamed: '有重名的节点，已自动改名',
-    link_template_unavailable: '默认分流规则暂时不可用',
-    link_confirmation_required: '这部分内容需要确认后才能使用',
+    link_unsupported_proxy: t('该节点的协议暂不支持，已跳过'),
+    link_unsupported_option: t('该节点有无法使用的选项，已跳过'),
+    link_invalid_proxy: t('该节点的链接不完整，已跳过'),
+    link_ignored_option: t('该节点的部分选项由路由器决定，已忽略'),
+    link_unsupported_rule: t('这条规则无法使用，已跳过'),
+    link_unsupported_rule_set: t('这个规则集无法使用，已跳过'),
+    link_unsupported_provider: t('这个节点来源无法使用，已跳过'),
+    link_local_provider: t('这个节点来源指向本地文件，已跳过'),
+    link_unsupported_group: t('这个策略组无法使用，已跳过'),
+    link_unknown_reference: t('引用了不存在的节点或策略组，已跳过'),
+    link_cyclic_reference: t('策略组之间互相引用，已跳过'),
+    link_empty_group: t('策略组没有可用节点，已跳过'),
+    link_renamed: t('有重名的节点，已自动改名'),
+    link_template_unavailable: t('默认分流规则暂时不可用'),
+    link_confirmation_required: t('这部分内容需要确认后才能使用'),
 };
 // An update a scheduled sync read but did not apply (the source's pending_update), and the
 // button on the sync card that reads it again to review it.
 export const pendingUpdates = {
-    confirmation_required: { text: '自动同步发现变更待确认，确认前节点和规则保持不变', action: '查看并确认' },
-    update_blocked: { text: '自动同步取到的新版本无法使用，已保留上次的节点', action: '查看原因' },
+    confirmation_required: { text: t('自动同步发现变更待确认，确认前节点和规则保持不变'), action: t('查看并确认') },
+    update_blocked: { text: t('自动同步取到的新版本无法使用，已保留上次的节点'), action: t('查看原因') },
 };
 const noticeText = (n) => [n.at, n.resource, notices[n.code] || diagnosticMessage(n.code)].filter(Boolean).join(' · ');
 
@@ -157,17 +158,17 @@ export function syncFailure(err) {
 export function review(u, result) {
     const changes = result?.changes || {};
     const lines = [
-        ['新增节点', changes.added?.map((x) => x.name)],
-        ['移除节点', changes.removed?.map((x) => x.name)],
-        ['受影响的策略组', changes.affected_groups?.map((id) => u.name(id) || id)],
-        ['引用已失效', changes.missing_active_targets?.map((id) => u.name(id) || id)],
+        [t('新增节点'), changes.added?.map((x) => x.name)],
+        [t('移除节点'), changes.removed?.map((x) => x.name)],
+        [t('受影响的策略组'), changes.affected_groups?.map((id) => u.name(id) || id)],
+        [t('引用已失效'), changes.missing_active_targets?.map((id) => u.name(id) || id)],
     ];
     return u.h(
         'div',
         { class: 'ow-stack' },
         ...lines
             .filter((x) => x[1]?.length)
-            .map(([key, values]) => u.h('details', {}, u.h('summary', {}, key + ' · ' + values.length), u.h('p', {}, values.join('、')))),
+            .map(([key, values]) => u.h('details', {}, u.h('summary', {}, key + ' · ' + values.length), u.h('p', {}, values.join(t('、'))))),
         ...(result?.notices || []).slice(0, 50).map((n) => u.h('p', { class: 'ow-muted' }, noticeText(n))),
     );
 }
@@ -178,27 +179,27 @@ export async function syncHyper(u, feedback, confirmation) {
     const previous = (u.sources || []).some((s) => s.source === HYPER && s.ready);
     if (feedback) {
         feedback.hidden = false;
-        feedback.textContent = '正在同步节点…';
+        feedback.textContent = t('正在同步节点…');
         delete feedback.dataset.tone;
     }
     try {
         const r = await write(u, 'refresh', { source: HYPER, ...(confirmation ? { confirm: confirmation } : {}) });
         if (u.signal.aborted) return false;
         if (r?.decision === 'confirmation_required') {
-            if (feedback) feedback.textContent = '等待确认更改';
+            if (feedback) feedback.textContent = t('等待确认更改');
             const ok = await confirm(
                 u,
-                '确认节点变更',
-                u.h('div', {}, u.h('p', {}, '这次同步有些内容无法按原样使用。应用前请核对以下变化。'), review(u, r)),
-                '应用此版本',
+                t('确认节点变更'),
+                u.h('div', {}, u.h('p', {}, t('这次同步有些内容无法按原样使用。应用前请核对以下变化。')), review(u, r)),
+                t('应用此版本'),
                 () => syncHyper(u, feedback, r.confirmation_id),
                 'ow-primary',
             );
-            if (!ok && feedback) feedback.textContent = previous ? '已保留现有节点' : '已取消本次同步';
+            if (!ok && feedback) feedback.textContent = previous ? t('已保留现有节点') : t('已取消本次同步');
             return ok;
         }
         if (r?.decision !== 'ready') {
-            const message = previous ? '新版本无法使用，已保留上次的节点' : '同步到的节点无法使用';
+            const message = previous ? t('新版本无法使用，已保留上次的节点') : t('同步到的节点无法使用');
             if (feedback) {
                 feedback.replaceChildren(u.h('details', {}, u.h('summary', {}, message), review(u, r)));
                 feedback.dataset.tone = 'error';
@@ -206,14 +207,14 @@ export async function syncHyper(u, feedback, confirmation) {
             return false;
         }
         if (feedback) {
-            const extra = r.notices?.length ? ' · ' + r.notices.length + ' 条提醒' : '';
-            feedback.replaceChildren(u.h('details', {}, u.h('summary', {}, '同步完成 · ' + r.node_count + ' 个节点' + extra), review(u, r)));
+            const extra = r.notices?.length ? ' · ' + r.notices.length + t(' 条提醒') : '';
+            feedback.replaceChildren(u.h('details', {}, u.h('summary', {}, t('同步完成 · ') + r.node_count + t(' 个节点') + extra), review(u, r)));
         }
         return true;
     } catch (err) {
         const description = syncFailure(err);
         if (feedback) {
-            feedback.textContent = '同步失败 · ' + description + (previous ? ' · 已保留上次的节点' : '');
+            feedback.textContent = t('同步失败 · ') + description + (previous ? t(' · 已保留上次的节点') : '');
             feedback.dataset.tone = 'error';
         }
         const failure = description !== err.message ? new Error(description) : err;
@@ -237,7 +238,8 @@ export function localizedText(value, fallback = '') {
     }
     if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
     const entries = Object.entries(value);
-    for (const key of ['zh-CN', 'zh_Hans', 'zh-Hans', 'zh', 'cn', 'en-US', 'en']) {
+    const chinese = ['zh-CN', 'zh_Hans', 'zh-Hans', 'zh', 'cn'], english = ['en-US', 'en'];
+    for (const key of locale === 'en-US' ? [...english, ...chinese] : [...chinese, ...english]) {
         const text = entries.find(([k]) => k.toLowerCase() === key.toLowerCase())?.[1];
         if (typeof text === 'string' && text.trim()) return text.trim();
     }
@@ -259,13 +261,13 @@ export function formatDate(ts) {
 }
 export function expiryText(value, status = 1, now = Date.now()) {
     const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
-    const suffix = status === 1 ? '' : ' · 已失效';
-    if (value === null || n === 0 || n === -62135596800000 || n === -62135596800) return '∞ 无限期' + suffix;
-    if (!Number.isFinite(n) || n < 0) return '到期时间未知' + suffix;
+    const suffix = status === 1 ? '' : t(' · 已失效');
+    if (value === null || n === 0 || n === -62135596800000 || n === -62135596800) return t('∞ 无限期') + suffix;
+    if (!Number.isFinite(n) || n < 0) return t('到期时间未知') + suffix;
     const ms = n > 1e12 ? n : n * 1000;
     const day = formatDate(ms);
-    if (ms <= now) return day + ' 到期 · 已过期';
-    return status === 1 ? day + ' 到期 · 剩余 ' + Math.ceil((ms - now) / 86400000) + ' 天' : day + ' 到期' + suffix;
+    if (ms <= now) return day + t(' 到期 · 已过期');
+    return status === 1 ? day + t(' 到期 · 剩余 ') + Math.ceil((ms - now) / 86400000) + t(' 天') : day + t(' 到期') + suffix;
 }
 const nonnegative = (v) => {
     const n = Number(v);
@@ -306,10 +308,10 @@ export function money(amount, currency = DEFAULT_CURRENCY, scale = MINOR_SCALE) 
     if (amount == null || !Number.isFinite(Number(amount))) return '--';
     const divisor = amountScale({ amount_scale: scale });
     const digits = Math.max(2, Math.ceil(Math.log10(divisor)));
-    const value = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: digits }).format(Number(amount) / divisor);
+    const value = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: digits }).format(Number(amount) / divisor);
     return value + ' ' + currency.unit;
 }
-export const UNIT_LABEL = { Year: '年', Month: '个月', Week: '周', Day: '天', Hour: '小时', NoLimit: '' };
+export const UNIT_LABEL = { Year: t('年'), Month: t('个月'), Week: t('周'), Day: t('天'), Hour: t('小时'), NoLimit: '' };
 // Order status, as the Hyper app reads it: 1 pending, 2/5 paid, 3 cancelled, 4 closed.
 export function orderPhase(status) {
     if (status === 1) return 'pending';

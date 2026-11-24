@@ -229,7 +229,7 @@ func TestPagesNameTheChinaListsAsTheCore(t *testing.T) {
 	if table == nil {
 		t.Fatal("dom.js has no mainlandSets")
 	}
-	entries := regexp.MustCompile(`'([^']+)': \{ label: '([^']+)', tag: '([^']+)' \},`).FindAllSubmatch(table[1], -1)
+	entries := regexp.MustCompile(`'([^']+)': \{ label: t\('([^']+)'\), tag: '([^']+)' \},`).FindAllSubmatch(table[1], -1)
 	if len(entries) != len(mainlandSets) || len(entries) != strings.Count(string(table[1]), "\n")+1 {
 		t.Fatalf("dom.js lists %d mainland sets, the core %d", len(entries), len(mainlandSets))
 	}

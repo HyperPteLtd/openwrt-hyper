@@ -1,26 +1,27 @@
+import { t } from '../i18n.js';
 import { card, h, select, segment, empty, clock, download, resultName, eventMessage, datetime, attach, hush, setLabel, setRefs } from '../dom.js';
 
-const levels = { info: '信息', warn: '警告', error: '错误' };
+const levels = { info: t('信息'), warn: t('警告'), error: t('错误') };
 const sources = {
-	service: '服务',
-	core: '代理内核',
-	task: '后台任务',
-	subscription: '订阅',
+	service: t('服务'),
+	core: t('代理内核'),
+	task: t('后台任务'),
+	subscription: t('订阅'),
 	dns: 'DNS',
-	firewall: '防火墙',
-	kernel: '内核',
+	firewall: t('防火墙'),
+	kernel: t('内核'),
 };
-const outcome = (v) => (v === 'traffic_observed' ? '已建立' : resultName[v] || v || '—');
+const outcome = (v) => (v === 'traffic_observed' ? t('已建立') : resultName[v] || v || '—');
 // The router's QUIC rules, as the core reports them (router config.go): QUIC the proxy would carry
 // is refused so that browsers fall back to TCP. Mainland names the proxy must carry count as foreign.
 const routerRules = {
-	'AND,((NETWORK,UDP),(DST-PORT,443),(RULE-SET,hyper-cn-proxied))': '拦截 QUIC · 需代理的大陆域名',
+	'AND,((NETWORK,UDP),(DST-PORT,443),(RULE-SET,hyper-cn-proxied))': t('拦截 QUIC · 需代理的大陆域名'),
 	'AND,((NETWORK,UDP),(DST-PORT,443),(NOT,((RULE-SET,hyper-dns-cn))),(NOT,((RULE-SET,hyper-ip-cn,no-resolve))))':
-		'拦截境外 QUIC',
+		t('拦截境外 QUIC'),
 };
 export async function records(ui) {
 	const logs = ui.page === 'logs',
-		title = logs ? '日志' : '连接记录';
+		title = logs ? t('日志') : t('连接记录');
 	const state = (ui.memory[ui.page] ||= {
 		follow: true,
 		category: '',
@@ -41,10 +42,10 @@ export async function records(ui) {
 		if (!rule) return '—';
 		if (Object.hasOwn(routerRules, rule)) return routerRules[rule];
 		const set = ruleSetOf(rule);
-		if (set) return '规则集 ' + setLabel(set);
+		if (set) return t('规则集 ') + setLabel(set);
 		// A logical rule names its rule sets inside its conditions.
 		const [type, ...payload] = rule.split(',');
-		return type === 'Match' ? '兜底' : type + (payload.length ? ' ' + setRefs(payload.join(',')) : '');
+		return type === 'Match' ? t('兜底') : type + (payload.length ? ' ' + setRefs(payload.join(',')) : '');
 	};
 	const deviceNames = new Map();
 	if (!logs) {
@@ -57,46 +58,46 @@ export async function records(ui) {
 		deviceNames.has(address) ? deviceNames.get(address) + ' · ' + address : address;
 	const search = h('input', {
 		type: 'search',
-		'aria-label': '搜索' + title,
-		placeholder: logs ? '筛选消息、来源或任务 ID' : '搜索目标、设备、策略组或节点',
+		'aria-label': t('搜索') + title,
+		placeholder: logs ? t('筛选消息、来源或任务 ID') : t('搜索目标、设备、策略组或节点'),
 		value: state.query,
 	});
 	const categories = logs
 		? [
-				['', '全部'],
-				['warn', '警告及以上'],
-				['error', '仅错误'],
+				['', t('全部')],
+				['warn', t('警告及以上')],
+				['error', t('仅错误')],
 			]
 		: [
-				['', '全部'],
-				['proxy', '代理'],
-				['direct', '直连'],
-				['reject', '拦截'],
-				['failed', '失败'],
+				['', t('全部')],
+				['proxy', t('代理')],
+				['direct', t('直连')],
+				['reject', t('拦截')],
+				['failed', t('失败')],
 			];
-	const category = segment(ui, logs ? '日志级别' : '连接类型', categories, state.category, (value) => {
+	const category = segment(ui, logs ? t('日志级别') : t('连接类型'), categories, state.category, (value) => {
 		state.category = value;
 		for (const [i, option] of categories.entries())
 			category.children[i].setAttribute('aria-pressed', String(option[0] === value));
 		draw();
 	});
-	const source = select('日志来源', [['', '全部来源'], ...Object.entries(sources)], state.source, (v) => {
+	const source = select(t('日志来源'), [['', t('全部来源')], ...Object.entries(sources)], state.source, (v) => {
 		state.source = v;
 		draw();
 	});
-	const device = h('select', { 'aria-label': '设备' });
+	const device = h('select', { 'aria-label': t('设备') });
 	device.addEventListener('change', () => {
 		state.device = device.value;
 		draw();
 	});
-	const ruleFilter = h('select', { 'aria-label': '命中规则集' });
+	const ruleFilter = h('select', { 'aria-label': t('命中规则集') });
 	ruleFilter.addEventListener('change', () => {
 		state.rule = ruleFilter.value;
 		draw();
 	});
 	let requestId = 0;
 	const follow = ui.button(
-		'实时跟随',
+		t('实时跟随'),
 		() => {
 			state.follow = !state.follow;
 			requestId++;
@@ -110,7 +111,7 @@ export async function records(ui) {
 		footer = h('div', { class: 'ow-records-foot' });
 	let entries = [],
 		shown = [];
-	const columns = ['时间', '设备', '目标', '策略组', '出口', '命中规则', '结果'];
+	const columns = [t('时间'), t('设备'), t('目标'), t('策略组'), t('出口'), t('命中规则'), t('结果')];
 	const rowValues = (c) => [
 		clock(c.created_at),
 		deviceLabel(c.device) || '—',
@@ -154,20 +155,20 @@ export async function records(ui) {
 			const values = [...new Set(entries.map((c) => c.device).filter(Boolean))];
 			if (state.device && !values.includes(state.device)) values.push(state.device);
 			device.replaceChildren(
-				h('option', { value: '' }, '全部设备'),
+				h('option', { value: '' }, t('全部设备')),
 				...values.map((x) => h('option', { value: x }, deviceLabel(x))),
 			);
 			device.value = state.device;
 			const sets = [...new Set(entries.map((c) => ruleSetOf(c.rule)).filter(Boolean))].sort();
 			if (state.rule && !sets.includes(state.rule)) sets.unshift(state.rule);
 			ruleFilter.replaceChildren(
-				h('option', { value: '' }, '全部规则集'),
+				h('option', { value: '' }, t('全部规则集')),
 				...sets.map((x) => h('option', { value: x }, setLabel(x))),
 			);
 			ruleFilter.value = state.rule;
 		}
 		if (!shown.length)
-			display.replaceChildren(empty(entries.length || state.serverQuery ? '没有匹配的记录' : '暂无' + title));
+			display.replaceChildren(empty(entries.length || state.serverQuery ? t('没有匹配的记录') : t('暂无') + title));
 		else if (logs)
 			display.replaceChildren(
 				...shown.slice(0, state.limit).map((v) => {
@@ -229,14 +230,14 @@ export async function records(ui) {
 		footer.replaceChildren(
 			shown.length > state.limit
 				? ui.button(
-						'加载更早记录',
+						t('加载更早记录'),
 						() => {
 							state.limit += 40;
 							draw();
 						},
 						'ow-link',
 					)
-				: h('small', { class: 'ow-muted' }, shown.length + ' 条记录'),
+				: h('small', { class: 'ow-muted' }, shown.length + t(' 条记录')),
 		);
 	}
 	async function readRows(query, current = () => true) {
@@ -271,8 +272,8 @@ export async function records(ui) {
 		logs &&
 		h('input', {
 			type: 'search',
-			'aria-label': '搜索路由器日志',
-			placeholder: '搜索路由器日志',
+			'aria-label': t('搜索路由器日志'),
+			placeholder: t('搜索路由器日志'),
 			value: state.serverQuery || '',
 		});
 	// What the toolbar's search and actions report sits under the toolbar.
@@ -300,7 +301,7 @@ export async function records(ui) {
 	const headerLine = ui.feedback(header);
 	if (logs)
 		header.append(
-			ui.button('导出诊断', async () => {
+			ui.button(t('导出诊断'), async () => {
 				const [status, kernel, env, events] = await Promise.all([
 					ui.rpc('status'),
 					ui.rpc('kernel_read', { action: 'status' }),
@@ -322,7 +323,7 @@ export async function records(ui) {
 					environment: env,
 					// Codes, counts and settings only: no names, links, servers or notice details.
 					sources: ui.sources.map((s) => {
-						const t = s.template;
+						const template = s.template;
 						return {
 							kind: s.kind,
 							ready: s.ready,
@@ -333,7 +334,7 @@ export async function records(ui) {
 							// template when they are missing or too lossy) and what the current profile
 							// routes by: its own rules, the template, or the router's local default.
 							routing: s.rules || 'auto',
-							routing_in_effect: !s.ready ? null : s.local ? 'local' : t ? 'template' : 'subscription',
+							routing_in_effect: !s.ready ? null : s.local ? 'local' : template ? 'template' : 'subscription',
 							local: !!s.local,
 							local_fallback: !!s.local_fallback,
 							template: t
@@ -352,30 +353,30 @@ export async function records(ui) {
 		'div',
 		{ class: 'ow-actions ow-records-actions' },
 		ui.button(
-			'复制',
+			t('复制'),
 			async () => {
 				if (navigator.clipboard?.writeText) {
 					await navigator.clipboard.writeText(text());
 					return;
 				}
-				const area = h('textarea', { 'aria-label': '复制筛选结果', readonly: true }, text());
-				ui.dialog('复制筛选结果', area);
+				const area = h('textarea', { 'aria-label': t('复制筛选结果'), readonly: true }, text());
+				ui.dialog(t('复制筛选结果'), area);
 				area.select();
 			},
 			'ow-link',
 		),
-		ui.button('导出筛选结果', () => download('hyper-' + ui.page + '.json', text()), 'ow-link'),
+		ui.button(t('导出筛选结果'), () => download('hyper-' + ui.page + '.json', text()), 'ow-link'),
 		ui.button(
-			'清空',
+			t('清空'),
 			() => {
 				const d = ui.dialog(
-					'清空' + title,
+					t('清空') + title,
 					h(
 						'div',
 						{ class: 'ow-stack' },
-						h('p', {}, '清空此页的所有记录？'),
+						h('p', {}, t('清空此页的所有记录？')),
 						ui.button(
-							'清空' + title,
+							t('清空') + title,
 							async () => {
 								await ui.rpc('clear', { page: ui.page });
 								d.close();

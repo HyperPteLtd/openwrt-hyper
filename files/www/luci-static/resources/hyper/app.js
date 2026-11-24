@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 import { h, card, knownNames, pages, feedback, feedbackFor, say, hush, diagnosticMessage, nameMembers } from './dom.js';
 import { overview } from './pages/overview.js';
 import { proxy } from './pages/proxy.js';
@@ -7,14 +8,14 @@ import { rules } from './pages/rules.js';
 import { records } from './pages/records.js';
 
 const views = {
-	overview: ['概览', overview],
-	proxy: ['代理', proxy],
-	account: ['账户', hyperAccount],
-	rules: ['规则', rules],
-	logs: ['日志', records],
-	connections: ['连接记录', records],
+	overview: [t('概览'), overview],
+	proxy: [t('代理'), proxy],
+	account: [t('账户'), hyperAccount],
+	rules: [t('规则'), rules],
+	logs: [t('日志'), records],
+	connections: [t('连接记录'), records],
 	// Reached from the account page, not the navigation.
-	plans: ['套餐', plans],
+	plans: [t('套餐'), plans],
 };
 const hidden = new Set(['plans']);
 const aliases = {
@@ -93,7 +94,7 @@ export function mount(root, invoke) {
 		// uhttpd encodes a successful empty ubus table as just status 0.
 		if ((v === 0 || v == null) && (method === 'groups' || method === 'latencies')) return {};
 		if (!v || v.ok === false || (v.error && !('saved' in v || 'stage' in v)))
-			throw new Error(v?.error || '路由器未返回结果');
+			throw new Error(v?.error || t('路由器未返回结果'));
 		return v;
 	};
 	const notify = (message) => {
@@ -213,7 +214,7 @@ export function mount(root, invoke) {
 			),
 			h('div', { class: 'ow-modal-body' }, h('p', { class: 'ow-modal-status', role: 'alert', hidden: true }), body),
 		);
-		d.querySelector('.ow-close').setAttribute('aria-label', '关闭');
+		d.querySelector('.ow-close').setAttribute('aria-label', t('关闭'));
 		root.append(d);
 		d.addEventListener('close', () => {
 			d.remove();
@@ -277,7 +278,7 @@ export function mount(root, invoke) {
 			if (info.stage === 'running') continue;
 			track(pending().filter((x) => x !== id));
 			if (info.stage !== 'done') {
-				const failure = new Error(info.result?.error || info.error || '任务未完成');
+				const failure = new Error(info.result?.error || info.error || t('任务未完成'));
 				if (method === 'subscription_write') {
 					failure.provider = info.result?.provider;
 					failure.tls = info.result?.tls;
@@ -286,7 +287,7 @@ export function mount(root, invoke) {
 			}
 			return info.result?.ok === true ? info.result.data : info.result;
 		}
-		throw new DOMException('已离开页面', 'AbortError');
+		throw new DOMException(t('已离开页面'), 'AbortError');
 	}
 	async function render() {
 		scope?.abort();
@@ -363,7 +364,7 @@ export function mount(root, invoke) {
 							if (primary?.local)
 								g.unshift({
 									id: '@default',
-									name: '默认代理',
+									name: t('默认代理'),
 									kind: 'selector',
 									members: nodes.filter((n) => !n.special).map((n) => n.id),
 								});
@@ -409,7 +410,7 @@ export function mount(root, invoke) {
 			if (!controller.signal.aborted) {
 				keyed = new Map();
 				drawn = '';
-				main.replaceChildren(card('无法加载页面', h('p', {}, e.message), button('重试', render)));
+				main.replaceChildren(card(t('无法加载页面'), h('p', {}, e.message), button(t('重试'), render)));
 			}
 		} finally {
 			if (!controller.signal.aborted) main.setAttribute('aria-busy', 'false');
@@ -442,7 +443,7 @@ export function mount(root, invoke) {
 				const task = await rpc('task', { task: id });
 				if (task.stage !== 'running') {
 					track(pending().filter((x) => x !== id));
-					if (task.stage !== 'done') notify(diagnosticMessage(task.error) || '上次任务未完成');
+					if (task.stage !== 'done') notify(diagnosticMessage(task.error) || t('上次任务未完成'));
 					else render();
 				}
 			} catch (_) {
