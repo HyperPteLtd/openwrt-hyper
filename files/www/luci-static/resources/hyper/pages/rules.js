@@ -1,7 +1,7 @@
 import { t } from '../i18n.js';
 // The rules page: the Hyper account's server lists and the administrator's own rules.
 import { attach, hush, diagnosticMessage, setLabel, setRefs, learnListSets } from '../dom.js';
-import { ids, actions, muted, badge, field, input, choice, read, form, confirm, syncHyper, write } from './common.js';
+import { ids, muted, badge, field, input, choice, read, form, confirm, syncHyper, write } from './common.js';
 
 const matchType = {
     domain: 'DOMAIN',
@@ -49,9 +49,13 @@ function describeRule(match) {
                       .join(t('、')),
     }));
 }
+// Where a rule sends its traffic, as one chip: a group's opens it on the proxy page.
 function targetLink(u, id) {
-    if (!id || id === '@direct' || id === '@reject') return badge(u, routeName(u, id));
-    return u.button(routeName(u, id) + ' ›', () => u.go('proxy', id));
+    const text = '→ ' + routeName(u, id);
+    if (!id || id.startsWith('@')) return u.h('span', { class: 'ow-target', 'data-target': id || '' }, text);
+    const b = u.button(text, () => u.go('proxy', id), 'ow-target');
+    b.title = t('在代理页查看');
+    return b;
 }
 async function allGroups(u, source) {
     const groups = [];
@@ -194,8 +198,8 @@ function customCard(u, custom, source, local) {
     const rows = u.h('div', { class: 'ow-rule-list' });
     let dragging = -1;
     for (const [i, r] of custom.entries()) {
-        const up = u.button('↑', () => move(i, i - 1)),
-            down = u.button('↓', () => move(i, i + 1));
+        const up = u.button('↑', () => move(i, i - 1), 'ow-icon-button'),
+            down = u.button('↓', () => move(i, i + 1), 'ow-icon-button');
         up.setAttribute('aria-label', t('上移第 {0} 条规则', (i + 1)));
         down.setAttribute('aria-label', t('下移第 {0} 条规则', (i + 1)));
         up.disabled = i === 0;
@@ -205,28 +209,23 @@ function customCard(u, custom, source, local) {
         const line = u.feedback();
         const row = u.h(
             'div',
-            { class: 'ow-rule-row', draggable: 'true' },
+            { class: 'ow-rule-row' + (r.enabled === false ? ' is-off' : ''), draggable: 'true' },
             u.h('span', { class: 'ow-mono ow-rule-index' }, String(i + 1)),
             u.h(
                 'div',
                 { class: 'ow-rule-match' },
-                u.h('strong', {}, detail.map((x) => x.value).join(' · ')),
-                u.h('div', { class: 'ow-muted' }, detail.map((x) => x.type).join(' + ')),
-                (r.note || r.enabled === false) &&
-                    u.h(
-                        'div',
-                        { class: 'ow-muted ow-rule-note' },
-                        r.note ? u.h('span', {}, r.note) : null,
-                        r.enabled === false ? badge(u, t('已停用')) : null,
-                    ),
+                u.h('div', { class: 'ow-rule-title' },
+                    u.h('strong', {}, detail.map((x) => x.value).join(' · ')),
+                    r.enabled === false ? badge(u, t('已停用')) : null),
+                u.h('div', { class: 'ow-rule-meta' },
+                    u.h('small', { class: 'ow-muted' }, detail.map((x) => x.type).join(' + ')),
+                    targetLink(u, r.target),
+                    r.note ? u.h('small', { class: 'ow-muted ow-rule-note' }, r.note) : null),
             ),
-            targetLink(u, r.target),
-            actions(
-                u,
+            u.h('div', { class: 'ow-rule-actions' },
                 up,
                 down,
-                u.button(t('编辑'), () => editRule(u, custom, i, source, local)),
-            ),
+                u.button(t('编辑'), () => editRule(u, custom, i, source, local), 'ow-link')),
             line,
         );
         attach(row, line);
@@ -329,7 +328,7 @@ function catalogCard(u, items, primary) {
         toggle.setAttribute('aria-checked', String(on));
         toggle.disabled = !item.server_enabled;
         list.append(u.h('li', { class: 'ow-row' },
-            u.h('div', { class: 'ow-stack ow-grow' },
+            u.h('div', { class: 'ow-label' },
                 u.h('strong', {}, item.key),
                 muted(u, [policyName[item.policy] || item.policy, item.entries ? t('{0} 条', item.entries) : '', item.stale ? t('本次未能下载，沿用上次') : ''].filter(Boolean).join(' · '))),
             toggle));

@@ -99,8 +99,9 @@ async function signedIn(ui, state) {
     return h(
         'div',
         { class: 'ow-account' },
-        h('div', { class: 'ow-account-grid' }, profileCard(ui, state, info, active, subs, siteURL(site)), syncCard(ui)),
-        announcementsCard(ui, notices),
+        h('div', { class: 'ow-account-grid' },
+            profileCard(ui, state, info, active, subs, siteURL(site)),
+            h('div', { class: 'ow-side-stack' }, syncCard(ui), announcementsCard(ui, notices))),
     );
 }
 
@@ -122,10 +123,10 @@ function profileCard(ui, state, info, active, subs, site) {
     box.append(...[
         h('div', { class: 'ow-row ow-account-identity' },
             h('span', { class: 'ow-avatar', 'aria-hidden': 'true' }, (Array.from(name)[0] || '?').toUpperCase()),
-            h('div', { class: 'ow-stack ow-grow' }, h('strong', {}, name || '--'), muted(ui, state.email || '')),
+            h('div', { class: 'ow-label' }, h('strong', {}, name || '--'), muted(ui, name === state.email ? '' : state.email || '')),
             logout),
-        h('div', { class: 'ow-row' },
-            h('div', { class: 'ow-stack ow-grow' },
+        h('div', { class: 'ow-row ow-account-plan' },
+            h('div', { class: 'ow-label' },
                 h('strong', {}, planName),
                 muted(ui, active ? expiryText(active.expire_time, active.status) : t('购买套餐后，这台路由器就能连接'))),
             // On the website, in a new tab: the router sells nothing itself.
@@ -145,7 +146,12 @@ function profileCard(ui, state, info, active, subs, site) {
 // The account's nodes and rules on this router: when they were last read and how it went.
 function syncCard(ui) {
     const s = (ui.sources || []).find((x) => x.source === HYPER);
-    const box = card(t('节点同步'));
+    const held = !s?.last_failure && s?.pending_update ? pendingUpdates[s.pending_update.code] : null;
+    const sync = ui.button(held ? held.action : t('立即同步'), async () => {
+        if (await syncHyper(ui, line)) await ui.refresh();
+    }, held ? 'ow-primary' : '');
+    sync.dataset.focusKey = 'sync';
+    const box = card('', h('div', { class: 'ow-row' }, h('h2', {}, t('节点同步')), sync));
     const line = ui.feedback(box, 'sync');
     const rows = [];
     if (!s || !s.ready) rows.push(muted(ui, ui.memory.justSignedIn ? t('登录成功，正在同步节点…') : t('还没有同步过节点')));
@@ -155,22 +161,11 @@ function syncCard(ui) {
                 h('span', {}, h('strong', { class: 'ow-mono' }, String(s.node_count || 0)), t(' 个节点')),
                 muted(ui, s.updated_at ? t('上次同步 {0}', date(s.updated_at)) : t('尚未同步'))),
         );
-    const held = !s?.last_failure && s?.pending_update ? pendingUpdates[s.pending_update.code] : null;
     if (held) rows.push(h('p', { class: 'ow-warning' }, held.text));
     if (s?.login_required) rows.push(h('p', { class: 'ow-warning' }, t('登录已失效，请退出后重新登录')));
     else if (s?.suspended) rows.push(h('p', { class: 'ow-warning' }, t('套餐已到期或不可用，续费后再同步')));
     else if (s?.last_failure) rows.push(h('p', { class: 'ow-muted', 'data-tone': 'error' }, t('上次同步失败 · {0}{1}', diagnosticMessage(s.last_failure), s.ready ? t(' · 已保留上次的节点') : '')));
-    const usage = s?.usage;
-    if (usage?.total > 0) {
-        const used = (Number(usage.upload) || 0) + (Number(usage.download) || 0);
-        rows.push(h('progress', { value: Math.min(used, usage.total), max: usage.total, 'aria-label': t('已用套餐流量') }),
-            muted(ui, bytes(used) + ' / ' + bytes(usage.total) + (usage.expireAt ? t(' · 到期 {0}', formatDate(usage.expireAt)) : '')));
-    }
-    const sync = ui.button(held ? held.action : t('立即同步'), async () => {
-        if (await syncHyper(ui, line)) await ui.refresh();
-    }, 'ow-primary');
-    sync.dataset.focusKey = 'sync';
-    box.append(...rows, actions(ui, sync), line);
+    box.append(...rows, line);
     ui.memory.justSignedIn = false;
     return box;
 }
@@ -196,8 +191,9 @@ export function invitePanel(ui) {
         const counts = affiliate?.ok ? affiliate.data || {} : {};
         const status = h('span', { class: 'ow-muted', role: 'status' });
         const code = user.refer_code
-            ? h('div', { class: 'ow-row' },
+            ? h('div', { class: 'ow-code-box' },
                 h('strong', { class: 'ow-mono' }, user.refer_code),
+                status,
                 ui.button(t('复制'), async () => {
                     try {
                         await navigator.clipboard.writeText(user.refer_code);
@@ -206,8 +202,7 @@ export function invitePanel(ui) {
                         status.textContent = t('请手动复制邀请码');
                     }
                     setTimeout(() => { status.textContent = ''; }, 1500);
-                }, 'ow-link'),
-                status)
+                }))
             : muted(ui, info?.ok ? t('没有邀请码') : apiError(info, t('请求失败')));
         box.replaceChildren(
             muted(ui, t('好友注册时填写你的邀请码，购买后你会获得返佣')),
@@ -247,14 +242,21 @@ export function devicesPanel(ui) {
     return loading(ui, fill);
 }
 
-function announcementsCard(ui, notices) {
+// The service's announcements, pinned first then newest, each opening in place; null without any.
+export function noticeList(ui, notices, limit = 10) {
     const items = notices?.ok ? [...(notices.data?.announcements || [])] : [];
     if (!items.length) return null;
     items.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (b.created_at || 0) - (a.created_at || 0));
-    return card(t('公告'), ...items.slice(0, 10).map((n) =>
+    return items.slice(0, limit).map((n) =>
         h('details', { class: 'ow-account-notice' },
-            h('summary', {}, n.pinned ? badge(ui, t('置顶')) : null, ' ', localizedText(n.title, t('公告')), ' ', muted(ui, formatDate(n.created_at))),
-            h('p', { class: 'ow-pre' }, localizedText(n.content, '')))));
+            h('summary', {},
+                h('span', { class: 'ow-notice-title' }, n.pinned ? badge(ui, t('置顶')) : null, localizedText(n.title, t('公告'))),
+                h('small', { class: 'ow-muted' }, formatDate(n.created_at))),
+            h('p', { class: 'ow-pre ow-muted' }, localizedText(n.content, ''))));
+}
+function announcementsCard(ui, notices) {
+    const list = noticeList(ui, notices);
+    return list ? card(t('公告'), ...list) : null;
 }
 
 // --- The daily check-in (kept on the router per account) --------------------------------------------
@@ -289,6 +291,8 @@ export function monthView(year, month, checked, today) {
     }
     return { year, month, offset: (first.getDay() + 6) % 7, days, count };
 }
+// The calendar's weeks start on Monday (monthView's offset).
+const weekdays = [t('一'), t('二'), t('三'), t('四'), t('五'), t('六'), t('日')];
 const stateLabel = { checked: t('已签到'), 'today-checked': t('今天，已签到'), today: t('今天，未签到'), missed: t('未签到'), future: '' };
 
 // The daily check-in, opened from the header's button in a dialog (app.js), as 0.x had it.
@@ -333,9 +337,9 @@ export function checkinPanel(ui) {
         }, 'ow-primary');
         button.disabled = done;
         body.replaceChildren(
-            h('div', { class: 'ow-row' },
-                prev, h('strong', { 'aria-live': 'polite' }, t('{0} 年 {1} 月', month.year, month.month + 1)), next,
-                muted(ui, t('本月已签到 {0} 天 · 连续 {1} 天', month.count, streak(checked, today)))),
+            h('div', { class: 'ow-row ow-calendar-head' },
+                prev, h('strong', { 'aria-live': 'polite' }, t('{0} 年 {1} 月', month.year, month.month + 1)), next),
+            h('div', { class: 'ow-weekdays', 'aria-hidden': 'true' }, ...weekdays.map((d) => h('span', {}, d))),
             h('ol', { class: 'ow-calendar', 'aria-label': t('{0} 年 {1} 月签到记录', month.year, month.month + 1) },
                 ...Array.from({ length: month.offset }, () => h('li', { class: 'is-blank', 'aria-hidden': 'true' })),
                 ...month.days.map((d) => h('li', {
@@ -343,7 +347,9 @@ export function checkinPanel(ui) {
                     'aria-label': t('{0} 月 {1} 日{2}', (month.month + 1), d.day, stateLabel[d.state] ? t('，{0}', stateLabel[d.state]) : ''),
                     'aria-current': d.state === 'today' || d.state === 'today-checked' ? 'date' : null,
                 }, String(d.day)))),
-            actions(ui, button),
+            h('div', { class: 'ow-row ow-checkin-foot' },
+                muted(ui, t('本月已签到 {0} 天 · 连续 {1} 天', month.count, streak(checked, today))),
+                button),
         );
         body.setAttribute('aria-busy', 'false');
     }

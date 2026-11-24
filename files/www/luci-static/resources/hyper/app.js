@@ -68,7 +68,10 @@ export function mount(root, invoke) {
 	let names = new Map(),
 		catalogKey = '',
 		catalogRequest;
-	const name = (id) => names.get(id) || knownNames[id] || id || '—';
+	// A node or group the router no longer lists (an old route, a removed node) reads as such, not
+	// as its ID.
+	const name = (id) => names.get(id) || knownNames[id] ||
+		(/^node:/.test(id) ? t('已移除的节点') : /^group:/.test(id) ? t('已移除的策略组') : id) || '—';
 	// The service's errors name a node or group by its ID; they read with its name once known.
 	nameMembers((id) => names.get(id) || '');
 	// Starting or stopping the proxy reloads the firewall, DNS and routes, which can drop the

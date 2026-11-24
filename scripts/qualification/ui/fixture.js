@@ -133,7 +133,7 @@ export function fixture({ signedOut = false } = {}) {
 		case 'rule_hits':
 			return { 'list-streaming-domain-proxy': { count: 3, last: now }, 'hyper-dns-cn': { count: 2, last: now } };
 		case 'routes':
-			return { items: [{ group: hyperGroup, outbound: nodes[0].id, time: now, evidence: 'traffic_observed' }] };
+			return { items: signedOut ? [] : [{ group: hyperGroup, outbound: nodes[0].id, time: now, evidence: 'traffic_observed' }] };
 		case 'traffic':
 			return { available: true, up_bytes: 7e8, down_bytes: 17.9e9, up_bytes_per_second: 2.1e6, down_bytes_per_second: 38.2e6 };
 		case 'health_check':

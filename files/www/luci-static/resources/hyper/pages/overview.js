@@ -2,7 +2,8 @@ import { t } from '../i18n.js';
 import { diagnosticMessage, day, pluginName, conflictItem } from '../dom.js';
 import { h, card, bytes, field, empty, segment, modeNames, clock, resultName, say, hush, attach } from '../dom.js';
 import { installLatest, kernelStorage, kernelSummary } from './versions.js';
-import { checkinPanel, invitePanel, devicesPanel } from './account.js';
+import { checkinPanel, invitePanel, devicesPanel, noticeList } from './account.js';
+import { api } from './common.js';
 
 const states = {
 	running: t('已连接'),
@@ -140,12 +141,14 @@ function accountCard(ui) {
 			h('h2', {}, t('Hyper 账户')),
 			account?.signed_in ? ui.button(t('管理'), () => ui.go('account'), 'ow-link') : null),
 	);
-	box.classList.add('ow-sources');
 	if (!account?.signed_in) {
-		box.append(
+		// Signed out, the card fills the column beside the hero with what signing in brings.
+		box.classList.add('ow-sources', 'ow-account-empty');
+		box.append(h('div', { class: 'ow-account-invite' },
+			h('img', { src: new URL('../mark.svg', import.meta.url).href, alt: '', width: 40, height: 40 }),
+			h('strong', {}, t('登录 Hyper 账户')),
 			h('p', { class: 'ow-muted' }, t('登录后自动同步节点和分流规则')),
-			ui.button(t('登录'), () => ui.go('account'), 'ow-primary'),
-		);
+			ui.button(t('登录'), () => ui.go('account'), 'ow-primary')));
 		return box;
 	}
 	// A dialog keeps its own reads while the overview redraws behind it.
@@ -162,7 +165,7 @@ function accountCard(ui) {
 	box.append(...[
 		h('div', { class: 'ow-row ow-account-identity' },
 			h('span', { class: 'ow-avatar', 'aria-hidden': 'true' }, (Array.from(email)[0] || 'H').toUpperCase()),
-			h('div', { class: 'ow-stack ow-grow' },
+			h('div', { class: 'ow-label' },
 				h('strong', {}, email || t('Hyper 账户')),
 				h('small', { class: 'ow-muted' }, !s?.ready ? t('还没有同步过节点')
 					: s.updated_at ? t('{0} 个节点 · {1}', s.node_count || 0, t('更新于 {0}', day(s.updated_at)))
@@ -177,6 +180,27 @@ function accountCard(ui) {
 			ui.button(t('邀请好友'), () => panel(t('邀请好友'), invitePanel)),
 			ui.button(t('已登录的设备'), () => panel(t('已登录的设备'), devicesPanel))),
 	].filter((child) => child != null));
+	return box;
+}
+// The account's announcements under its card, read once per visit of the pages: they fill the
+// column beside the hero, and scroll within it.
+function noticesCard(ui) {
+	const list = h('div', { class: 'ow-notice-list', 'aria-busy': 'true' }, h('p', { class: 'ow-muted' }, t('正在读取…')));
+	const box = card(t('公告'), list);
+	box.classList.add('ow-sources', 'ow-notices');
+	const show = (r) => {
+		list.replaceChildren(...(noticeList(ui, r, 5) || [h('p', { class: 'ow-empty' }, t('暂无公告'))]));
+		list.setAttribute('aria-busy', 'false');
+	};
+	const memory = ui.memory;
+	if (memory.notices && Date.now() - memory.notices.at < 600e3) show(memory.notices.reply);
+	else
+		api(ui, 'GET', '/v1/public/announcement/list', { query: { page: 1, size: 10 } })
+			.catch((e) => ({ ok: false, error: e.message }))
+			.then((reply) => {
+				if (reply?.ok) memory.notices = { at: Date.now(), reply };
+				if (!ui.signal.aborted) show(reply);
+			});
 	return box;
 }
 function deviceCard(ui, devices) {
@@ -424,7 +448,7 @@ export async function overview(ui) {
 	let preparing = false;
 	const offWord = () =>
 		!cat.primary
-			? t('先添加订阅')
+			? t('先登录')
 			: kernel.selected
 				? t('连接')
 				: preparing || kernel.bootstrap?.stage === 'running' ? t('内核准备中') : t('先下载内核');
@@ -913,12 +937,14 @@ export async function overview(ui) {
 		{ class: 'ow-dashboard' },
 		hero,
 		// Subscriptions share the column beside the hero.
-		h('div', { class: 'ow-side-stack' }, accountCard(ui)),
-		devices.unavailable ? card(t('设备'),empty(t('局域网接口尚未就绪')),ui.button(t('重新检测'),ui.refresh,'ow-link')) : deviceCard(ui, devices.items),
-		proxyPrefs,
-		dnsPrefs,
-		repair,
-		updates,
+		h('div', { class: 'ow-side-stack' }, accountCard(ui), ui.account?.signed_in ? noticesCard(ui) : null),
+		// The cards below flow into balanced columns, each as tall as its content.
+		h('div', { class: 'ow-settings' },
+			devices.unavailable ? card(t('设备'), empty(t('局域网接口尚未就绪')), ui.button(t('重新检测'), ui.refresh, 'ow-link')) : deviceCard(ui, devices.items),
+			proxyPrefs,
+			dnsPrefs,
+			repair,
+			updates),
 	);
 	// The service's problem sits under the power button's status line, not above the page.
 	const content = h('div', { class: 'ow-stack' }, grid);

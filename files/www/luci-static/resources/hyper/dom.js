@@ -109,8 +109,8 @@ export const modeNames = [
 ];
 export const knownNames = {
 	'@global': t('全局'),
-	'@direct': 'DIRECT',
-	'@reject': 'REJECT',
+	'@direct': t('直连'),
+	'@reject': t('拦截'),
 	'@default': t('默认代理'),
 };
 // The plugin's mainland lists, by the names the core loads them under and its connections
@@ -263,7 +263,7 @@ const diagnosticText = {
     operation_failed: t('订阅操作失败'),
     context_deadline_exceeded: t('操作超时'),
     not_found: t('找不到这个订阅'),
-    not_ready: t('订阅尚未就绪，请先更新订阅'),
+    not_ready: t('节点尚未同步，请先同步节点'),
     login_required: t('登录已失效，请重新登录 Hyper 账户'),
     suspended: t('套餐已到期或不可用，续费后再同步'),
     platform_account_revoked: t('服务商账户已停用'),
@@ -354,7 +354,7 @@ const diagnosticText = {
 };
 
 const taskText = {
-    'subscription_write/refresh': t('更新订阅'),
+    'subscription_write/refresh': t('同步节点'),
     'kernel/bootstrap': t('首次准备内核'),
     save_network: t('保存网络设置'),
     health_check: t('连通性检测'),
