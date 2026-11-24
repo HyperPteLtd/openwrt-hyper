@@ -3,6 +3,8 @@ package subscriptioncli
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -131,5 +133,17 @@ func TestMainlandSetsMatchTheRoutersLists(t *testing.T) {
 				t.Fatal(source, q, out, err)
 			}
 		}
+	}
+}
+
+// A lab serves fixture sources from a directory; without one (a router) there are none.
+func TestLabFixture(t *testing.T) {
+	if labFixture("") != nil || labFixture("relative") != nil {
+		t.Fatal("fixture sources without a lab directory")
+	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "probes.yaml"), []byte("proxies: []\n"), 0o644)
+	if b, err := labFixture(dir)(context.Background(), "probes"); err != nil || string(b) != "proxies: []\n" {
+		t.Fatal(string(b), err)
 	}
 }

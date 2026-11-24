@@ -24,6 +24,9 @@ start_service() {
   # The core inherits this from hyperd, as OpenClash's core has it.
   procd_set_param limits nofile="1000000 1000000"
   procd_set_param stderr 1
+  # Qualification labs only: their subscriptions read from files (hyper-subscription). Never set
+  # at boot.
+  [ -z "${HYPER_FIXTURE_DIR:-}" ] || procd_set_param env HYPER_FIXTURE_DIR="$HYPER_FIXTURE_DIR"
   procd_close_instance
  done
 }

@@ -4,6 +4,11 @@ mkdir -p /var/run/ubus /var/lock
 ubusd >/tmp/ubusd.log 2>&1 &
 for i in $(seq 1 8); do [ -S /var/run/ubus/ubus.sock ] && break; sleep 1; done
 rpcd >/tmp/rpcd.log 2>&1 &
+# A subscription read from a file. Its own final rule keeps the routing template, and so the
+# network, out of the test.
+export HYPER_FIXTURE_DIR=/tmp/fixtures
+mkdir -p "$HYPER_FIXTURE_DIR"
+printf 'proxies:\n  - {name: one, type: http, server: 127.0.0.1, port: 18888, username: user, password: password}\nrules:\n  - MATCH,DIRECT\n' >"$HYPER_FIXTURE_DIR/local.yaml"
 hyperd serve >/tmp/manager.log 2>&1 &
 manager=$!
 trap 'rc=$?; if [ "$rc" != 0 ]; then cat /tmp/manager.log /tmp/rpcd.log /tmp/ubusd.log; ubus -v list hyper || :; ls -l /tmp/status /var/run/hyper || :; fi; kill "$manager" 2>/dev/null || :' EXIT
@@ -23,9 +28,8 @@ run_task(){
  done
  return 1
 }
-run_task subscription_write '{"action":"configure","args":{"config":{"id":"local","kind":"file","name":"Fixture"}}}'
-# Its own final rule keeps the routing template, and so the network, out of the test.
-run_task subscription_write '{"action":"refresh","args":{"source":"local","content":"proxies:\n  - {name: one, type: http, server: 127.0.0.1, port: 18888, username: user, password: password}\nrules:\n  - MATCH,DIRECT\n"}}'
+run_task subscription_write '{"action":"configure","args":{"config":{"id":"local","kind":"fixture","name":"Fixture"}}}'
+run_task subscription_write '{"action":"refresh","args":{"source":"local"}}'
 ubus call hyper source '{"source":"local"}' >/dev/null
 summary=$(ubus call hyper subscription_read '{"action":"nodes","args":{"source":"local"}}')
 node=$(printf %s "$summary" | jsonfilter -e '@.data.items[0].id')

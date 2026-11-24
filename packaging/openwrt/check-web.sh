@@ -15,7 +15,7 @@ uci add_list rpcd.webprobe.read=hyper
 uci add_list rpcd.webprobe.write=hyper
 uci commit rpcd
 ubusd >/tmp/web-ubus.log 2>&1 & bus=$!
-rpc= daemon= web=
+rpc= daemon= web= peer=
 stage=socket
 cleanup() {
  code=$?
@@ -26,7 +26,7 @@ cleanup() {
  fi
  # Let clients finish their shutdown on the bus they started on. Otherwise
  # their cleanup can unlink the socket used by the next installation test.
- for pid in "$web" "$daemon" "$rpc" "$bus"; do
+ for pid in "$peer" "$web" "$daemon" "$rpc" "$bus"; do
   [ -n "$pid" ] || continue
   kill "$pid" 2>/dev/null || :
   wait "$pid" 2>/dev/null || :
@@ -44,6 +44,12 @@ wait_ready() {
 }
 wait_ready ubus -t 2 list
 rpcd >/tmp/web-rpc.log 2>&1 & rpc=$!
+# A subscription read from a file (internal/cli/subscriptioncli HYPER_FIXTURE_DIR): one node at
+# a local listener, with its own final rule, which keeps the routing template, and so the
+# network, out of the test.
+export HYPER_FIXTURE_DIR=/tmp/hyper-fixtures
+mkdir -p "$HYPER_FIXTURE_DIR"
+printf 'proxies:\n  - {name: loopback, type: http, server: 127.0.0.1, port: 18890}\nrules:\n  - MATCH,DIRECT\n' >"$HYPER_FIXTURE_DIR/package-probes.yaml"
 hyperd serve >/tmp/web-manager.log 2>&1 & daemon=$!
 uhttpd -f -h /www -p 127.0.0.1:18889 -u /ubus >/tmp/web-http.log 2>&1 & web=$!
 stage=manager-ready
@@ -105,6 +111,15 @@ wait_task() {
  done
  [ "$(jsonfilter -i /tmp/web-result -e '@.result[1].stage')" = done ]
 }
+stage=probe-source
+# A second listener can be closed independently of uhttpd serving the authenticated RPC.
+uhttpd -f -h /www -p 127.0.0.1:18890 >/tmp/web-peer.log 2>&1 & peer=$!
+curl -fsS --retry 5 --retry-connrefused http://127.0.0.1:18890/luci-static/resources/hyper/app.js -o /dev/null
+printf '%s' '{"config":{"id":"package-probes","name":"Package fixture","kind":"fixture"}}' |
+ hyper-subscription configure | jsonfilter -e '@.ok' | grep -qx true
+printf '%s' '{"source":"package-probes"}' | hyper-subscription refresh | jsonfilter -e '@.data.decision' | grep -qx ready
+node=$(printf '%s' '{"source":"package-probes"}' | hyper-subscription nodes | jsonfilter -e '@.data.items[0].id')
+[ -n "$node" ]
 stage=fail-open-preference
 for toggle in false true; do
  case "$toggle" in false) bit=0;; true) bit=1;; esac
@@ -116,6 +131,28 @@ for toggle in false true; do
  grep -Eq "^[[:space:]]*option[[:space:]]+fail_open[[:space:]]+'$bit'[[:space:]]*$" /etc/config/hyper
 done
 echo 'Authenticated LuCI RPC persisted both fail-open settings to the UCI file'
+measure() {
+ rpc_call test_nodes "{\"source\":\"package-probes\",\"method\":\"$1\",\"args\":{\"nodes\":[\"$node\"]}}"
+}
+tcp_probe() {
+ measure tcp
+ wait_task
+ rpc_call latencies '{"method":"tcp"}'
+ [ "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.node')" = "$node" ]
+}
+stage=tcp-handshake
+tcp_probe
+measured=$(jsonfilter -i /tmp/web-result -e '@.result[1].*.latency.measured_at')
+[ "$measured" -gt 0 ]
+[ "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.latency.delay_ms')" -gt 0 ]
+stage=tcp-closed-peer
+kill "$peer"
+wait "$peer" || :
+peer=
+tcp_probe
+[ "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.error')" = 'no confirmed measurement' ]
+[ -z "$(jsonfilter -i /tmp/web-result -e '@.result[1].*.latency.measured_at')" ]
+echo 'Installed LuCI RPC measured a loopback TCP handshake and detected the closed peer'
 stage=bundled-core
 # The daemon installs the package's core offline and selects it.
 tag=$(jsonfilter -i /usr/share/hyper/core/pin.json -e '@.tag')

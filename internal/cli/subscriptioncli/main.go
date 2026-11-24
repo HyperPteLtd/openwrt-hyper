@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -256,6 +257,11 @@ func Main() {
 	if *state == storeDir {
 		sub.HyperAccount = hyperAccount()
 	}
+	// A qualification lab or package test serves fixture sources (sub.FixtureSource) from a
+	// directory, <dir>/<source>.yaml; a router never sets HYPER_FIXTURE_DIR.
+	if f := labFixture(os.Getenv("HYPER_FIXTURE_DIR")); f != nil {
+		sub.Fixture = f
+	}
 	if *state == storeDir {
 		f.BeforeCommit = validate
 	}
@@ -356,4 +362,14 @@ func setMatch(store *sub.Store, in input) (any, []string, error) {
 		return answer(sub.SetMatch(sub.BinarySet{Tag: in.RuleSet, Format: "mrs", Behavior: m.behavior, Data: data}, in.Query))
 	}
 	return answer(sub.InlineSetMatch(p.Rules, in.RuleSet, in.Query))
+}
+
+// labFixture serves fixture sources from dir, an absolute directory, or none.
+func labFixture(dir string) func(context.Context, string) ([]byte, error) {
+	if !filepath.IsAbs(dir) {
+		return nil
+	}
+	return func(_ context.Context, id string) ([]byte, error) {
+		return os.ReadFile(filepath.Join(dir, id+".yaml"))
+	}
 }

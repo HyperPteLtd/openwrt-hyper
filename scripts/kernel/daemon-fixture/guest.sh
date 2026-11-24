@@ -90,12 +90,16 @@ fi
 uci set hyper.main.dns=1
 uci set hyper.main.ipv6=1
 uci commit hyper
+# A subscription read from a file. Its own final rule keeps the routing template, and so the
+# network, out of the fixture.
+export HYPER_FIXTURE_DIR=/root/fixtures
+mkdir -p "$HYPER_FIXTURE_DIR"
+printf 'proxies:\n  - {name: Fixture, type: socks5, server: 198.18.0.33, port: 1080}\nrules:\n  - MATCH,DIRECT\n' >"$HYPER_FIXTURE_DIR/qa.yaml"
 /etc/init.d/hyper start
 for i in $(seq 1 20); do [ -S /var/run/hyper/manager.sock ] && break; sleep 1; done
-wait_job "$(call subscription_write '{"action":"configure","args":{"config":{"id":"qa","name":"Test","kind":"file"}}}')"
+wait_job "$(call subscription_write '{"action":"configure","args":{"config":{"id":"qa","name":"Test","kind":"fixture"}}}')"
 for attempt in 1 2 3; do
- # Its own final rule keeps the routing template, and so the network, out of the fixture.
- if wait_job "$(call subscription_write '{"action":"refresh","args":{"source":"qa","content":"proxies:\n  - {name: Fixture, type: socks5, server: 198.18.0.33, port: 1080}\nrules:\n  - MATCH,DIRECT\n"}}')" >/tmp/refresh-result; then
+ if wait_job "$(call subscription_write '{"action":"refresh","args":{"source":"qa"}}')" >/tmp/refresh-result; then
   break
  fi
  cat /tmp/refresh-result
