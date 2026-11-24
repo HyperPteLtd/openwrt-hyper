@@ -101,6 +101,7 @@ jobs:
       - name: The bundled core on loopback
         run: |
           set -eu
+          mkdir "$RUNNER_TEMP/core"
           sh packaging/openwrt/fetch-core.sh amd64 "$RUNNER_TEMP/core"
           gzip -dc "$RUNNER_TEMP"/core/core/*.gz > "$RUNNER_TEMP/mihomo"
           chmod 755 "$RUNNER_TEMP/mihomo"
