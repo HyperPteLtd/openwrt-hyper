@@ -219,3 +219,19 @@ func TestMoveBundledCore(t *testing.T) {
 		t.Fatalf("%+v", st)
 	}
 }
+
+// A router sold with 256 or 512 MiB reports less in MemTotal; it still counts as that size.
+func TestNominalRAM(t *testing.T) {
+	c := Capacity{Persistent: Volume{256 * MiB, 200 * MiB, 1, false}, Temporary: Volume{400 * MiB, 400 * MiB, 2, true}, RAM: 230 * MiB, Available: 400 * MiB}
+	if e := CheckCapacity(c, "double", 0, 80*MiB, 32*MiB, 0); e != nil {
+		t.Fatal("a 256 MiB router refused:", e)
+	}
+	c.Persistent.Total, c.RAM = 64*MiB, 460*MiB
+	if e := CheckCapacity(c, "tmp", 0, 80*MiB, 32*MiB, 0); e != nil {
+		t.Fatal("a 512 MiB router refused:", e)
+	}
+	c.RAM = 400 * MiB
+	if e := CheckCapacity(c, "tmp", 0, 80*MiB, 32*MiB, 0); e == nil {
+		t.Fatal("RAM mode on less than 512 MiB")
+	}
+}

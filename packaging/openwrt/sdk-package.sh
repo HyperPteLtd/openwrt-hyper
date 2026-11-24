@@ -102,17 +102,28 @@ cat >> "$input/preinst" <<'HOOK'
  if [ "$1" -lt "$runtime_kb" ]; then
   echo "Hyper $abi needs $runtime_kb KiB free on $2 ($1 available)" >&2; exit 1
  fi
- # The core: unpacked on flash (with 18 MiB for configuration and recovery), or in RAM on a
- # router with 512 MiB. Refusing here keeps a router that has room for neither on the
- # version it runs, also when its own updater installs this package. 0.x's core and
- # programs leave with it.
+ # The core, as the kernel manager places it (internal/kernel CheckCapacity): on flash with 128
+ # MiB of storage, 256 MiB of RAM and room for it and 18 MiB of configuration and recovery, or
+ # in RAM with 64 MiB of storage and 512 MiB of RAM; MemTotal counts from seven eighths of a
+ # size, as it leaves out what the kernel reserves. Refusing here keeps a router that has room
+ # for neither on the version it runs, also when its own updater installs this package. 0.x's
+ # core and programs leave with it.
  if [ -z "$root" ] && [ "$core_kb" -gt 0 ]; then
   free_kb=$1
   [ ! -d "$root/usr/libexec/hyper/bin" ] || free_kb=$((free_kb + $(du -sk "$root/usr/libexec/hyper/bin" | awk '{print $1}')))
   mem_kb=$(awk '$1 == "MemTotal:" {print $2}' /proc/meminfo)
-  if [ "$free_kb" -lt $((runtime_kb + core_gz_kb + core_kb + 18432)) ] &&
-     { [ "${mem_kb:-0}" -lt 458752 ] || [ "$tmp_kb" -lt $((payload_kb + core_kb)) ]; }; then
-   echo "Hyper's core needs $(( (runtime_kb + core_gz_kb + core_kb + 18432) / 1024 )) MiB free on $2 ($(( free_kb / 1024 )) MiB available), or 512 MiB of RAM to run from memory" >&2
+  flash_kb=$(df -Pk "$dest" | awk 'NR==2 && $2 ~ /^[0-9]+$/ {print $2}')
+  for mtd in /sys/class/mtd/mtd*; do
+   [ -r "$mtd/size" ] || continue
+   end=$(( $(cat "$mtd/size") + $(cat "$mtd/offset" 2>/dev/null || echo 0) ))
+   [ "$((end / 1024))" -le "${flash_kb:-0}" ] || flash_kb=$((end / 1024))
+  done
+  flash_kb=${flash_kb:-0} mem_kb=${mem_kb:-0}
+  base_kb=$((runtime_kb + core_gz_kb + 18432))
+  if { [ "$flash_kb" -ge 131072 ] && [ "$mem_kb" -ge 229376 ] && [ "$free_kb" -ge $((base_kb + core_kb)) ]; } ||
+     { [ "$flash_kb" -ge 65536 ] && [ "$mem_kb" -ge 458752 ] && [ "$free_kb" -ge "$base_kb" ] && [ "$tmp_kb" -ge $((payload_kb + core_kb)) ]; }; then :
+  else
+   echo "Hyper's core needs $(( (base_kb + core_kb) / 1024 )) MiB free on $2 ($(( free_kb / 1024 )) MiB available, 128 MiB storage and 256 MiB RAM), or 512 MiB of RAM to run from memory" >&2
    exit 1
   fi
  fi
@@ -153,6 +164,9 @@ if [ -z "$root" ]; then
  rm -rf /etc/hyper/scripts
  nft delete table inet hyper_traffic 2>/dev/null || true
 fi
+# The package manager keeps an administrator's /etc/config/hyper and leaves the new default
+# beside it. hyperd reads defaults for what is unset, and carries 0.x's sections over.
+rm -f "$root/etc/config/hyper-opkg" "$root/etc/config/hyper.apk-new"
 exec sh "$root/usr/libexec/hyper/activate-runtime"
 HOOK
 cat > "$input/prerm" <<'HOOK'

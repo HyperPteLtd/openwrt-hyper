@@ -116,6 +116,11 @@ func physicalRAM(root string) int64 {
 	return total
 }
 
+// nominalRAM: a router sold with size reaches it. Without a device tree RAM is MemTotal, which
+// leaves out what the kernel reserves, so seven eighths of the size count (the package's preinst
+// checks the same).
+func nominalRAM(ram, size int64) bool { return ram >= size/8*7 }
+
 // capacityError: the router lacks the storage or memory a mode needs; another mode may fit.
 type capacityError string
 
@@ -133,7 +138,7 @@ func CheckCapacity(c Capacity, mode string, compressed, expanded, peak, replace 
 	flash := max(c.Persistent.Total, c.Flash)
 	switch mode {
 	case "double", "single":
-		if flash < 128*MiB || c.RAM < 256*MiB {
+		if flash < 128*MiB || !nominalRAM(c.RAM, 256*MiB) {
 			return capacityError("persistent mode requires 128 MiB storage and 256 MiB RAM")
 		}
 		if mode == "double" {
@@ -145,7 +150,7 @@ func CheckCapacity(c Capacity, mode string, compressed, expanded, peak, replace 
 			}
 		}
 	case "tmp":
-		if flash < 64*MiB || c.RAM < 512*MiB {
+		if flash < 64*MiB || !nominalRAM(c.RAM, 512*MiB) {
 			return capacityError("temporary mode requires 64 MiB storage and 512 MiB RAM")
 		}
 		tmpNeed += expanded
